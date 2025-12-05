@@ -1,0 +1,52 @@
+services:
+  hinet:
+    image: nvidia-pytorch:24.09
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: develop
+      args:
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
+        NO_PROXY: ${NO_PROXY}
+        USERNAME: dcuser
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      NO_PROXY: ${NO_PROXY}
+      NVIDIA_VISIBLE_DEVICES: all
+    logging:
+      driver: local
+      options:
+        max-size: 3m
+        max-file: '3'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - type: bind
+        source: /dev/shm
+        target: /dev/shm
+      - type: bind
+        source: ../
+        target: /workspace
+      - type: bind
+        source: /home/aiuser4/Desktop/mobara2025
+        target: /home/dcuser/mobara2025
+      - type: bind
+        source: /home/aiuser4/Desktop/data
+        target: /home/dcuser/data
+      - type: bind
+        source: ${HOME}/.netrc
+        target: /home/dcuser/.netrc
+        read_only: true
+      - /usr/local/bin/catwin32:/usr/local/bin/catwin32:ro
+      - /usr/local/bin/win2sac_32:/usr/local/bin/win2sac_32:ro
+    stdin_open: true
+    tty: true
