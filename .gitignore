@@ -47,3 +47,6 @@ model_weight
 *.so
 *.o
 *.a
+
+_util/
+external_source/
