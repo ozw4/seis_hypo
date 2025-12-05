@@ -34,9 +34,15 @@ data/
 result/
 debug_*/
 outputs/
-ne_10m_admin_0_countries/
-N03-20240101_GML/
 model_weight
+# Hypoinverse artifacts (file-based)
+**/hypoinverse_input.arc
+**/hypoinverse_run.prt
+**/hypoinverse_run.sum
+**/hypoinverse_run_out.arc
+
+# backup scripts
+**/bak_*.py
 # compiled コード
 *.so
 *.o
