@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from catalog.jma_phases import extract_phase_records
+from hypo.phase_jma import extract_phase_records
 from hypo.station_meta import build_station_meta, parse_station_code
 
 

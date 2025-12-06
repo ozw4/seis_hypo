@@ -10,16 +10,18 @@ def read_jma_velocity(path: str | Path) -> tuple[list[float], list[float], list[
 	vp: list[float] = []
 	vs: list[float] = []
 
-	with open(path) as f:
+	p = Path(path)
+	with p.open() as f:
 		for lineno, line in enumerate(f, 1):
 			line = line.strip()
 			if not line:
 				continue
 			cols = line.split()
 			if len(cols) != 3:
-				raise ValueError(
+				msg = (
 					f'Line {lineno}: expected 3 columns (Vp Vs Depth), got {len(cols)}'
 				)
+				raise ValueError(msg)
 			p_str, s_str, d_str = cols
 			p = float(p_str)
 			s = float(s_str)

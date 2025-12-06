@@ -2,6 +2,7 @@
 from collections.abc import Sequence
 
 import pandas as pd
+
 from common.core import validate_columns
 
 

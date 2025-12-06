@@ -4,8 +4,6 @@ from pathlib import Path
 import pandas as pd
 
 # ========= hypoinverse .prt パース =========
-
-
 def parse_summary_line(line: str) -> dict:
 	"""Hypoinverse .prt の summary 行を固定カラムでパースする。
 
