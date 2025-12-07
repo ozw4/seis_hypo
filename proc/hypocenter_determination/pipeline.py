@@ -3,12 +3,12 @@ import subprocess
 from pathlib import Path
 
 import pandas as pd
-from join_hypoinverse_prt_jma import build_joined_jma_hypo_csv
-from make_hypoinverse_arc import write_hypoinverse_arc
-from profile_hypoinvese_prt import plot_event_quality
-from vis import plot_events_map_and_sections
 
 from common.load_config import load_plot_preset
+from hypo.arc import write_hypoinverse_arc
+from hypo.join_jma_hypoinverse import build_joined_jma_hypo_csv
+from qc.event_quality_plot import plot_event_quality
+from viz.events_map import plot_events_map_and_sections
 
 sta_file = Path('/workspace/data/station/stations_hypoinverse.sta')
 pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
@@ -49,7 +49,7 @@ out_join_csv = run_dir / 'hypoinverse_events_jma_join.csv'
 img_dir = run_dir / 'img'
 img_dir.mkdir(parents=True, exist_ok=True)
 
-prefecture_shp = Path('/workspace/util/N03-20240101_GML/N03-20240101_prefecture.shp')
+prefecture_shp = Path('/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp')
 out_location_png = img_dir / 'Hypoinv_event_location.png'
 out_jma_location_png = img_dir / 'jma_event_location.png'
 plot_setting = 'mobara_default'

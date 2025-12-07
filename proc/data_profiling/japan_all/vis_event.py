@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import pandas as pd
-from vis import plot_events_map_and_sections
 
 from common.load_config import load_plot_preset
+from viz.events_map import plot_events_map_and_sections
 
 if __name__ == '__main__':
 	csv_path = '/workspace/data/arrivetime/arrivetime_epicenters.csv'
-	prefecture_shp = '/workspace/util/N03-20240101_GML/N03-20240101_prefecture.shp'
+	prefecture_shp = '/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp'
 	params = load_plot_preset(
 		'/workspace/data/config/plot_config.yaml', 'japan_default'
 	)

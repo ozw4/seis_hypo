@@ -4,17 +4,14 @@ from itertools import product
 from pathlib import Path
 
 import pandas as pd
-from filter_das_picks import filter_and_decimate_das_picks
-from join_hypoinverse_prt_jma import build_joined_jma_hypo_csv
-from make_hypoinverse_arc import (
-	extract_phase_records,
-	write_hypoinverse_arc_from_phases,
-)
-from match_mobaradas_events_to_jma import extract_das_phase_records
-from profile_hypoinvese_prt import plot_event_quality
-from vis import plot_events_map_and_sections
 
 from common.load_config import load_plot_preset
+from das.picks_filter import filter_and_decimate_das_picks
+from hypo.arc import write_hypoinverse_arc_from_phases
+from hypo.join_jma_hypoinverse import build_joined_jma_hypo_csv
+from hypo.phase_jma import extract_phase_records
+from qc.event_quality_plot import plot_event_quality
+from viz.events_map import plot_events_map_and_sections
 
 sta_file = Path('/workspace/data/station/stations_hypoinverse_with_das.sta')
 pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
@@ -80,7 +77,7 @@ for das_total_weight, use_das_channels in param_combinations:
 	img_dir.mkdir(parents=True, exist_ok=True)
 
 	prefecture_shp = Path(
-		'/workspace/util/N03-20240101_GML/N03-20240101_prefecture.shp'
+		'/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp'
 	)
 	out_location_png = img_dir / 'Hypoinv_event_location.png'
 	out_jma_location_png = img_dir / 'jma_event_location.png'
