@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
@@ -129,27 +130,21 @@ def stations_within_radius(
 	radius_km: float,
 	channel_table_path: str
 	| Path = '/workspace/proc/util/hinet_util/hinet_channelstbl_20251007',
-) -> list[str]:
-	"""(lat, lon) から半径 radius_km 以内にある Hi-net 局名リストを返す.
+	*,
+	output: Literal['list', 'rows', 'both'] = 'list',
+) -> list[str] | pd.DataFrame | tuple[list[str], pd.DataFrame]:
+	"""(lat, lon) から半径 radius_km 以内の Hi-net 局を抽出する統合関数。
 
-	ハーサイン距離で地表上の大円距離を計算し、radius_km 以下の局を選ぶ。
+	output:
+		"list" : station 名のリストを返す（従来の stations_within_radius 相当）
+		"rows" : station 単位の代表座標 DataFrame を返す（従来の station_rows_within_radius 相当）
+		"both" : (list, DataFrame) のタプルを返す
 
-	Parameters
-	----------
-	lat, lon : float
-		検索中心の緯度・経度 [deg]
-	radius_km : float
-		検索半径 [km]
-	channel_table_path : str or Path, default hinet_channelstbl_20251007
-		Hi-net チャネルテーブルのパス。
-
-	Returns
-	-------
-	list[str]
-		条件を満たす station 名のリスト(重複は除去)。
-
+	DataFrame の列:
+		station, lat, lon, elevation_m
 	"""
 	df = read_hinet_channel_table(channel_table_path)
+
 	lat_arr = df['lat'].to_numpy(dtype=float)
 	lon_arr = df['lon'].to_numpy(dtype=float)
 
@@ -159,4 +154,29 @@ def stations_within_radius(
 		lat_deg=lat_arr,
 		lon_deg=lon_arr,
 	)
-	return df.loc[dist_km <= radius_km, 'station'].tolist()
+
+	df_hit = df.loc[
+		dist_km <= radius_km, ['station', 'lat', 'lon', 'elevation_m']
+	].copy()
+
+	if df_hit.empty:
+		raise ValueError('no stations found within the specified radius')
+
+	# station 単位に代表行へ集約（component 等の重複を除去）
+	df_sta = (
+		df_hit.groupby('station', as_index=False)
+		.agg({'lat': 'first', 'lon': 'first', 'elevation_m': 'first'})
+		.sort_values('station')
+		.reset_index(drop=True)
+	)
+
+	stations = df_sta['station'].tolist()
+
+	if output == 'list':
+		return stations
+	if output == 'rows':
+		return df_sta
+	if output == 'both':
+		return stations, df_sta
+
+	raise ValueError(f'unsupported output: {output}')

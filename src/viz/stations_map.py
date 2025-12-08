@@ -7,7 +7,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from adjustText import adjust_text
 from shapely.geometry import Point
@@ -467,13 +466,3 @@ def plot_stations_from_hinet_table(
 
 	fig.savefig(out_png, dpi=200)
 	print(f'Saved: {out_png}')
-
-
-def _latlon_to_xy(lat, lon):
-	lat = np.asarray(lat, float)
-	lon = np.asarray(lon, float)
-	R = 6371000.0
-	lat0 = np.deg2rad(np.nanmean(lat))
-	x = R * np.deg2rad(lon - np.nanmean(lon)) * np.cos(lat0)
-	y = R * np.deg2rad(lat - np.nanmean(lat))
-	return x, y  # x: East, y: North
