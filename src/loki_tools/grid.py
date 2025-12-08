@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from math import ceil, cos, radians
+from math import ceil
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
+
+from common.core import validate_columns
+from common.geo import latlon_to_local_xy_km
 
 DEFAULT_LOKI_HEADER_OUT = Path('db/header.hdr')
 
@@ -19,8 +21,8 @@ class GridSpec:
 	- グリッド提案時のメタ情報（pad/zmax/center_mode）も同居
 
 	単位:
-	    x0,y0,z0,dx,dy,dz は km
-	    lat/lon は deg
+		x0,y0,z0,dx,dy,dz は km
+		lat/lon は deg
 	"""
 
 	nx: int
@@ -48,12 +50,6 @@ class GridSpec:
 		return self.x0_km, x1, self.y0_km, y1
 
 
-def _require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
-	missing = [c for c in cols if c not in df.columns]
-	if missing:
-		raise ValueError(f'missing required columns in stations_df: {missing}')
-
-
 def _validate_grid_basic(
 	nx: int, ny: int, nz: int, dx: float, dy: float, dz: float
 ) -> None:
@@ -61,26 +57,6 @@ def _validate_grid_basic(
 		raise ValueError('nx, ny, nz must be positive')
 	if dx <= 0 or dy <= 0 or dz <= 0:
 		raise ValueError('dx_km, dy_km, dz_km must be positive')
-
-
-def _latlon_to_local_km(
-	lat_deg: Sequence[float],
-	lon_deg: Sequence[float],
-	*,
-	lat0_deg: float,
-	lon0_deg: float,
-) -> tuple[pd.Series, pd.Series]:
-	"""グリッド提案のための簡易ローカル変換。"""
-	lat0_rad = radians(lat0_deg)
-	km_per_deg_lat = 111.32
-	km_per_deg_lon = 111.32 * cos(lat0_rad)
-
-	lat_s = pd.Series(lat_deg, dtype=float)
-	lon_s = pd.Series(lon_deg, dtype=float)
-
-	y_km = (lat_s - lat0_deg) * km_per_deg_lat
-	x_km = (lon_s - lon0_deg) * km_per_deg_lon
-	return x_km, y_km
 
 
 def propose_grid_from_stations(
@@ -99,21 +75,20 @@ def propose_grid_from_stations(
 	"""Station 分布から LOKI用グリッドを提案する。
 
 	center_mode:
-	    - "fixed"  : ここで渡した lat0/lon0 をグリッド中心に採用
-	                 （あなたの運用で一番自然）
-	    - "mean"   : stations の平均を中心
-	    - "median" : stations の中央値を中心
+		- "fixed"  : ここで渡した lat0/lon0 をグリッド中心に採用
+		- "mean"   : stations の平均を中心
+		- "median" : stations の中央値を中心
 
 	stations_df:
-	    必須列: station, lat, lon
-	    任意列: elevation_m
+		必須列: station, lat, lon
+		任意列: elevation_m
 
 	返す GridSpec は LOKI header と同じ定義を持つ。
 	"""
 	if stations_df.empty:
 		raise ValueError('stations_df is empty')
 
-	_require_columns(stations_df, ['station', 'lat', 'lon'])
+	validate_columns(stations_df, ['station', 'lat', 'lon'], 'station_df')
 
 	lat_vals = stations_df['lat'].to_numpy(dtype=float)
 	lon_vals = stations_df['lon'].to_numpy(dtype=float)
@@ -134,7 +109,7 @@ def propose_grid_from_stations(
 	else:
 		raise ValueError(f'unsupported center_mode: {center_mode}')
 
-	x_km, y_km = _latlon_to_local_km(
+	x_km, y_km = latlon_to_local_xy_km(
 		lat_deg=lat_vals,
 		lon_deg=lon_vals,
 		lat0_deg=lat0,
@@ -184,15 +159,15 @@ def format_loki_header_lines(
 	"""GridSpec + station 情報から LOKI header.hdr の行を生成。
 
 	stations_df:
-	    必須列: station, lat, lon
-	    任意列: elevation_m
+		必須列: station, lat, lon
+		任意列: elevation_m
 
 	注:
-	    component 重複がある場合は
-	    station 単位に代表行へ集約した DataFrame を渡すのが安全。
+		component 重複がある場合は
+		station 単位に代表行へ集約した DataFrame を渡すのが安全。
 	"""
 	_validate_grid_basic(grid.nx, grid.ny, grid.nz, grid.dx_km, grid.dy_km, grid.dz_km)
-	_require_columns(stations_df, ['station', 'lat', 'lon'])
+	validate_columns(stations_df, ['station', 'lat', 'lon'], 'station_df')
 
 	if stations_df.empty:
 		raise ValueError('stations_df is empty')

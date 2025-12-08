@@ -6,10 +6,10 @@ from subprocess import run
 from typing import Literal
 
 import pandas as pd
-from loki.grid import GridSpec, propose_grid_from_stations, write_loki_header
-from loki.vel1d import convert_1dvel_to_nll_layers
+from loki_tools.vel1d import convert_1dvel_to_nll_layers
 
 from jma.station_reader import stations_within_radius
+from loki_tools.grid import GridSpec, propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
 
 
