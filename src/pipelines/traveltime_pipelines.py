@@ -3,51 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import run
-from typing import Literal
 
 import pandas as pd
-from loki_tools.vel1d import convert_1dvel_to_nll_layers
 
 from jma.station_reader import stations_within_radius
 from loki_tools.grid import GridSpec, propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
-
-
-@dataclass(frozen=True)
-class TravelTimePipelineConfig:
-	# --- Station selection ---
-	center_lat: float
-	center_lon: float
-	radius_km: float
-	channel_table_path: str | Path = (
-		'/workspace/proc/util/hinet_util/hinet_channelstbl_20251007'
-	)
-
-	# --- Grid proposal ---
-	dx_km: float = 1.0
-	dy_km: float = 1.0
-	dz_km: float = 1.0
-	pad_km: float = 10.0
-	z0_km: float = -5.0
-	zmax_km: float = 80.0
-	center_mode: Literal['fixed', 'mean', 'median'] = 'fixed'
-
-	# --- 1D velocity -> NLL LAYER ---
-	vel1d_src: str | Path = 'velocity/vjma2001'
-	layers_out: str | Path = 'velocity/jma2001.layers'
-	strict_1dvel: bool = False
-
-	# --- NonLinLoc control + outputs ---
-	model_label: str = 'jma2001'
-	nll_run_dir: str | Path = 'nll/run'
-	nll_model_dir: str | Path = 'nll/model'
-	nll_time_dir: str | Path = 'nll/time'
-	quantity: str = 'SLOW_LEN'
-	gtmode: str = 'GRID3D ANGLES_NO'
-	depth_km_mode: Literal['zero', 'from_elevation'] = 'zero'
-
-	# --- LOKI header output ---
-	loki_header_out: str | Path = 'db/header.hdr'
+from nonlinloc.vel1d import convert_1dvel_to_nll_layers
 
 
 @dataclass(frozen=True)

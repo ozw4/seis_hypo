@@ -28,16 +28,6 @@ def haversine_distance_km(
 	return r_km * c
 
 
-def _latlon_to_xy(lat, lon):
-	lat = np.asarray(lat, float)
-	lon = np.asarray(lon, float)
-	R = 6371000.0
-	lat0 = np.deg2rad(np.nanmean(lat))
-	x = R * np.deg2rad(lon - np.nanmean(lon)) * np.cos(lat0)
-	y = R * np.deg2rad(lat - np.nanmean(lat))
-	return x, y  # x: East, y: North
-
-
 def latlon_to_local_xy_km(
 	lat_deg: Any,
 	lon_deg: Any,

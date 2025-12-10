@@ -5,14 +5,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from common.load_config import load_plot_preset
+from common.load_config import load_config
 from das.picks_filter import filter_and_decimate_das_picks
 from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.initial_event_builder import build_initial_events_from_ml_picks
-from hypo.join_jma_hypoinverse import load_hypoinverse_summary_from_prt
+from hypo.join_jma_hypoinverse import (
+	load_hypoinverse_summary_from_prt,
+)
 from hypo.phase_ml import extract_ml_pick_phase_records
 from hypo.phase_ml_das import extract_das_phase_records
 from viz.events_map import plot_events_map_and_sections
+from viz.plot_config import PlotConfig
 
 sta_file = Path('/workspace/data/station/stations_hypoinverse_with_das.sta')
 pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
@@ -86,14 +89,17 @@ out_location_png = img_dir / 'Hypoinv_event_location.png'
 out_jma_location_png = img_dir / 'jma_event_location.png'
 plot_setting = 'mobara_default'
 
-params = load_plot_preset('/workspace/data/config/plot_config.yaml', plot_setting)
+params = load_config(
+	PlotConfig, '/workspace/data/config/plot_config.yaml', plot_setting
+)
+lon_min, lon_max = params.lon_range
+lat_min, lat_max = params.lat_range
+depth_min, depth_max = params.depth_range
 
-lon_min, lon_max = params['lon_range']
-lat_min, lat_max = params['lat_range']
-depth_min, depth_max = params['depth_range']
-well_coord = params.get('well_coord')
-min_mag = params.get('min_mag')
-max_mag = params.get('max_mag')
+well_coord = params.well_coord
+min_mag = params.min_mag
+max_mag = params.max_mag
+
 
 extras = []
 if well_coord is not None:

@@ -7,7 +7,7 @@ from typing import Literal
 
 import pandas as pd
 
-from loki_tool.grid import GridSpec
+from loki_tools.grid import GridSpec
 
 # ---- Project-default paths (adjust if your layout changes) ----
 DEFAULT_LAYERS_PATH = Path('velocity/jma2001.layers')
@@ -111,86 +111,48 @@ def _format_gtsrce_lines(
 	return lines
 
 
-def generate_nll_control_text(
-	grid: GridSpec,
-	stations_df: pd.DataFrame,
-	*,
-	phase: Literal['P', 'S'],
-	model_label: str = 'jma2001',
-	layers_path: Path = DEFAULT_LAYERS_PATH,
-	vgout_dir: Path = DEFAULT_NLL_MODEL_DIR,
-	gtout_dir: Path = DEFAULT_NLL_TIME_DIR,
-	control_id: int = 1,
-	random_seed: int = 54321,
-	quantity: str = 'SLOW_LEN',
-	gtmode: str = 'GRID3D ANGLES_NO',
-	depth_km_mode: Literal['zero', 'from_elevation'] = 'zero',
-) -> str:
-	"""Generate a single NonLinLoc control file text for a given phase.
-
-	This text is intended to be used for:
-		Vel2Grid <control>
-		Grid2Time <control>
-
-	The output root names are derived from:
-		vgout_dir / model_label
-		gtout_dir / model_label
-
-	Adjust gtmode or quantity if your NonLinLoc build expects different tokens.
-	"""
-	_validate_grid(grid)
-	_require_columns(stations_df, ['station', 'lat', 'lon'])
-
-	vg_root = (Path(vgout_dir) / model_label).as_posix()
-	gt_root = (Path(gtout_dir) / model_label).as_posix()
-	layers_inc = Path(layers_path).as_posix()
-
-	lines: list[str] = []
-
-	# ---- Generic ----
-	lines.append(f'CONTROL {control_id} {random_seed}')
-	lines.append(_format_trans_simple(grid))
-
-	# ---- Vel2Grid ----
-	lines.append(f'VGOUT {vg_root}')
-	lines.append(f'VGTYPE {phase}')
-	lines.append(_format_vggrid(grid, quantity=quantity))
-	lines.append(f'INCLUDE {layers_inc}')
-
-	# ---- Grid2Time ----
-	# Typical pattern: GTFILES <vg_root> <gt_root> <phase>
-	lines.append(f'GTFILES {vg_root} {gt_root} {phase}')
-	lines.append(f'GTMODE {gtmode}')
-
-	# ---- Stations as sources ----
-	lines.extend(_format_gtsrce_lines(stations_df, depth_km_mode=depth_km_mode))
-
-	return '\n'.join(lines) + '\n'
-
-
 def write_nll_control_files_ps(
 	grid: GridSpec,
 	stations_df: pd.DataFrame,
 	*,
 	model_label: str = 'jma2001',
-	layers_path: Path = DEFAULT_LAYERS_PATH,
-	run_dir: Path = DEFAULT_NLL_RUN_DIR,
-	vgout_dir: Path = DEFAULT_NLL_MODEL_DIR,
-	gtout_dir: Path = DEFAULT_NLL_TIME_DIR,
+	layers_path: Path = Path('velocity/jma2001.layers'),
+	run_dir: Path = Path('nll/run'),
+	vgout_dir: Path = Path('nll/model'),
+	gtout_dir: Path = Path('nll/time'),
 	quantity: str = 'SLOW_LEN',
 	gtmode: str = 'GRID3D ANGLES_NO',
 	depth_km_mode: Literal['zero', 'from_elevation'] = 'zero',
+	# ★ Grid2Time が落ちる原因だった “走時計算法指定” を渡すため追加
+	gt_plfd_eps: float = 1.0e-3,
+	gt_plfd_sweep: int = 0,
 ) -> tuple[Path, Path]:
 	"""Write two control files:
 		<run_dir>/<model_label>_P.in
 		<run_dir>/<model_label>_S.in
 
-	Returns:
-		(p_path, s_path)
+	Notes
+	-----
+	- run_dir/ vgout_dir/ gtout_dir をここで必ず作成する。
+	- Grid2Time 用の GT_PLFD パラメータを generate 側へ渡す。
+	  generate_nll_control_text も同名引数を受け取り、
+	  GTMODE の直後に `GT_PLFD {eps} {sweep}` を出力する実装にしておくこと。
+
+	Returns
+	-------
+	(p_path, s_path)
 
 	"""
 	run_dir = Path(run_dir)
+	vgout_dir = Path(vgout_dir)
+	gtout_dir = Path(gtout_dir)
+
 	run_dir.mkdir(parents=True, exist_ok=True)
+	vgout_dir.mkdir(parents=True, exist_ok=True)
+	gtout_dir.mkdir(parents=True, exist_ok=True)
+
+	# LAYER 出力先がこの関数の責務外でも、存在しないと後続で詰むので親だけ作る
+	Path(layers_path).parent.mkdir(parents=True, exist_ok=True)
 
 	p_text = generate_nll_control_text(
 		grid,
@@ -203,6 +165,8 @@ def write_nll_control_files_ps(
 		quantity=quantity,
 		gtmode=gtmode,
 		depth_km_mode=depth_km_mode,
+		gt_plfd_eps=gt_plfd_eps,
+		gt_plfd_sweep=gt_plfd_sweep,
 	)
 	s_text = generate_nll_control_text(
 		grid,
@@ -215,6 +179,8 @@ def write_nll_control_files_ps(
 		quantity=quantity,
 		gtmode=gtmode,
 		depth_km_mode=depth_km_mode,
+		gt_plfd_eps=gt_plfd_eps,
+		gt_plfd_sweep=gt_plfd_sweep,
 	)
 
 	p_path = run_dir / f'{model_label}_P.in'
@@ -224,6 +190,69 @@ def write_nll_control_files_ps(
 	s_path.write_text(s_text)
 
 	return p_path, s_path
+
+
+# ---- generate 側も最小でこう拡張してね（要点だけ） ----
+def generate_nll_control_text(
+	grid: GridSpec,
+	stations_df: pd.DataFrame,
+	*,
+	phase: Literal['P', 'S'],
+	model_label: str,
+	layers_path: Path,
+	vgout_dir: Path,
+	gtout_dir: Path,
+	quantity: str,
+	gtmode: str,
+	depth_km_mode: Literal['zero', 'from_elevation'],
+	gt_plfd_eps: float = 1.0e-3,
+	gt_plfd_sweep: int = 0,
+) -> str:
+	"""NonLinLoc Vel2Grid/Grid2Time 用 control text を生成する。
+
+	必須修正ポイント:
+	- GTMODE の直後に GT_PLFD を必ず出す。
+	  例: `GT_PLFD 1.0e-3 0`
+	"""
+	lines: list[str] = []
+
+	# ここはあなたの既存実装に合わせて構築
+	lines.append('CONTROL 1 54321')
+	lines.append(f'TRANS SIMPLE {grid.lat0_deg:.6f} {grid.lon0_deg:.6f} 0.0')
+	lines.append(f'VGOUT {Path(vgout_dir).as_posix()}/{model_label}')
+	lines.append(f'VGTYPE {phase}')
+
+	lines.append(
+		f'VGGRID {grid.nx} {grid.ny} {grid.nz} '
+		f'{grid.x0_km:.3f} {grid.y0_km:.3f} {grid.z0_km:.3f} '
+		f'{grid.dx_km:.3f} {grid.dy_km:.3f} {grid.dz_km:.3f} {quantity}'
+	)
+	lines.append(f'INCLUDE {Path(layers_path).as_posix()}')
+
+	lines.append(
+		f'GTFILES {Path(vgout_dir).as_posix()}/{model_label} '
+		f'{Path(gtout_dir).as_posix()}/{model_label} {phase}'
+	)
+	lines.append(f'GTMODE {gtmode}')
+
+	# ★今回のバグ修正の核心
+	lines.append(f'GT_PLFD {gt_plfd_eps:.1e} {gt_plfd_sweep}')
+
+	# GTSRCE 群の追加は既存ロジックに合わせて
+	for row in stations_df.itertuples(index=False):
+		sta = str(row.station)
+		lat = float(row.lat)
+		lon = float(row.lon)
+
+		if depth_km_mode == 'from_elevation':
+			elev_m = float(getattr(row, 'elevation_m', 0.0))
+			dep = max(0.0, -elev_m / 1000.0)
+		else:
+			dep = 0.0
+
+		lines.append(f'GTSRCE {sta} LATLON {lat:.6f} {lon:.6f} {dep:.3f} 0')
+
+	return '\n'.join(lines) + '\n'
 
 
 # ---- In-code usage example (non-CLI) ----
