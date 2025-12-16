@@ -38,6 +38,7 @@ data/
 result/
 debug_*/
 outputs/
+tmp_code/
 model_weight
 # Hypoinverse artifacts (file-based)
 **/hypoinverse_input.arc

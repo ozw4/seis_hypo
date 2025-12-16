@@ -1,2 +1,0 @@
-/workspace/util/match_mobara_near_jma_events.py 人が目視をした茂原サイトから５０㎞以内の震源との一致
-/workspace/util/match_mobaradas_events_to_jma.py AI pick result

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import datetime as dt
 import mmap
+import warnings
+from collections.abc import Sequence
 from pathlib import Path
 
 import numba
 import numpy as np
 import pandas as pd
+from obspy import Stream, UTCDateTime
 
+from common.time_util import floor_minute
+from io_util.stream import build_stream_from_array
 from jma.station_reader import read_hinet_channel_table
 
 
@@ -306,26 +312,44 @@ def _process_file_with_timestamp(
 	return output
 
 
-def read_win32(
-	file_path: str | Path,
-	channel_table: pd.DataFrame | str,
-	*,
-	base_sampling_rate_HZ: int = 100,
-	duration_SECOND: int = 15 * 60,
-	channels_hex: list[str] | None = None,  # 例: ["0003","0004","0005"]
-	station: str | None = None,  # 例: "N.AGWH"
-	components: list[str] | None = None,  # 例: ["U","N","E"]
-) -> np.ndarray:
-	"""Hi-net チャネル表 DataFrame を元に、WIN32 を読み出して物理量に換算して返す。
+def parse_win32_starttime(file_path: str | Path) -> UTCDateTime:
+	"""WIN32 先頭ブロックのタイムスタンプから開始時刻を取得.
 
-	- channel_table: read_hinet_channel_table() の戻り値（列: ch_hex/ch_int/conv_coeff 等）
-	- channels_hex / station / components で抽出条件を指定（いずれか/併用可）
-	- 返り値: shape=(n_ch, duration_SECOND * base_sampling_rate_HZ), dtype=float32
+	win32_reader.py 内の _datetime を利用している前提。
 	"""
 	file_path = Path(file_path)
-	if isinstance(channel_table, str):
+	if not file_path.is_file():
+		msg = f'WIN32 file not found: {file_path}'
+		raise FileNotFoundError(msg)
+
+	with Path.open(file_path, 'rb') as f:
+		mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+	offset = 4
+	ts = _datetime(mm[offset + 0 : offset + 8])
+
+	if ts[:10] == '0000-00-00':
+		msg = f'WIN32 timestamp is not available at file head: {file_path.name}'
+		raise ValueError(msg)
+
+	return UTCDateTime(ts)
+
+
+def select_hinet_channels(
+	channel_table: pd.DataFrame | str | Path,
+	*,
+	channels_hex: list[str] | None = None,
+	station: str | None = None,
+	components: list[str] | None = None,
+) -> pd.DataFrame:
+	"""Hi-net channel table を読み込み、フィルタ済み DataFrame を返す。
+
+	この返り値の行順が read_win32 の出力 ndarray の行順になる前提で使う。
+	"""
+	if isinstance(channel_table, (str, Path)):
 		df = read_hinet_channel_table(channel_table)
-	df = channel_table.copy()
+	else:
+		df = channel_table.copy()
 
 	if channels_hex is not None:
 		hex_set = {s.upper() for s in channels_hex}
@@ -342,6 +366,37 @@ def read_win32(
 			'no channels selected (check filters: channels_hex/station/components)'
 		)
 
+	return df.reset_index(drop=True)
+
+
+def read_win32(
+	file_path: str | Path,
+	channel_table: pd.DataFrame | str,
+	*,
+	base_sampling_rate_HZ: int = 100,
+	duration_SECOND: int = 15 * 60,
+	channels_hex: list[str] | None = None,  # 例: ["0003","0004","0005"]
+	station: str | None = None,  # 例: "N.AGWH"
+	components: list[str] | None = None,  # 例: ["U","N","E"]
+) -> np.ndarray:
+	"""Hi-net チャネル表 DataFrame を元に、WIN32 を読み出して物理量に換算して返す.
+
+	- channel_table: read_hinet_channel_table() の戻り値(列: ch_hex/ch_int/conv_coeff 等)
+	- channels_hex / station / components で抽出条件を指定(いずれか/併用可)
+	- 返り値: shape=(n_ch, duration_SECOND * base_sampling_rate_HZ), dtype=float32
+	"""
+	file_path = Path(file_path)
+	if not file_path.is_file():
+		msg = f'WIN32 file not found: {file_path}'
+		raise FileNotFoundError(msg)
+
+	df = select_hinet_channels(
+		channel_table,
+		channels_hex=channels_hex,
+		station=station,
+		components=components,
+	)
+
 	# 必要列を取り出し
 	channel_no_int_array = df['ch_int'].to_numpy(dtype=np.int32)
 	conversion_coefficients_array = df['conv_coeff'].to_numpy(dtype=np.float32)
@@ -349,13 +404,15 @@ def read_win32(
 	number_output_channels = len(df)
 	number_output_timesamples = int(duration_SECOND * base_sampling_rate_HZ)
 
-	with open(file_path, 'rb') as f:
+	file_size = file_path.stat().st_size
+
+	with file_path.open('rb') as f:
 		mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
-		# まずは高速経路（ブロック数が揃っている想定）
+		# ブロック数が揃っているか確認しつつ処理
 		n_read, output = _process_file(
 			mm,
-			file_path.stat().st_size,
+			file_size,
 			base_sampling_rate_HZ,
 			channel_no_int_array,
 			conversion_coefficients_array,
@@ -365,10 +422,14 @@ def read_win32(
 
 		# 欠落秒があればタイムスタンプ経路で再配置
 		if n_read != number_output_timesamples:
-			print(f'found missing second blocks in {file_path.name}')
+			warnings.warn(
+				f'found missing second blocks in {file_path.name}; '
+				'fallback to timestamp-based placement',
+				RuntimeWarning,
+			)
 			output = _process_file_with_timestamp(
 				mm,
-				file_path.stat().st_size,
+				file_size,
 				base_sampling_rate_HZ,
 				channel_no_int_array.tolist(),
 				conversion_coefficients_array.tolist(),
@@ -379,29 +440,138 @@ def read_win32(
 	return output
 
 
-"""
-def read_channel_table(p, component_list=None):
-	with open(p) as f:
-		lines = f.readlines()
+def read_win32_stream(
+	win32_file: str | Path,
+	channel_table: pd.DataFrame | str | Path,
+	*,
+	base_sampling_rate_HZ: int = 100,
+	duration_SECOND: int = 15 * 60,
+	channels_hex: list[str] | None = None,
+	station: str | None = None,
+	components: list[str] | None = None,
+	starttime: UTCDateTime | None = None,
+) -> Stream:
+	"""WIN32 を読み、ObsPy Stream として返す高レベル関数."""
+	df_selected = select_hinet_channels(
+		channel_table,
+		channels_hex=channels_hex,
+		station=station,
+		components=components,
+	)
 
-	out = []
-	for ln in lines:
-		separated = ln.split()
-		if separated[0] == '#':
-			continue
-		out.append(separated)
+	data = read_win32(
+		win32_file,
+		df_selected,
+		base_sampling_rate_HZ=base_sampling_rate_HZ,
+		duration_SECOND=duration_SECOND,
+		channels_hex=None,
+		station=None,
+		components=None,
+	)
 
-	out = np.array(out)
+	if starttime is None:
+		starttime = parse_win32_starttime(win32_file)
 
-	out_dict = {}
-	stations = out[:, 3]
-	for station in np.unique(stations):
-		is_station = out[:, 3] == station
-		is_extract = np.zeros_like(is_station)
-		if component_list is not None:
-			for component in component_list:
-				is_extract = is_extract | (is_station & (out[:, 4] == component))
-		out_dict[station] = out[is_extract, :]
+	return build_stream_from_array(
+		data,
+		df_selected,
+		starttime=starttime,
+		sampling_rate_HZ=base_sampling_rate_HZ,
+	)
 
-	return out_dict
-"""
+
+def compute_event_time_window(
+	origin_time: dt.datetime,
+	*,
+	pre_sec: int,
+	post_sec: int,
+) -> tuple[dt.datetime, dt.datetime]:
+	t_start = origin_time - dt.timedelta(seconds=pre_sec)
+	t_end = origin_time + dt.timedelta(seconds=post_sec)
+	if t_end <= t_start:
+		msg = 't_end must be later than t_start'
+		raise ValueError(msg)
+	return t_start, t_end
+
+
+def slice_with_pad(
+	x: np.ndarray,
+	start_idx: int,
+	end_idx: int,
+) -> np.ndarray:
+	"""x: (..., nt_total)。最後の軸について [start_idx:end_idx) を0パディングで安全に抜く。"""
+	nt = x.shape[-1]
+	length = max(0, end_idx - start_idx)
+	out_shape = x.shape[:-1] + (length,)
+	y = np.zeros(out_shape, dtype=x.dtype)
+	s0 = max(0, start_idx)
+	e0 = min(nt, end_idx)
+	if e0 > s0:
+		d0 = max(0, -start_idx)
+		y[..., d0 : d0 + (e0 - s0)] = x[..., s0:e0]
+	return y
+
+
+def read_event_win32_window_as_array(
+	event_row: pd.Series,
+	ch_path: Path,
+	cnt_path_list: Sequence[Path],
+	*,
+	base_sampling_rate_HZ: int = 100,
+	pre_sec: int,
+	post_sec: int,
+) -> Tuple[np.ndarray, pd.DataFrame, dt.datetime, dt.datetime]:
+	"""イベント1件について、pre/post 秒の窓に対応する ndarray を返す。
+
+	戻り値:
+	- arr_event: shape=(n_ch, n_samples_event)
+	- station_df: read_hinet_channel_table(ch_path) の結果
+	- t_start: 窓の開始時刻（JST）
+	- t_end:   窓の終了時刻（JST）
+	"""
+	if not cnt_path_list:
+		msg = 'cnt_path_list is empty'
+		raise ValueError(msg)
+
+	origin_time = pd.to_datetime(event_row['origin_time'])
+	t_start, t_end = compute_event_time_window(
+		origin_time,
+		pre_sec=pre_sec,
+		post_sec=post_sec,
+	)
+
+	station_df = read_hinet_channel_table(ch_path)
+
+	# 1分タイルを time 軸に連結
+	arr_list: list[np.ndarray] = []
+	for cnt_path in sorted(cnt_path_list):
+		arr_min = read_win32(
+			cnt_path,
+			station_df,
+			base_sampling_rate_HZ=base_sampling_rate_HZ,
+			duration_SECOND=60,
+		)  # (n_ch, 60*fs)
+		arr_list.append(arr_min)
+
+	if len(arr_list) == 1:
+		arr_concat = arr_list[0]
+	else:
+		arr_concat = np.concatenate(arr_list, axis=1)  # (n_ch, nt_total)
+
+	# 連結列の time=0 を、最初の minute の分頭とみなす
+	first_minute = floor_minute(t_start)
+	nt_total = arr_concat.shape[1]
+	total_sec = nt_total / float(base_sampling_rate_HZ)
+
+	offset_start_sec = (t_start - first_minute).total_seconds()
+	offset_end_sec = (t_end - first_minute).total_seconds()
+
+	start_idx = int(round(offset_start_sec * base_sampling_rate_HZ))
+	end_idx = int(round(offset_end_sec * base_sampling_rate_HZ))
+
+	start_idx = max(start_idx, 0)
+	end_idx = min(end_idx, int(round(total_sec * base_sampling_rate_HZ)))
+
+	arr_event = slice_with_pad(arr_concat, start_idx, end_idx)
+
+	return arr_event, station_df, t_start, t_end
