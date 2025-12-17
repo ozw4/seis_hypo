@@ -21,7 +21,6 @@ from HinetPy import Client
 from catalog.selection import extract_events_in_region
 from common.load_config import load_config
 from jma.station_reader import stations_within_radius
-from pipelines.load_event_stream_from_win32 import prepare_single_event_stream
 
 # あなたの環境に合わせて書き換えればOK
 YAML_PATH = Path('/workspace/data/config/prepare_events.yaml')
@@ -124,7 +123,7 @@ def main() -> None:
 		event_id = int(event_row['event_id'])
 		print(f'prepare event_id={event_id}')
 
-		event_dir, stream, t_start, t_end = prepare_single_event_stream(
+		event_dir, stream, t_start, t_end = prepare_single_event(
 			event_row,
 			client=client,
 			station_list=station_list,

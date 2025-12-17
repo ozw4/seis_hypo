@@ -9,10 +9,9 @@ from pathlib import Path
 import numba
 import numpy as np
 import pandas as pd
-from obspy import Stream, UTCDateTime
+from obspy import UTCDateTime
 
 from common.time_util import floor_minute
-from io_util.stream import build_stream_from_array
 from jma.station_reader import read_hinet_channel_table
 
 
@@ -438,46 +437,6 @@ def read_win32(
 			)
 
 	return output
-
-
-def read_win32_stream(
-	win32_file: str | Path,
-	channel_table: pd.DataFrame | str | Path,
-	*,
-	base_sampling_rate_HZ: int = 100,
-	duration_SECOND: int = 15 * 60,
-	channels_hex: list[str] | None = None,
-	station: str | None = None,
-	components: list[str] | None = None,
-	starttime: UTCDateTime | None = None,
-) -> Stream:
-	"""WIN32 を読み、ObsPy Stream として返す高レベル関数."""
-	df_selected = select_hinet_channels(
-		channel_table,
-		channels_hex=channels_hex,
-		station=station,
-		components=components,
-	)
-
-	data = read_win32(
-		win32_file,
-		df_selected,
-		base_sampling_rate_HZ=base_sampling_rate_HZ,
-		duration_SECOND=duration_SECOND,
-		channels_hex=None,
-		station=None,
-		components=None,
-	)
-
-	if starttime is None:
-		starttime = parse_win32_starttime(win32_file)
-
-	return build_stream_from_array(
-		data,
-		df_selected,
-		starttime=starttime,
-		sampling_rate_HZ=base_sampling_rate_HZ,
-	)
 
 
 def compute_event_time_window(
