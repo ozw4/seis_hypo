@@ -13,6 +13,7 @@ from common.config import (
 	DEFAULT_NLL_RUN_DIR,
 	TravelTimeBaseConfig,
 )
+from common.stations import normalize_station_rows
 from jma.station_reader import stations_within_radius
 from loki_tools.grid import GridSpec, propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
@@ -63,6 +64,9 @@ def run_traveltime_pipeline(cfg: TravelTimeBaseConfig) -> TravelTimePipelineResu
 	if isinstance(stations_df, list):
 		# list[str] -> convert to a DataFrame with a single 'station' column
 		stations_df = pd.DataFrame({'station': stations_df})
+
+	# Normalize columns/types and enforce station-unique rows with elevation present.
+	stations_df = normalize_station_rows(stations_df, require_elevation=True)
 
 	# --- 2) grid proposal ---
 	grid = propose_grid_from_stations(

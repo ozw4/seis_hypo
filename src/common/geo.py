@@ -125,7 +125,7 @@ def compute_station_order(
 ) -> np.ndarray:
 	lat = station_df['lat'].to_numpy(float)
 	lon = station_df['lon'].to_numpy(float)
-	x, y = _latlon_to_xy(lat, lon)
+	x, y = latlon_to_local_xy_km(lat, lon, lat0_deg=lat.mean(), lon0_deg=lon.mean())
 
 	if mode == 'lat':
 		order = np.argsort(y)

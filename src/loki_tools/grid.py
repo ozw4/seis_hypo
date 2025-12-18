@@ -7,8 +7,8 @@ from typing import Literal
 
 import pandas as pd
 
-from common.core import validate_columns
 from common.geo import latlon_to_local_xy_km
+from common.stations import normalize_station_rows
 
 DEFAULT_LOKI_HEADER_OUT = Path('db/header.hdr')
 
@@ -167,21 +167,7 @@ def format_loki_header_lines(
 		station 単位に代表行へ集約した DataFrame を渡すのが安全。
 	"""
 	_validate_grid_basic(grid.nx, grid.ny, grid.nz, grid.dx_km, grid.dy_km, grid.dz_km)
-	validate_columns(stations_df, ['station', 'lat', 'lon'], 'station_df')
-
-	if stations_df.empty:
-		raise ValueError('stations_df is empty')
-
-	df = stations_df.copy()
-
-	if 'elevation_m' not in df.columns:
-		df['elevation_m'] = 0.0
-
-	df['lat'] = df['lat'].astype(float)
-	df['lon'] = df['lon'].astype(float)
-	df['elevation_m'] = df['elevation_m'].astype(float)
-
-	df = df.sort_values('station').reset_index(drop=True)
+	df = normalize_station_rows(stations_df, require_elevation=False)
 
 	lines: list[str] = []
 	lines.append(f'{grid.nx} {grid.ny} {grid.nz}')

@@ -8,6 +8,8 @@ import pandas as pd
 from scipy.signal import detrend as sp_detrend
 from scipy.signal.windows import tukey
 
+from common.geo import compute_station_order
+
 
 # ---- ギャザー描画（塗りつぶしwiggle）----
 def plot_gather(
@@ -144,20 +146,22 @@ def plot_gather(
 		ax.scatter(
 			np.arange(n_ch)[m],
 			np.asarray(p_idx)[m],
-			s=20,
+			s=50,
 			marker='_',
 			c='b',
-			linewidths=1,
+			linewidths=5,
+			zorder=3,
 		)
 	if s_idx is not None:
 		m = np.isfinite(s_idx)
 		ax.scatter(
 			np.arange(n_ch)[m],
 			np.asarray(s_idx)[m],
-			s=20,
+			s=50,
 			marker='_',
 			c='r',
-			linewidths=1,
+			linewidths=5,
+			zorder=3,
 		)
 
 	plt.tight_layout()

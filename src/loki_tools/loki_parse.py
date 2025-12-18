@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,8 +24,8 @@ class LokiLocRow:
 @dataclass(frozen=True)
 class LokiPhsRow:
 	station: str
-	p_arrival: pd.Timestamp
-	s_arrival: pd.Timestamp
+	p_arrival_sec: float
+	s_arrival_sec: float
 
 
 @dataclass(frozen=True)
@@ -105,31 +106,117 @@ def _infer_trial_from_phs_name(phs_path: Path) -> int:
 	return int(m.group(1))
 
 
-def parse_phs_file(phs_path: Path) -> tuple[LokiPhsRow, ...]:
-	"""*.phs: station P_arrivaltime S_arrivaltime（ISO文字列）"""
-	phs_path = Path(phs_path)
-	if not phs_path.is_file():
-		raise FileNotFoundError(f'.phs not found: {phs_path}')
-
-	rows: list[LokiPhsRow] = []
+def _iter_phs_tokens(phs_path: Path) -> Iterator[tuple[str, str, str]]:
+	"""Yield (station, p_token, s_token) triples from a .phs file."""
 	for ln in _read_text_lines(phs_path):
-		s = ln.strip()
-		if not s:
+		if ln.startswith('#'):
 			continue
-		if s.startswith('#'):
+		cols = ln.split()
+		if not cols:
 			continue
-
-		cols = s.split()
+		if cols[0].lower() == 'station':
+			continue
 		if len(cols) < 3:
 			raise ValueError(
 				f"invalid .phs line (need >=3 cols): {phs_path} line='{ln}'"
 			)
+		yield cols[0], cols[1], cols[2]
 
-		sta = cols[0]
-		p_arr = pd.to_datetime(cols[1])
-		s_arr = pd.to_datetime(cols[2])
 
-		rows.append(LokiPhsRow(station=sta, p_arrival=p_arr, s_arrival=s_arr))
+def _infer_origin_from_phs_filename(phs_path: Path) -> pd.Timestamp | None:
+	"""例: 2020-02-09T15:40:29.255374_trial0.phs
+	-> "2020-02-09T15:40:29.255374" を origin として使う
+	"""
+	name = phs_path.name
+
+	# suffix を落とす
+	stem = name.removesuffix('.phs')
+
+	# "_trial" より前がISO時刻の想定
+	key = '_trial'
+	i = stem.find(key)
+	if i <= 0:
+		return None
+
+	prefix = stem[:i]
+	origin = pd.to_datetime(prefix)
+	if pd.isna(origin):
+		return None
+	return pd.Timestamp(origin)
+
+
+def _require_event_origin(phs_path: Path) -> pd.Timestamp:
+	"""ISO到達時刻を秒へ変換するための基準時刻（origin）を決定する。"""
+	phs_path = Path(phs_path)
+
+	origin = _infer_origin_from_phs_filename(phs_path)
+	if origin is None:
+		raise ValueError(
+			'cannot infer event origin time from .phs filename. '
+			f"expected '<ISO>_trial*.phs', got filename={phs_path.name!r}"
+		)
+	return origin
+
+
+def _phs_token_to_seconds(
+	token: str,
+	ensure_origin: Callable[[], pd.Timestamp],
+) -> float:
+	try:
+		return float(token)
+	except ValueError:
+		pass
+
+	arrival = pd.to_datetime(token)
+	if pd.isna(arrival):
+		raise ValueError(f'failed to parse arrival time token: {token!r}')
+
+	origin = ensure_origin()
+	return _timestamp_to_relative_seconds(pd.Timestamp(arrival), origin)
+
+
+def _timestamp_to_relative_seconds(
+	arrival: pd.Timestamp,
+	origin: pd.Timestamp,
+) -> float:
+	arrival_has_tz = arrival.tzinfo is not None
+	origin_has_tz = origin.tzinfo is not None
+	if arrival_has_tz != origin_has_tz:
+		raise ValueError(
+			'timezone mismatch between arrival token and event origin; '
+			'ensure both encode timezone or both are naive'
+		)
+
+	if arrival_has_tz:
+		arrival = arrival.tz_convert('UTC')
+		origin = origin.tz_convert('UTC')
+
+	return float((arrival - origin).total_seconds())
+
+
+def parse_phs_file(phs_path: Path) -> tuple[LokiPhsRow, ...]:
+	""".phs: station P/S arrival tokens. Returns seconds relative to event origin."""
+	phs_path = Path(phs_path)
+	rows: list[LokiPhsRow] = []
+
+	origin_cache: pd.Timestamp | None = None
+
+	def _ensure_origin() -> pd.Timestamp:
+		nonlocal origin_cache
+		if origin_cache is None:
+			origin_cache = _require_event_origin(phs_path)
+		return origin_cache
+
+	for sta, p_tok, s_tok in _iter_phs_tokens(phs_path):
+		p_sec = _phs_token_to_seconds(p_tok, _ensure_origin)
+		s_sec = _phs_token_to_seconds(s_tok, _ensure_origin)
+		rows.append(
+			LokiPhsRow(
+				station=sta,
+				p_arrival_sec=p_sec,
+				s_arrival_sec=s_sec,
+			)
+		)
 
 	if not rows:
 		raise ValueError(f'no phs rows parsed: {phs_path}')
@@ -311,34 +398,38 @@ def parse_header_origin(header_path: Path) -> HeaderOrigin:
 	return parse_loki_header(header_path).origin
 
 
-def parse_phs_absolute_times(phs_path: Path) -> pd.DataFrame:
-	""".phs format (observed):
-	# station    P_arrivaltime    S_arrivaltime
-	N.FUTH 2020-... 2020-...
-	...
-	"""
-	if not phs_path.is_file():
-		raise FileNotFoundError(f'phs not found: {phs_path}')
+def parse_phs_absolute_times(phs_path: Path, *, tz: str = 'utc') -> pd.DataFrame:
+	""".phs -> DataFrame(station, tp, ts) with absolute arrival timestamps."""
+	tz_mode = tz.lower()
+	if tz_mode not in {'utc', 'naive'}:
+		raise ValueError(f"tz must be 'utc' or 'naive', got {tz}")
+
+	def _parse_token(token: str) -> pd.Timestamp:
+		# Float seconds are not supported here to avoid implicit assumptions.
+		try:
+			float(token)
+		except ValueError:
+			pass
+		else:
+			raise ValueError(
+				f'absolute-time parser expected ISO timestamps, found float token: {token!r}'
+			)
+
+		ts = pd.to_datetime(token, utc=True)
+		if pd.isna(ts):
+			raise ValueError(f'failed to parse arrival time token: {token!r}')
+
+		if tz_mode == 'utc':
+			return pd.Timestamp(ts)
+		return pd.Timestamp(ts.tz_convert('UTC').tz_localize(None))
 
 	rows: list[dict] = []
-	for ln in phs_path.read_text(encoding='utf-8', errors='replace').splitlines():
-		ln = ln.strip()
-		if not ln:
-			continue
-		if ln.startswith('#'):
-			continue
-		cols = ln.split()
-		if len(cols) < 3:
-			continue
-		if cols[0].lower() == 'station':
-			continue
-
-		sta = cols[0]
-		tp = pd.to_datetime(cols[1], utc=True)  # tz無しISOはUTC扱い
-		ts = pd.to_datetime(cols[2], utc=True)
-		rows.append({'station': sta, 'tp_utc': tp, 'ts_utc': ts})
+	for sta, p_tok, s_tok in _iter_phs_tokens(phs_path):
+		tp = _parse_token(p_tok)
+		ts = _parse_token(s_tok)
+		rows.append({'station': sta, 'tp': tp, 'ts': ts})
 
 	if not rows:
-		raise ValueError(f'no valid rows in phs: {phs_path}')
+		raise ValueError(f'no phs rows parsed: {phs_path}')
 
 	return pd.DataFrame(rows)

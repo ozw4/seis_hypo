@@ -87,25 +87,34 @@ class TravelTimeBaseConfig:
 
 @dataclass(frozen=True)
 class LokiWaveformStackingInputs:
-	tshortp_min: float
-	tshortp_max: float
-	tshorts_min: float
-	tshorts_max: float
-	slrat: int
-	npr: int
-	ntrial: int
-	derivative: bool
-	vfunc: str
-	hfunc: str
-	model: str
-	epsilon: float
-
-	# Stream生成側で使う
+	tshortp_min: float = 0.2
+	tshortp_max: float = 0.2
+	tshorts_min: float = 0.3
+	tshorts_max: float = 0.3
+	slrat: float = 5
+	npr: int = 2
+	ntrial: int = 1
+	derivative: bool = True
+	vfunc: str = 'erg'
+	hfunc: str = 'pca'
+	model: str = 'jma2001'
+	epsilon: float = 0.001
 	base_sampling_rate_hz: int = 100
 
-	# 任意（LOKI側のフィルタ）
-	freq: tuple[float, ...] | None = None
-	opsf: bool = False
+	# --- preprocess before LOKI ---
+	pre_enable: bool = True
+	pre_detrend: str | None = 'linear'
+	pre_fstop_lo: float = 0.5
+	pre_fpass_lo: float = 1.0
+	pre_fpass_hi: float = 23.0
+	pre_fstop_hi: float = 25.0
+	pre_gpass: float = 1.0
+	pre_gstop: float = 40.0
+
+	# --- robust (MAD) scaling ---
+	pre_mad_scale: bool = True
+	pre_mad_eps: float = 1e-6
+	pre_mad_c: float = 1.4826
 
 
 @dataclass(frozen=True)

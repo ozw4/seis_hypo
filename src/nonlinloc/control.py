@@ -1,12 +1,12 @@
 # %%
 from __future__ import annotations
 
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 
+from common.stations import normalize_station_rows
 from loki_tools.grid import GridSpec
 
 # ---- Project-default paths (adjust if your layout changes) ----
@@ -17,43 +17,11 @@ DEFAULT_NLL_MODEL_DIR = Path('nll/model')
 DEFAULT_NLL_TIME_DIR = Path('nll/time')
 
 
-def _require_columns(df: pd.DataFrame, cols: Iterable[str]) -> None:
-	missing = [c for c in cols if c not in df.columns]
-	if missing:
-		raise ValueError(f'missing required columns in stations_df: {missing}')
-
-
 def _validate_grid(grid: GridSpec) -> None:
 	if grid.nx <= 0 or grid.ny <= 0 or grid.nz <= 0:
 		raise ValueError('nx, ny, nz must be positive')
 	if grid.dx_km <= 0 or grid.dy_km <= 0 or grid.dz_km <= 0:
 		raise ValueError('dx_km, dy_km, dz_km must be positive')
-
-
-def _station_rows_unique(stations_df: pd.DataFrame) -> pd.DataFrame:
-	"""Expect station-unique rows.
-	If duplicates exist, keep first to avoid ambiguous GTSRCE lines.
-	"""
-	_require_columns(stations_df, ['station', 'lat', 'lon'])
-
-	df = stations_df.copy()
-	if 'elevation_m' not in df.columns:
-		df['elevation_m'] = 0.0
-
-	df['lat'] = df['lat'].astype(float)
-	df['lon'] = df['lon'].astype(float)
-	df['elevation_m'] = df['elevation_m'].astype(float)
-
-	df = (
-		df.groupby('station', as_index=False)
-		.agg({'lat': 'first', 'lon': 'first', 'elevation_m': 'first'})
-		.sort_values('station')
-		.reset_index(drop=True)
-	)
-	if df.empty:
-		raise ValueError('stations_df is empty after station grouping')
-
-	return df
 
 
 def _format_trans_simple(grid: GridSpec) -> str:
@@ -89,7 +57,7 @@ def _format_gtsrce_lines(
 		encode station depth differently.
 
 	"""
-	df = _station_rows_unique(stations_df)
+	df = normalize_station_rows(stations_df, require_elevation=True)
 
 	lines: list[str] = []
 	for sta, lat, lon, elev_m in df[

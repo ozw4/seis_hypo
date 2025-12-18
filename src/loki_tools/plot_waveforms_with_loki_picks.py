@@ -1,3 +1,4 @@
+# %%
 #!/usr/bin/env python3
 # proc/loki_hypo/run_plot_waveforms_with_loki_picks.py
 #
@@ -13,6 +14,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from datetime import timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,8 +23,13 @@ import pandas as pd
 
 from common.core import load_event_json
 from io_util.stream import build_stream_from_downloaded_win32
+from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
 from viz.gather import (
 	plot_gather,  # ←あなたの plot_gather があるモジュールに合わせてimport先修正して
+)
+from waveform.preprocess import (
+	DetrendBandpassSpec,
+	preprocess_stream_detrend_bandpass,
 )
 
 
@@ -52,7 +59,7 @@ def _build_gather_matrix(
 	- data: (n_station, n_samples)
 	- stations: station keys (e.g., N.FUTH)
 	- fs: sampling rate [Hz] (float)
-	- t_start_utc: window start (datetime, UTC)
+	- t_start_utc: window start (datetime, UTC tz-aware)
 
 	"""
 	trs = []
@@ -65,11 +72,15 @@ def _build_gather_matrix(
 	if not trs:
 		raise ValueError(f'no traces for comp={comp}')
 
-	# 基本、全トレース同じfs/長さ/開始時刻の前提（build_stream側で揃えてる想定）
 	fs = float(trs[0][1].stats.sampling_rate)
-	t_start_utc = trs[0][1].stats.starttime.datetime  # UTC
 
-	# 長さを揃える（最短に合わせて切る：描画目的なので厳密さ優先）
+	# ObsPy は naive datetime を返しがちなので UTC tz-aware に統一
+	t0 = trs[0][1].stats.starttime.datetime
+	if t0.tzinfo is None:
+		t_start_utc = t0.replace(tzinfo=timezone.utc)
+	else:
+		t_start_utc = t0.astimezone(timezone.utc)
+
 	n = min(int(t.stats.npts) for _, t in trs)
 	stations = [sta for sta, _ in trs]
 	data = np.vstack([t.data[:n].astype(np.float32, copy=False) for _, t in trs])
@@ -91,8 +102,8 @@ def _picks_to_sample_idx(
 	for i, sta in enumerate(stations):
 		if sta not in phs_df.index:
 			continue
-		tp = phs_df.loc[sta, 'tp_utc']
-		ts = phs_df.loc[sta, 'ts_utc']
+		tp = phs_df.loc[sta, 'tp']
+		ts = phs_df.loc[sta, 'ts']
 
 		# pandas Timestamp -> python datetime (UTC aware)
 		tp_dt = tp.to_pydatetime()
@@ -105,15 +116,13 @@ def _picks_to_sample_idx(
 
 
 def main() -> None:
-	_setup_syspath()
-
 	# =========================
 	# 直書き設定
 	# =========================
 	event_id = '3163344'
 
 	base_input_dir = Path('/workspace/data/waveform')
-	loki_output_dir = Path('/workspace/proc/loki_hypo/loki_output_mobara')
+	loki_output_dir = Path('/workspace/proc/loki_hypo/loki_output_mobara_w_preprocess')
 	header_path = Path('/workspace/proc/loki_hypo/mobara_traveltime/db/header.hdr')
 
 	base_sampling_rate_hz = 100
@@ -138,6 +147,12 @@ def main() -> None:
 		base_sampling_rate_hz=base_sampling_rate_hz,
 		components_order=components_order,
 	)
+	pre_spec = DetrendBandpassSpec()
+	preprocess_stream_detrend_bandpass(
+		st,
+		spec=pre_spec,
+		fs_expected=float(base_sampling_rate_hz),
+	)
 
 	# event_time（相対表示の0基準）
 	ev = load_event_json(event_dir)
@@ -151,14 +166,14 @@ def main() -> None:
 	event_time_utc = pd.to_datetime(origin_jst).tz_convert('UTC').to_pydatetime()
 
 	# header stations（並び替え用）
-	stations_df = _parse_header_stations(header_path)
+	stations_df = parse_loki_header(header_path).stations_df
 
 	# .phs 読み
 	ev_out_dir = loki_output_dir / str(event_id)
 	phs_paths = sorted(ev_out_dir.glob('*trial0.phs'))
 	if not phs_paths:
 		raise FileNotFoundError(f'no *trial0.phs under: {ev_out_dir}')
-	phs_df = _parse_phs_absolute_times(phs_paths[0])
+	phs_df = parse_phs_absolute_times(phs_paths[0])
 
 	for comp in plot_components:
 		data, stations, fs, t_start_utc = _build_gather_matrix(st, comp=comp)
@@ -177,7 +192,7 @@ def main() -> None:
 				columns={'station': 'station', 'lat': 'lat', 'lon': 'lon'}
 			),
 			scaling='zscore',
-			amp=4.0,
+			amp=1.0,
 			title=title,
 			p_idx=p_idx,
 			s_idx=s_idx,
