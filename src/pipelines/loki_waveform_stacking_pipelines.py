@@ -14,6 +14,19 @@ from common.config import (
 from io_util.stream import build_stream_from_downloaded_win32
 from waveform.preprocess import DetrendBandpassSpec, preprocess_stream_detrend_bandpass
 
+_DEFAULT_PRE = {
+	'pre_detrend': 'linear',
+	'pre_fstop_lo': 0.5,
+	'pre_fpass_lo': 1.0,
+	'pre_fpass_hi': 20.0,
+	'pre_fstop_hi': 30.0,
+	'pre_gpass': 1.0,
+	'pre_gstop': 40.0,
+	'pre_mad_scale': False,
+	'pre_mad_eps': 1.0,
+	'pre_mad_c': 6.0,
+}
+
 _PRE_KEYS = {
 	'pre_enable',
 	'pre_detrend',
@@ -53,15 +66,18 @@ def pipeline_loki_waveform_stacking(
 	event_dirs = _list_event_dirs(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
-	# 前処理specは inputs から作る（yaml管理）
+	# 前処理specは inputs から作る（yaml管理）。属性が無い場合はデフォルト値を使用。
 	pre_spec = DetrendBandpassSpec(
-		detrend=inputs.pre_detrend,
-		fstop_lo=inputs.pre_fstop_lo,
-		fpass_lo=inputs.pre_fpass_lo,
-		fpass_hi=inputs.pre_fpass_hi,
-		fstop_hi=inputs.pre_fstop_hi,
-		gpass=inputs.pre_gpass,
-		gstop=inputs.pre_gstop,
+		detrend=getattr(inputs, 'pre_detrend', _DEFAULT_PRE['pre_detrend']),
+		fstop_lo=getattr(inputs, 'pre_fstop_lo', _DEFAULT_PRE['pre_fstop_lo']),
+		fpass_lo=getattr(inputs, 'pre_fpass_lo', _DEFAULT_PRE['pre_fpass_lo']),
+		fpass_hi=getattr(inputs, 'pre_fpass_hi', _DEFAULT_PRE['pre_fpass_hi']),
+		fstop_hi=getattr(inputs, 'pre_fstop_hi', _DEFAULT_PRE['pre_fstop_hi']),
+		gpass=getattr(inputs, 'pre_gpass', _DEFAULT_PRE['pre_gpass']),
+		gstop=getattr(inputs, 'pre_gstop', _DEFAULT_PRE['pre_gstop']),
+		mad_scale=bool(getattr(inputs, 'pre_mad_scale', _DEFAULT_PRE['pre_mad_scale'])),
+		mad_eps=float(getattr(inputs, 'pre_mad_eps', _DEFAULT_PRE['pre_mad_eps'])),
+		mad_c=float(getattr(inputs, 'pre_mad_c', _DEFAULT_PRE['pre_mad_c'])),
 	)
 	fs_expected = float(inputs.base_sampling_rate_hz)
 

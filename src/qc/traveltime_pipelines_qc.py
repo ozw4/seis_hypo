@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 # 既存の import パスは適当に直してOK
-from common.config import QcConfig
+from common.config import DEFAULT_NLL_RUN_DIR, QcConfig
 from common.geo import latlon_to_local_xy_km
 
 
@@ -35,10 +35,13 @@ def resolve_qc_and_tt_paths(
 	- Grid2Time出力QCの out_dir:
 		<QCベース>/traveltime_tables
 	"""
-	run_dir = Path(cfg.nll_run_dir)
+	run_dir = Path(cfg.output_dir) / DEFAULT_NLL_RUN_DIR
 	qc_base = run_dir.parent / 'qc' / preset
 
-	new_cfg = replace(cfg, fig_dir=qc_base)
+	if cfg.fig_dir is None:
+		new_cfg = replace(cfg, fig_dir=qc_base)
+	else:
+		new_cfg = cfg
 
 	model = cfg.model_label
 	control_p = run_dir / f'{model}_P.in'

@@ -423,13 +423,33 @@ def parse_phs_absolute_times(phs_path: Path, *, tz: str = 'utc') -> pd.DataFrame
 			return pd.Timestamp(ts)
 		return pd.Timestamp(ts.tz_convert('UTC').tz_localize(None))
 
-	rows: list[dict] = []
+	# Collect all picks per station to resolve duplicates deterministically.
+	per_sta: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]] = {}
 	for sta, p_tok, s_tok in _iter_phs_tokens(phs_path):
-		tp = _parse_token(p_tok)
-		ts = _parse_token(s_tok)
-		rows.append({'station': sta, 'tp': tp, 'ts': ts})
+		try:
+			tp = _parse_token(p_tok)
+			ts = _parse_token(s_tok)
+		except ValueError:
+			# skip malformed rows; robust to partial data
+			continue
+		if pd.isna(tp) or pd.isna(ts):
+			continue
+		per_sta.setdefault(sta, []).append((tp, ts))
+
+	rows: list[dict] = []
+	for sta, pairs in per_sta.items():
+		if not pairs:
+			continue
+		# pick earliest tp/ts
+		tp_vals = [p for p, _ in pairs if not pd.isna(p)]
+		ts_vals = [s for _, s in pairs if not pd.isna(s)]
+		if not tp_vals or not ts_vals:
+			continue
+		tp_min = min(tp_vals)
+		ts_min = min(ts_vals)
+		rows.append({'station': sta, 'tp': tp_min, 'ts': ts_min})
 
 	if not rows:
-		raise ValueError(f'no phs rows parsed: {phs_path}')
+		raise ValueError(f'no valid rows in phs: {phs_path}')
 
 	return pd.DataFrame(rows)

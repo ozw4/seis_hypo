@@ -37,6 +37,7 @@ Thumbs.db
 *.phs
 *.loc
 *.eps
+*.patch
 catalogue
 
 data/

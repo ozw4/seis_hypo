@@ -166,15 +166,16 @@ def resolve_qc_config_fig_dir(cfg: QcConfig, preset_name: str) -> QcConfig:
 	"""QC の fig_dir を自動決定する。
 
 	ルール:
-		<run_dir の親>/qc/<preset 名>
+		(<output_dir>/DEFAULT_NLL_RUN_DIR の親)/qc/<preset 名>
 
 	例:
-		nll_run_dir = "nll/run"
-		-> fig_dir = "nll/qc/mobara"
+		output_dir = "/tmp/out"
+		DEFAULT_NLL_RUN_DIR = "nll/run"
+		-> fig_dir = "/tmp/out/nll/qc/mobara"
 	"""
 	if cfg.fig_dir is not None:
 		return cfg
 
-	run_parent = Path(cfg.nll_run_dir).parent
+	run_parent = (Path(cfg.output_dir) / DEFAULT_NLL_RUN_DIR).parent
 	fig_dir = run_parent / 'qc' / preset_name
 	return replace(cfg, fig_dir=fig_dir)
