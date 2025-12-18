@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from netrc import netrc
 from pathlib import Path
 
@@ -19,44 +18,14 @@ import pandas as pd
 from HinetPy import Client
 
 from catalog.selection import extract_events_in_region
+from common.config import PrepareEventsConfig
 from common.load_config import load_config
+from jma.download import download_win_for_event
 from jma.station_reader import stations_within_radius
 
 # あなたの環境に合わせて書き換えればOK
 YAML_PATH = Path('/workspace/data/config/prepare_events.yaml')
 PRESET = 'mobara'
-
-
-@dataclass(frozen=True)
-class PrepareEventsConfig:
-	# カタログとイベント出力
-	catalog_csv: Path
-	base_input_dir: Path = Path('proc/inputs/events')
-
-	# Hi-net
-	network_code: str = '0101'
-	fs: float = 100.0
-	pre_sec: int = 20
-	post_sec: int = 120
-	hinet_threads: int = 8
-
-	# 観測点選択（局配置）
-	station_site_lat: float = 0.0
-	station_site_lon: float = 0.0
-	station_radius_km: float = 50.0
-
-	# イベント選択（期間・マグ・震央距離）
-	start_time: str | None = None
-	end_time: str | None = None
-	min_mag: float | None = None
-	max_mag: float | None = None
-	event_radius_km: float | None = None
-
-	# 上限
-	max_events: int | None = None
-
-	# 任意メタ
-	config_name: str | None = None
 
 
 def create_hinet_client() -> Client:
@@ -123,23 +92,25 @@ def main() -> None:
 		event_id = int(event_row['event_id'])
 		print(f'prepare event_id={event_id}')
 
-		event_dir, stream, t_start, t_end = prepare_single_event(
-			event_row,
-			client=client,
+		event_dir, cnt_paths, ch_path = download_win_for_event(
+			client,
 			station_list=station_list,
-			base_input_dir=base_input_dir,
+			event_row=event_row,
+			base_input_dir=cfg.base_input_dir,
 			network_code=cfg.network_code,
 			pre_sec=cfg.pre_sec,
 			post_sec=cfg.post_sec,
-			base_sampling_rate_HZ=int(cfg.fs),
+			span_min_default=1,
+			threads=cfg.hinet_threads,
+			save_catalog_fields=True,
 		)
 
+		print(f'  event_dir: {event_dir}')
 		print(
-			f'  event_dir={event_dir}, '
-			f'n_traces={len(stream)}, '
-			f't_start={t_start.isoformat()}, '
-			f't_end={t_end.isoformat()}'
+			f'  cnt_files: {len(cnt_paths)} (first={cnt_paths[0].name if cnt_paths else "N/A"})'
 		)
+		print(f'  ch_file: {ch_path.name}')
+		print('  done')
 
 
 if __name__ == '__main__':

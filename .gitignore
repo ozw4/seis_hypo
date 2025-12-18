@@ -34,6 +34,11 @@ Thumbs.db
 *.buf
 *.in
 *.txt
+*.phs
+*.loc
+*.eps
+catalogue
+
 data/
 result/
 debug_*/

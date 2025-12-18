@@ -1,5 +1,9 @@
-# %%
-# 依存: read_hinet_channel_table() を同一モジュール or import 済みとして使います
+# pasted.txt の plot_events_map_and_sections を「リンク線」対応に拡張した完全版
+# - extras_lld: (lon,lat,depth) の点群を XY/XZ/YZ に重ねる
+# - links_lld: 対応点ペアを線で結ぶ（XY/XZ/YZ すべて）
+#
+# 元の関数（extras_xyのみ）を置き換えてOK :contentReference[oaicite:0]{index=0}
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,7 +19,6 @@ from shapely.geometry import Point
 def plot_events_map_and_sections(
 	df: pd.DataFrame,
 	*,
-	prefecture_shp: str | Path,
 	out_png: str | Path | None = None,
 	mag_col: str | None = 'mag1',
 	depth_col: str = 'depth_km',
@@ -32,6 +35,10 @@ def plot_events_map_and_sections(
 	fontsize: int = 8,
 	markersize: int = 8,
 	extras_xy: list[dict] | None = None,
+	extras_lld: list[dict] | None = None,
+	links_lld: list[dict] | None = None,
+	prefecture_shp: str
+	| Path = '/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 ) -> None:
 	prefecture_shp = Path(prefecture_shp)
 
@@ -172,6 +179,26 @@ def plot_events_map_and_sections(
 			}
 			extras_xy_items.append((lons, lats, style))
 
+	# ---- extras_lld の整理(XY/XZ/YZ 用)----
+	extras_lld_items: list[tuple[np.ndarray, np.ndarray, np.ndarray, dict]] = []
+	if extras_lld:
+		for item in extras_lld:
+			lld = item.get('lld', [])
+			if not lld:
+				continue
+			lons = np.array([float(p[0]) for p in lld], float)
+			lats = np.array([float(p[1]) for p in lld], float)
+			deps = np.array([float(p[2]) for p in lld], float)
+			style = {
+				'label': item.get('label', 'Extra'),
+				'marker': item.get('marker', 'X'),
+				'color': item.get('color', 'black'),
+				'size': item.get('size', 40.0),
+				'annotate': bool(item.get('annotate', False)),
+				'names': item.get('names'),
+			}
+			extras_lld_items.append((lons, lats, deps, style))
+
 	extras_handles: list = []
 	extras_labels: list[str] = []
 
@@ -209,7 +236,13 @@ def plot_events_map_and_sections(
 		label='Pref.',
 	)
 
-	if has_mag and cmap is not None and norm is not None and sizes is not None:
+	if (
+		has_mag
+		and cmap is not None
+		and norm is not None
+		and sizes is not None
+		and mag_col is not None
+	):
 		gdf_mag = gdf[gdf[mag_col].notna()].copy()
 		size_xy = sizes[gdf_mag.index.to_numpy()]
 		gdf_mag.plot(
@@ -237,8 +270,42 @@ def plot_events_map_and_sections(
 			label='Event',
 		)
 
-	# ---- XY extras ----
+	# ---- XY extras_xy ----
 	for lons, lats, st in extras_xy_items:
+		h_extra = ax_xy.scatter(
+			lons,
+			lats,
+			marker=st['marker'],
+			s=float(st['size']),
+			c=st['color'],
+			edgecolors='k',
+			linewidths=0.4,
+			alpha=0.9,
+			zorder=3,
+			label=st['label'],
+		)
+		extras_handles.append(h_extra)
+		extras_labels.append(st['label'])
+
+		if st['annotate']:
+			names = st['names']
+			if names is None:
+				names = [f'{st["label"]}_{i + 1}' for i in range(len(lons))]
+			for lon_v, lat_v, name in zip(lons, lats, names, strict=False):
+				ax_xy.text(
+					lon_v,
+					lat_v,
+					str(name),
+					ha='left',
+					va='bottom',
+					fontsize=fontsize,
+					color=st['color'],
+					bbox=dict(facecolor='white', edgecolor='none', pad=0.4),
+					zorder=4,
+				)
+
+	# ---- XY extras_lld（点）----
+	for lons, lats, deps, st in extras_lld_items:
 		h_extra = ax_xy.scatter(
 			lons,
 			lats,
@@ -277,7 +344,13 @@ def plot_events_map_and_sections(
 	ax_xy.set_aspect('auto')
 
 	# ---- XZ ----
-	if has_mag and cmap is not None and norm is not None and sizes is not None:
+	if (
+		has_mag
+		and cmap is not None
+		and norm is not None
+		and sizes is not None
+		and mag_col is not None
+	):
 		ax_xz.scatter(
 			df[lon_col],
 			df[depth_col],
@@ -299,13 +372,33 @@ def plot_events_map_and_sections(
 			linewidths=0.1,
 			alpha=0.5,
 		)
+
+	for lons, lats, deps, st in extras_lld_items:
+		ax_xz.scatter(
+			lons,
+			deps,
+			marker=st['marker'],
+			s=float(st['size']),
+			c=st['color'],
+			edgecolors='k',
+			linewidths=0.4,
+			alpha=0.9,
+			zorder=3,
+		)
+
 	ax_xz.set_xlabel('Longitude', fontsize=fontsize + 2)
 	ax_xz.set_ylabel('Depth (km)', fontsize=fontsize + 2)
 	ax_xz.set_ylim(minz, maxz)
 	ax_xz.invert_yaxis()
 
 	# ---- YZ ----
-	if has_mag and cmap is not None and norm is not None and sizes is not None:
+	if (
+		has_mag
+		and cmap is not None
+		and norm is not None
+		and sizes is not None
+		and mag_col is not None
+	):
 		ax_yz.scatter(
 			df[depth_col],
 			df[lat_col],
@@ -327,6 +420,20 @@ def plot_events_map_and_sections(
 			linewidths=0.1,
 			alpha=0.5,
 		)
+
+	for lons, lats, deps, st in extras_lld_items:
+		ax_yz.scatter(
+			deps,
+			lats,
+			marker=st['marker'],
+			s=float(st['size']),
+			c=st['color'],
+			edgecolors='k',
+			linewidths=0.4,
+			alpha=0.9,
+			zorder=3,
+		)
+
 	ax_yz.set_xlabel('Depth (km)', fontsize=fontsize + 2)
 	ax_yz.set_xlim(minz, maxz)
 
@@ -336,7 +443,68 @@ def plot_events_map_and_sections(
 	ax_xz.set_xlim(lon_min, lon_max)
 	ax_yz.set_ylim(lat_min, lat_max)
 
-	# ---- カラーバー + サイズ凡例 + extras 凡例 ----
+	_xy_xlim = ax_xy.get_xlim()
+	_xy_ylim = ax_xy.get_ylim()
+	_xz_xlim = ax_xz.get_xlim()
+	_xz_ylim = ax_xz.get_ylim()
+	_yz_xlim = ax_yz.get_xlim()
+	_yz_ylim = ax_yz.get_ylim()
+
+	ax_xy.set_autoscale_on(False)
+	ax_xz.set_autoscale_on(False)
+	ax_yz.set_autoscale_on(False)
+
+	if links_lld:
+		for item in links_lld:
+			pairs = item.get('pairs', [])
+			if not pairs:
+				continue
+
+			color = item.get('color', 'black')
+			lw = float(item.get('linewidth', 0.6))
+			alpha = float(item.get('alpha', 0.35))
+			label = item.get('label', None)
+
+			first = True
+			for (lon1, lat1, dep1), (lon2, lat2, dep2) in pairs:
+				lbl = label if (label is not None and first) else None
+				first = False
+
+				ax_xy.plot(
+					[float(lon1), float(lon2)],
+					[float(lat1), float(lat2)],
+					color=color,
+					linewidth=lw,
+					alpha=alpha,
+					label=lbl,
+					zorder=2.6,
+				)
+				ax_xz.plot(
+					[float(lon1), float(lon2)],
+					[float(dep1), float(dep2)],
+					color=color,
+					linewidth=lw,
+					alpha=alpha,
+					zorder=2.6,
+				)
+				ax_yz.plot(
+					[float(dep1), float(dep2)],
+					[float(lat1), float(lat2)],
+					color=color,
+					linewidth=lw,
+					alpha=alpha,
+					zorder=2.6,
+				)
+
+	# ★追加: 表示範囲を必ず元に戻す（これで“点が動く”見え方が消える）
+	ax_xy.set_xlim(_xy_xlim)
+	ax_xy.set_ylim(_xy_ylim)
+	ax_xz.set_xlim(_xz_xlim)
+	ax_xz.set_ylim(_xz_ylim)
+	ax_yz.set_xlim(_yz_xlim)
+	ax_yz.set_ylim(_yz_ylim)
+
+	# ---- カラーバー + サイズ凡例 + extras/links 凡例 ----
 	if has_mag and cmap is not None and norm is not None and sizes is not None:
 		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 		sm.set_array([])
@@ -351,19 +519,24 @@ def plot_events_map_and_sections(
 		cbar.set_label('magnitude')
 
 		mag_samples = np.array([0.0, 3.0, 5.0, 7.0])
+		mag_vmin = float(norm.vmin)
+		mag_vmax = float(norm.vmax)
+
+		size_min = max(0.1, float(markersize) * 0.1)
+		size_max = float(markersize) * 9.0
+
 		m_clip_leg = np.clip(mag_samples, mag_vmin, mag_vmax)
-		norm_mag_leg = (m_clip_leg - mag_vmin) / (mag_vmax - mag_vmin)
+		norm_mag_leg = (
+			(m_clip_leg - mag_vmin) / (mag_vmax - mag_vmin)
+			if mag_vmax > mag_vmin
+			else np.zeros_like(m_clip_leg)
+		)
 		size_leg = size_min + norm_mag_leg * (size_max - size_min)
 
 		handles = []
 		for s_ in size_leg:
 			h = ax_xy.scatter(
-				[],
-				[],
-				s=s_,
-				edgecolors='k',
-				facecolors='none',
-				linewidths=0.8,
+				[], [], s=s_, edgecolors='k', facecolors='none', linewidths=0.8
 			)
 			handles.append(h)
 		labels = [f'M {m:g}' for m in mag_samples]
@@ -371,8 +544,8 @@ def plot_events_map_and_sections(
 		all_handles = handles
 		all_labels = labels
 		if extras_handles:
-			all_handles = handles + extras_handles
-			all_labels = labels + extras_labels
+			all_handles = all_handles + extras_handles
+			all_labels = all_labels + extras_labels
 
 		ax_xy.legend(
 			all_handles,
@@ -405,20 +578,18 @@ def plot_events_map_and_sections(
 		else:
 			title_time = f'until {pd.to_datetime(end_time)}'
 		fig.suptitle(
-			f'Earthquake Events {title_time}',
-			fontsize=fontsize + 2,
-			y=title_y,
+			f'Earthquake Events {title_time}', fontsize=fontsize + 2, y=title_y
 		)
 	else:
-		fig.suptitle(
-			'Earthquake Events',
-			fontsize=fontsize + 2,
-			y=title_y,
-		)
+		fig.suptitle('Earthquake Events', fontsize=fontsize + 2, y=title_y)
 
-	fig.tight_layout(
-		rect=[0.02, 0.02, 0.98, 0.96],
-		pad=0.2,
-	)
+	fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96], pad=0.2)
+
 	if out_png is not None:
+		out_png = Path(out_png)
+		out_png.parent.mkdir(parents=True, exist_ok=True)
 		fig.savefig(out_png, dpi=300, bbox_inches='tight')
+	else:
+		plt.show()
+
+	plt.close(fig)

@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from obspy import UTCDateTime
 
+from common.core import slice_with_pad
 from common.time_util import floor_minute
 from jma.station_reader import read_hinet_channel_table
 
@@ -451,24 +452,6 @@ def compute_event_time_window(
 		msg = 't_end must be later than t_start'
 		raise ValueError(msg)
 	return t_start, t_end
-
-
-def slice_with_pad(
-	x: np.ndarray,
-	start_idx: int,
-	end_idx: int,
-) -> np.ndarray:
-	"""x: (..., nt_total)。最後の軸について [start_idx:end_idx) を0パディングで安全に抜く。"""
-	nt = x.shape[-1]
-	length = max(0, end_idx - start_idx)
-	out_shape = x.shape[:-1] + (length,)
-	y = np.zeros(out_shape, dtype=x.dtype)
-	s0 = max(0, start_idx)
-	e0 = min(nt, end_idx)
-	if e0 > s0:
-		d0 = max(0, -start_idx)
-		y[..., d0 : d0 + (e0 - s0)] = x[..., s0:e0]
-	return y
 
 
 def read_event_win32_window_as_array(

@@ -1,0 +1,157 @@
+# file: proc/loki_hypo/compare_df.py
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from common.core import load_event_json
+from common.geo import haversine_distance_km, local_xy_km_to_latlon
+from loki_tools.loki_parse import (
+	list_event_dirs,
+	parse_header_origin,
+	parse_loki_event_dir,
+)
+
+
+def load_jma_event_jsons(
+	base_input_dir: Path, event_glob: str = '[0-9]*'
+) -> pd.DataFrame:
+	if not base_input_dir.is_dir():
+		raise FileNotFoundError(f'base_input_dir not found: {base_input_dir}')
+
+	rows: list[dict] = []
+	for evdir in sorted([p for p in base_input_dir.glob(event_glob) if p.is_dir()]):
+		ev = load_event_json(evdir)
+
+		event_id = str(ev.get('event_id', evdir.name))
+
+		# 時刻キーは運用で揺れてOK（origin_time_jst を優先）
+		origin_time = ev.get('origin_time_jst', None)
+		if origin_time is None:
+			origin_time = ev.get('origin_time', None)
+
+		# 震源情報はトップ or ev["extra"] のどっちでも受ける
+		lat = ev.get('latitude_deg', None)
+		lon = ev.get('longitude_deg', None)
+		dep = ev.get('depth_km', None)
+
+		# マグ（任意）: top / extra のどちらでも拾う。無ければ NaN
+		mag = ev.get('mag1', None)
+
+		extra = ev.get('extra', None)
+		if isinstance(extra, dict):
+			if lat is None:
+				lat = extra.get('latitude_deg', None)
+			if lon is None:
+				lon = extra.get('longitude_deg', None)
+			if dep is None:
+				dep = extra.get('depth_km', None)
+			if mag is None:
+				mag = extra.get('mag1', None)
+
+		if origin_time is None or lat is None or lon is None or dep is None:
+			raise ValueError(
+				f'event.json missing required keys: {evdir / "event.json"} '
+				f'(need origin_time[_jst], latitude_deg, longitude_deg, depth_km; '
+				f'lat/lon/dep may be under extra)'
+			)
+
+		rows.append(
+			{
+				'event_id': event_id,
+				'origin_time_jma': str(origin_time),
+				'lat_jma': float(lat),
+				'lon_jma': float(lon),
+				'depth_km_jma': float(dep),
+				'mag_jma': np.nan if mag is None else float(mag),
+			}
+		)
+
+	df = pd.DataFrame(rows)
+	df['origin_time_jma'] = pd.to_datetime(df['origin_time_jma'])
+	return df
+
+
+def load_loki_loc_by_event_id(
+	loki_output_dir: Path, event_glob: str = '[0-9]*'
+) -> pd.DataFrame:
+	evdirs = list_event_dirs(loki_output_dir, event_glob=event_glob)
+	if not evdirs:
+		raise ValueError(f"no event dirs in {loki_output_dir} with glob '{event_glob}'")
+
+	rows: list[dict] = []
+	for evdir in evdirs:
+		res = parse_loki_event_dir(evdir)
+
+		# ntrial==1 前提（厳密）
+		if len(res.loc_rows) != 1:
+			raise ValueError(
+				f'.loc must have exactly 1 row for now: {res.loc_path} rows={len(res.loc_rows)}'
+			)
+
+		r = res.loc_rows[0]
+		rows.append(
+			{
+				'event_id': res.event_name,
+				'x_km_loki': float(r.x_km),
+				'y_km_loki': float(r.y_km),
+				'z_km_loki': float(r.z_km),
+				'cmax': float(r.cmax),
+				'loc_path': str(res.loc_path),
+			}
+		)
+
+	return pd.DataFrame(rows)
+
+
+def build_compare_df(
+	*,
+	base_input_dir: str | Path,
+	loki_output_dir: str | Path,
+	header_path: str | Path,
+	event_glob: str = '[0-9]*',
+) -> pd.DataFrame:
+	base_input_dir = Path(base_input_dir)
+	loki_output_dir = Path(loki_output_dir)
+	header_path = Path(header_path)
+
+	jma = load_jma_event_jsons(base_input_dir, event_glob=event_glob)
+	loki = load_loki_loc_by_event_id(loki_output_dir, event_glob=event_glob)
+
+	origin = parse_header_origin(header_path)
+
+	# LOKIのx/y[km]が「lat0/lon0基準」のローカルXY前提なので、geoの逆変換を使う
+	x = (loki['x_km_loki'].to_numpy(float)).astype(float)
+	y = (loki['y_km_loki'].to_numpy(float)).astype(float)
+	lat_arr, lon_arr = local_xy_km_to_latlon(
+		x, y, lat0_deg=origin.lat0_deg, lon0_deg=origin.lon0_deg
+	)
+	loki['lat_loki'] = lat_arr
+	loki['lon_loki'] = lon_arr
+
+	df = jma.merge(loki, on='event_id', how='inner')
+	if df.empty:
+		raise ValueError('no matched events between JMA and LOKI (event_id mismatch?)')
+
+	# haversine_distance_km は「基準点→点群」仕様なので、ペア距離は行ごとに計算（厳密優先）
+	dh: list[float] = []
+	for r in df.itertuples(index=False):
+		d = haversine_distance_km(
+			float(r.lat_jma),
+			float(r.lon_jma),
+			np.asarray([float(r.lat_loki)]),
+			np.asarray([float(r.lon_loki)]),
+		)[0]
+		dh.append(float(d))
+	df['dh_km'] = dh
+
+	df['dz_km'] = df['z_km_loki'] - df['depth_km_jma']
+
+	# リンク線生成に便利な列（plot側で pairs 作りやすい）
+	df['lon_loki_from_xy'] = df['lon_loki']
+	df['lat_loki_from_xy'] = df['lat_loki']
+	df['dep_loki_km'] = df['z_km_loki']
+
+	return df

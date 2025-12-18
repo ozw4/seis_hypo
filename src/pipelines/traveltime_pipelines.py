@@ -6,6 +6,13 @@ from subprocess import run
 
 import pandas as pd
 
+from common.config import (
+	DEFAULT_LAYERS_OUT,
+	DEFAULT_LOKI_HEADER_OUT,
+	DEFAULT_NLL_MODEL_DIR,
+	DEFAULT_NLL_RUN_DIR,
+	TravelTimeBaseConfig,
+)
 from jma.station_reader import stations_within_radius
 from loki_tools.grid import GridSpec, propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
@@ -20,20 +27,26 @@ class TravelTimePipelineResult:
 	loki_header_path: Path
 	control_p_path: Path
 	control_s_path: Path
+	loki_db_dir: Path
 
 
-def run_traveltime_pipeline(cfg: TravelTimePipelineConfig) -> TravelTimePipelineResult:
-	"""1) 半径条件で station rows 抽出
-	2) station 分布から LOKI用グリッド提案（center_mode='fixed' を推奨）
-	3) LOKI header.hdr 作成
-	4) 1D速度ファイル -> NonLinLoc LAYER ファイル生成
-	5) NonLinLoc control(P/S) 自動生成
-	6) Vel2Grid / Grid2Time を P→S の順に実行
+def run_traveltime_pipeline(cfg: TravelTimeBaseConfig) -> TravelTimePipelineResult:
+	out_root = Path(cfg.output_dir)
+	out_root.mkdir(parents=True, exist_ok=True)
 
-	事前条件:
-	- Vel2Grid と Grid2Time が PATH 上にあること
-	- 上記 import 先の各ユーティリティがプロジェクトに配置済みであること
-	"""
+	# 出力先を output_dir / DEFAULT_* に統一
+	nll_run_dir = out_root / DEFAULT_NLL_RUN_DIR
+	nll_model_dir = out_root / DEFAULT_NLL_MODEL_DIR
+	db_dir = out_root / DEFAULT_LOKI_HEADER_OUT.parent
+
+	for d in (
+		nll_run_dir,
+		nll_model_dir,
+		db_dir,
+		(out_root / DEFAULT_LAYERS_OUT).parent,
+	):
+		d.mkdir(parents=True, exist_ok=True)
+
 	# --- 1) station rows ---
 	stations_df = stations_within_radius(
 		cfg.center_lat,
@@ -42,6 +55,14 @@ def run_traveltime_pipeline(cfg: TravelTimePipelineConfig) -> TravelTimePipeline
 		cfg.channel_table_path,
 		output='rows',
 	)
+	# stations_within_radius may return: list[str] | DataFrame | (list[str], DataFrame)
+	# Normalize to a pandas.DataFrame so type checkers and downstream code are satisfied.
+	if isinstance(stations_df, tuple):
+		# (list[str], DataFrame) -> take the DataFrame
+		_, stations_df = stations_df
+	if isinstance(stations_df, list):
+		# list[str] -> convert to a DataFrame with a single 'station' column
+		stations_df = pd.DataFrame({'station': stations_df})
 
 	# --- 2) grid proposal ---
 	grid = propose_grid_from_stations(
@@ -57,42 +78,43 @@ def run_traveltime_pipeline(cfg: TravelTimePipelineConfig) -> TravelTimePipeline
 		lon0_deg=cfg.center_lon if cfg.center_mode == 'fixed' else None,
 	)
 
-	# --- 3) LOKI header ---
+	# --- 3) LOKI header ---（output_dir/db/header.hdr 固定）
 	loki_header_path = write_loki_header(
 		grid,
 		stations_df,
-		out_path=cfg.loki_header_out,
+		out_path=out_root / DEFAULT_LOKI_HEADER_OUT,
 	)
 
-	# --- 4) 1Dvel -> LAYER ---
+	# --- 4) 1Dvel -> LAYER ---（output_dir/velocity/... 固定）
+	layers_out = out_root / DEFAULT_LAYERS_OUT
 	layers_path = Path(
 		convert_1dvel_to_nll_layers(
 			src=Path(cfg.vel1d_src),
-			out=Path(cfg.layers_out),
+			out=layers_out,
 			strict=cfg.strict_1dvel,
 		)
 	)
 
 	# --- 5) control files (P/S) ---
+	# ★根本：LOKIのjoin前提に合わせて、.time.buf 出力先(gtout_dir)を db_dir に統一する
+	#    => header.hdr と .time.buf が同じ output_dir/db に同居
 	control_p_path, control_s_path = write_nll_control_files_ps(
 		grid,
 		stations_df,
 		model_label=cfg.model_label,
 		layers_path=layers_path,
-		run_dir=Path(cfg.nll_run_dir),
-		vgout_dir=Path(cfg.nll_model_dir),
-		gtout_dir=Path(cfg.nll_time_dir),
+		run_dir=nll_run_dir,
+		vgout_dir=nll_model_dir,
+		gtout_dir=db_dir,  # ★ここが重要
 		quantity=cfg.quantity,
 		gtmode=cfg.gtmode,
 		depth_km_mode=cfg.depth_km_mode,
 	)
 
 	# --- 6) Execute NonLinLoc tools ---
-	# P
 	run(['Vel2Grid', str(control_p_path)], check=True)
 	run(['Grid2Time', str(control_p_path)], check=True)
 
-	# S
 	run(['Vel2Grid', str(control_s_path)], check=True)
 	run(['Grid2Time', str(control_s_path)], check=True)
 
@@ -103,18 +125,5 @@ def run_traveltime_pipeline(cfg: TravelTimePipelineConfig) -> TravelTimePipeline
 		loki_header_path=Path(loki_header_path),
 		control_p_path=Path(control_p_path),
 		control_s_path=Path(control_s_path),
+		loki_db_dir=db_dir,
 	)
-
-
-def run_traveltime_pipeline_default() -> TravelTimePipelineResult:
-	"""コード直書き運用のためのデフォルト実行関数。
-	必要ならここだけ座標や半径を変える。
-	"""
-	cfg = TravelTimePipelineConfig(
-		center_lat=35.0,
-		center_lon=138.0,
-		radius_km=80.0,
-		center_mode='fixed',
-		model_label='jma2001',
-	)
-	return run_traveltime_pipeline(cfg)

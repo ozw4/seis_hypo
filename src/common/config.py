@@ -2,22 +2,53 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
 
 # ---- Defaults (あなたの現状に合わせて適宜調整) ----
 DEFAULT_CHANNEL_TABLE = Path(
 	'/workspace/proc/util/hinet_util/hinet_channelstbl_20251007'
 )
 
+# 出力は output_dir / <DEFAULT_*> に展開される前提で「相対パス固定」
 DEFAULT_VEL1D_SRC = Path('velocity/vjma2001')
 DEFAULT_LAYERS_OUT = Path('velocity/jma2001.layers')
 
 DEFAULT_NLL_RUN_DIR = Path('nll/run')
 DEFAULT_NLL_MODEL_DIR = Path('nll/model')
-DEFAULT_NLL_TIME_DIR = Path('nll/time')
+DEFAULT_LOKI_HEADER_OUT = Path('db/header.hdr')  # 固定
 
-DEFAULT_LOKI_HEADER_OUT = Path('db/header.hdr')
 DEFAULT_QC_FIG_DIR = Path('qc')
+
+
+@dataclass(frozen=True)
+class PrepareEventsConfig:
+	# カタログとイベント出力
+	catalog_csv: Path
+	base_input_dir: Path = Path('proc/inputs/events')
+
+	# Hi-net
+	network_code: str = '0101'
+	fs: float = 100.0
+	pre_sec: int = 20
+	post_sec: int = 120
+	hinet_threads: int = 8
+
+	# 観測点選択（局配置）
+	station_site_lat: float = 0.0
+	station_site_lon: float = 0.0
+	station_radius_km: float = 50.0
+
+	# イベント選択（期間・マグ・震央距離）
+	start_time: str | None = None
+	end_time: str | None = None
+	min_mag: float | None = None
+	max_mag: float | None = None
+	event_radius_km: float | None = None
+
+	# 上限
+	max_events: int | None = None
+
+	# 任意メタ
+	config_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -26,49 +57,85 @@ class TravelTimeBaseConfig:
 	QCも本番パイプラインもここを継承して使う。
 	"""
 
-	# --- Station selection ---
+	# ★YAMLで指定するのはこれだけ（出力のルート）
+	output_dir: Path
+
+	# station / grid
 	center_lat: float
 	center_lon: float
 	radius_km: float
-	channel_table_path: Path = DEFAULT_CHANNEL_TABLE
+	channel_table_path: Path
 
-	# --- Grid proposal ---
-	dx_km: float = 1.0
-	dy_km: float = 1.0
-	dz_km: float = 1.0
-	pad_km: float = 10.0
-	z0_km: float = -5.0
-	zmax_km: float = 80.0
+	dx_km: float
+	dy_km: float
+	dz_km: float
+	pad_km: float
+	z0_km: float
+	zmax_km: float
+	center_mode: str
 
-	# ここを Base に上げておくと、
-	# 同じ traveltime_config.yaml を QC と本番で共用しやすい
-	center_mode: Literal['fixed', 'mean', 'median'] = 'fixed'
-
-	# --- 1D velocity -> NLL LAYER ---
-	vel1d_src: Path = DEFAULT_VEL1D_SRC
-	layers_out: Path = DEFAULT_LAYERS_OUT
+	# velocity input（入力なので絶対/任意パスでOK）
+	vel1d_src: Path
 	strict_1dvel: bool = False
 
-	# --- NonLinLoc outputs ---
+	# NLL/LOKI
 	model_label: str = 'jma2001'
-	nll_run_dir: Path = DEFAULT_NLL_RUN_DIR
-	nll_model_dir: Path = DEFAULT_NLL_MODEL_DIR
-	nll_time_dir: Path = DEFAULT_NLL_TIME_DIR
-
-	# --- NLL calc params (QCでも文字列生成までは使うので共通に置いてOK) ---
 	quantity: str = 'SLOW_LEN'
 	gtmode: str = 'GRID3D ANGLES_NO'
-	depth_km_mode: Literal['zero', 'from_elevation'] = 'zero'
-
-	# --- LOKI header output ---
-	loki_header_out: Path = DEFAULT_LOKI_HEADER_OUT
+	depth_km_mode: str = 'zero'
 
 
 @dataclass(frozen=True)
-class TravelTimePipelineConfig(TravelTimeBaseConfig):
-	"""本番のVel2Grid/Grid2Timeまで回すための設定。"""
+class LokiWaveformStackingInputs:
+	tshortp_min: float
+	tshortp_max: float
+	tshorts_min: float
+	tshorts_max: float
+	slrat: int
+	npr: int
+	ntrial: int
+	derivative: bool
+	vfunc: str
+	hfunc: str
+	model: str
+	epsilon: float
 
-	# center_mode は Base に移動したので追加フィールド不要
+	# Stream生成側で使う
+	base_sampling_rate_hz: int = 100
+
+	# 任意（LOKI側のフィルタ）
+	freq: tuple[float, ...] | None = None
+	opsf: bool = False
+
+
+@dataclass(frozen=True)
+class LokiWaveformStackingPipelineConfig:
+	# download_win_for_event が作ったイベントディレクトリ群（event.json + WIN32が入っている場所）
+	base_input_dir: Path
+	base_traveltime_dir: Path
+	# LOKIは data_path 配下の leaf dir をイベントとして列挙するので、ここに空dirを作る
+	loki_data_path: Path
+
+	# LOKIの出力先
+	loki_output_path: Path
+
+	# 走時表
+	loki_db_path: Path
+	loki_hdr_filename: str
+
+	# inputs yaml（preset式）
+	inputs_yaml: Path
+	inputs_preset: str = 'default'
+
+	# LOKI params
+	comp: tuple[str, ...] = ('U', 'N', 'E')  # ★決め打ち
+	precision: str = 'single'
+	search: str = 'classic'
+	extension: str = '*'
+
+	# イベント選別（必要なら）
+	event_glob: str = '[0-9]*'
+	max_events: int | None = None
 
 
 @dataclass(frozen=True)

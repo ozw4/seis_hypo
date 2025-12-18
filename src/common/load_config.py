@@ -10,24 +10,54 @@ T = TypeVar('T')
 
 
 def _ann_allows_path(ann: Any) -> bool:
-	"""フィールド注釈が Path を含むか判定する。
-
-	対応:
-	- Path
-	- Path | str
-	- str | Path
-	- Path | None
-	- Path | str | None
-	"""
+	"""フィールド注釈が Path を含むか判定する。"""
 	if ann is Path:
 		return True
-
 	origin = get_origin(ann)
 	if origin is None:
 		return False
+	return any(a is Path for a in get_args(ann))
 
-	args = get_args(ann)
-	return any(a is Path for a in args)
+
+def _render_templates(
+	params: dict[str, Any], *, max_passes: int | None = None
+) -> dict[str, Any]:
+	"""params内の str 値に対して {key} 形式のテンプレ展開を行う。
+	- 参照先は同じparamsのキー（展開後の値を使う）
+	- 未定義キー参照は KeyError で即失敗
+	- 無限ループ防止のため多段展開は最大N回（N=キー数）まで
+	- リテラルの { } は {{ }} としてエスケープ可能
+	"""
+	if max_passes is None:
+		max_passes = max(len(params), 1)
+
+	out = dict(params)
+	for _ in range(max_passes):
+		changed = False
+
+		# format_mapに渡す値は文字列化（Path等が混ざっても安全にする）
+		mapping = {k: (str(v) if v is not None else '') for k, v in out.items()}
+
+		for k, v in list(out.items()):
+			if not isinstance(v, str):
+				continue
+			if '{' not in v:
+				continue
+			try:
+				v2 = v.format_map(mapping)
+			except KeyError as e:
+				raise KeyError(
+					f"template key {e!s} is not defined (in field '{k}')"
+				) from e
+
+			if v2 != v:
+				out[k] = v2
+				changed = True
+
+		if not changed:
+			break
+
+	return out
 
 
 def load_config(
@@ -35,18 +65,7 @@ def load_config(
 	yaml_path: str | Path,
 	preset: str,
 ) -> T:
-	"""YAML の preset 定義から dataclass 設定を読み込む。
-
-	動作:
-	- YAML が存在することを確認
-	- トップレベル mapping を要求
-	- preset キーの存在を要求
-	- preset 値も mapping を要求
-	- dataclass の未知キーがあれば即エラー
-	- Path を含む注釈のフィールドは str -> Path に補正
-	  ※ from __future__ import annotations 対応のため
-	    get_type_hints(cls) で評価済み注釈を使用する
-	"""
+	"""YAML の preset 定義から dataclass 設定を読み込む（テンプレ展開対応）"""
 	if not is_dataclass(cls):
 		raise TypeError(f'{cls} is not a dataclass')
 
@@ -72,7 +91,9 @@ def load_config(
 	if unknown:
 		raise ValueError(f'プリセット "{preset}" に未知のキーがあります: {unknown}')
 
-	# ★ ここが肝
+	# ★追加: YAML内テンプレ {key} を展開
+	params = _render_templates(params)
+
 	type_hints = get_type_hints(cls)
 
 	kwargs: dict[str, Any] = {}

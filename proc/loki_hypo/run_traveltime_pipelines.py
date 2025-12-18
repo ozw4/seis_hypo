@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from common.config import TravelTimePipelineConfig
+from common.config import TravelTimeBaseConfig
 from common.load_config import load_config
 from pipelines.traveltime_pipelines import (
 	run_traveltime_pipeline,
@@ -15,7 +15,7 @@ PRESET = 'mobara'
 
 
 def main() -> None:
-	cfg = load_config(TravelTimePipelineConfig, YAML_PATH, PRESET)
+	cfg = load_config(TravelTimeBaseConfig, YAML_PATH, PRESET)
 	result = run_traveltime_pipeline(cfg)
 
 	print('TravelTime pipeline finished.')

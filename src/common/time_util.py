@@ -14,3 +14,6 @@ def minute_range(start: dt.datetime, end: dt.datetime) -> Iterator[dt.datetime]:
 	while cur <= last:
 		yield cur
 		cur += dt.timedelta(minutes=1)
+
+
+_JST_UTC_OFFSET_HOURS = 9
