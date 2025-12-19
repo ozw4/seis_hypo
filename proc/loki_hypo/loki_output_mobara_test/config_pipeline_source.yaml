@@ -1,15 +1,16 @@
 mobara:
   base_input_dir: /workspace/data/waveform
   base_traveltime_dir: /workspace/proc/loki_hypo/mobara_traveltime
-  loki_data_path: tmp
-  loki_output_path: loki_output_mobara_w_preprocess
+
+  loki_output_path: loki_output_mobara_test
+  loki_data_path: "{loki_output_path}/tmp"
   loki_db_path: "{base_traveltime_dir}/db"
   loki_hdr_filename: "header.hdr"
 
   inputs_yaml: /workspace/data/config/loki_inputs.yaml
   inputs_preset: default
 
-  comp: [U, N, E]
+  comp: [E,N,U]
   precision: single
   search: classic
   extension: "*"
@@ -18,6 +19,6 @@ mobara:
   max_events: null
   origin_time_start: null
   origin_time_end: null
-  mag_min: null
+  mag_min: 2
   mag_max: null
   drop_if_mag_missing: true

@@ -29,7 +29,9 @@ def run_loki_vs_jma_qc(
 	*,
 	use_build_compare_df: bool = True,
 	compare_csv_out: Path | None = None,
+	compare_csv_in: Path | None = None,
 	out_png: Path | None = None,
+	allowed_event_ids: set[str] | None = None,
 ) -> pd.DataFrame:
 	compare_csv = (
 		loki_output_dir / 'compare_jma_vs_loki.csv'
@@ -44,11 +46,13 @@ def run_loki_vs_jma_qc(
 			loki_output_dir=loki_output_dir,
 			header_path=header_path,
 			event_glob=event_glob,
+			allowed_event_ids=allowed_event_ids,
 		)
 	else:
-		if not compare_csv.is_file():
-			raise FileNotFoundError(f'compare_csv not found: {compare_csv}')
-		compare_df = pd.read_csv(compare_csv)
+		read_csv = compare_csv if compare_csv_in is None else Path(compare_csv_in)
+		if not read_csv.is_file():
+			raise FileNotFoundError(f'compare_csv not found: {read_csv}')
+		compare_df = pd.read_csv(read_csv)
 
 	compare_csv.parent.mkdir(parents=True, exist_ok=True)
 	compare_df.to_csv(compare_csv, index=False)

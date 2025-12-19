@@ -145,6 +145,11 @@ class LokiWaveformStackingPipelineConfig:
 	# イベント選別（必要なら）
 	event_glob: str = '[0-9]*'
 	max_events: int | None = None
+	origin_time_start: str | None = None
+	origin_time_end: str | None = None
+	mag_min: float | None = None
+	mag_max: float | None = None
+	drop_if_mag_missing: bool = True
 
 
 @dataclass(frozen=True)

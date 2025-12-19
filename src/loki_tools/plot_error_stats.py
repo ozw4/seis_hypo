@@ -36,11 +36,42 @@ def make_coherence_bins(
 	*,
 	n_bins: int = 4,
 ) -> pd.Series:
+	"""coherence(cmax等) を分位ビンに分ける。
+	- 件数が少ない(1件など)/有効値が少ない場合は 'all' の単一ビンを返す
+	- qcut は境界重複で落ちることがあるため duplicates='drop' を使い、labels は後付けする
+	- coh_col が NaN の行は 'missing' を返す
+	"""
+	if df.empty:
+		return pd.Series(dtype=str, index=df.index)
+
 	coh = df[coh_col].astype(float)
-	# qcut は同値多いと落ちるので、まずランクで分散させる
+	valid = coh.notna()
+	n_valid = int(valid.sum())
+
+	# 1件(または有効値1件)では分位が作れないので単一ビン
+	if n_valid < 2 or n_bins < 2:
+		return pd.Series(['all'] * len(df), index=df.index, dtype=str)
+
+	# 同値が多くても単調増加にして分位を切れるようにする
 	r = coh.rank(method='first')
-	b = pd.qcut(r, q=n_bins, labels=[f'Q{i + 1}' for i in range(n_bins)])
-	return b.astype(str)
+
+	q = min(int(n_bins), n_valid)
+	if q < 2:
+		return pd.Series(['all'] * len(df), index=df.index, dtype=str)
+
+	cut = pd.qcut(r[valid], q=q, duplicates='drop')  # labelsは後で付ける
+	cat = pd.Categorical(cut)
+	m = len(cat.categories)
+
+	# qcutが落ちないようにしているが、念のためビンができなければ単一ビン
+	if m < 1:
+		return pd.Series(['all'] * len(df), index=df.index, dtype=str)
+
+	labels = [f'Q{i + 1}' for i in range(m)]
+
+	out = pd.Series(['missing'] * len(df), index=df.index, dtype=str)
+	out.loc[valid] = [labels[i] for i in cat.codes]
+	return out
 
 
 def plot_hist(

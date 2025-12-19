@@ -1,0 +1,27 @@
+yaml: /workspace/data/config/loki_inputs.yaml
+preset: default
+params:
+  tshortp_min: 0.2
+  tshortp_max: 0.2
+  tshorts_min: 0.3
+  tshorts_max: 0.3
+  slrat: 3
+  npr: 2
+  ntrial: 1
+  derivative: true
+  vfunc: erg
+  hfunc: null
+  model: jma2001
+  epsilon: 0.001
+  base_sampling_rate_hz: 100
+  pre_enable: true
+  pre_detrend: linear
+  pre_fstop_lo: 0.5
+  pre_fpass_lo: 2.0
+  pre_fpass_hi: 23.5
+  pre_fstop_hi: 25.0
+  pre_gpass: 1.0
+  pre_gstop: 40.0
+  pre_mad_scale: true
+  pre_mad_eps: 1e-6
+  pre_mad_c: 1.4826

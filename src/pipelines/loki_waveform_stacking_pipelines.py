@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
+import pandas as pd
 from loki.loki import Loki
 from obspy import Stream
 
@@ -11,6 +12,7 @@ from common.config import (
 	LokiWaveformStackingInputs,
 	LokiWaveformStackingPipelineConfig,
 )
+from common.core import load_event_json
 from io_util.stream import build_stream_from_downloaded_win32
 from waveform.preprocess import DetrendBandpassSpec, preprocess_stream_detrend_bandpass
 
@@ -39,21 +41,106 @@ _PRE_KEYS = {
 }
 
 
-def _list_event_dirs(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
+def _to_utc(ts: pd.Timestamp, *, naive_tz: str) -> pd.Timestamp:
+	if ts.tzinfo is None:
+		ts = ts.tz_localize(naive_tz)
+	return ts.tz_convert('UTC')
+
+
+def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
+	if raw is None:
+		return None
+	ts = pd.to_datetime(raw)
+	if pd.isna(ts):
+		raise ValueError(f'failed to parse time: {raw}')
+	# Config times are treated as JST if timezone is omitted.
+	return _to_utc(ts, naive_tz='Asia/Tokyo')
+
+
+def _get_event_origin_utc(ev: dict, *, event_json_path: Path) -> pd.Timestamp:
+	origin_jst = ev.get('origin_time_jst')
+	origin_other = ev.get('origin_time')
+	origin_raw = origin_jst if origin_jst is not None else origin_other
+	if origin_raw is None:
+		raise ValueError(f'missing origin_time(_jst) in {event_json_path}')
+
+	origin = pd.to_datetime(origin_raw)
+	if pd.isna(origin):
+		raise ValueError(f'failed to parse origin_time in {event_json_path}')
+
+	# If origin_time_jst is present and timezone is omitted, interpret it as JST.
+	# Otherwise (origin_time), interpret naive as UTC by default.
+	naive_tz = 'Asia/Tokyo' if origin_jst is not None else 'UTC'
+	return _to_utc(origin, naive_tz=naive_tz)
+
+
+def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
 	base = Path(cfg.base_input_dir)
 	if not base.is_dir():
 		raise FileNotFoundError(f'base_input_dir not found: {base}')
 
+	t_start = _parse_cfg_time_utc(cfg.origin_time_start)
+	t_end = _parse_cfg_time_utc(cfg.origin_time_end)
+	if t_start is not None and t_end is not None and t_end < t_start:
+		raise ValueError(
+			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
+		)
+
+	candidates = sorted(base.glob(cfg.event_glob))
+
 	dirs: list[Path] = []
-	for p in sorted(base.glob(cfg.event_glob)):
-		if p.is_dir() and (p / 'event.json').is_file():
-			dirs.append(p)
+	dropped = 0
+
+	for p in candidates:
+		event_json = p / 'event.json'
+		if not (p.is_dir() and event_json.is_file()):
+			continue
+
+		ev = load_event_json(p)
+		origin_utc = _get_event_origin_utc(ev, event_json_path=event_json)
+
+		if t_start is not None and origin_utc < t_start:
+			dropped += 1
+			continue
+		if t_end is not None and origin_utc > t_end:
+			dropped += 1
+			continue
+
+		mag = None
+		extra = ev.get('extra', {})
+		if not isinstance(extra, dict):
+			extra = {}
+
+		for key in ('mag1', 'magnitude', 'mag'):
+			if key in ev:
+				mag = ev[key]
+				break
+			if key in extra:
+				mag = extra[key]
+				break
+
+		if mag is None and (cfg.mag_min is not None or cfg.mag_max is not None):
+			if cfg.drop_if_mag_missing:
+				dropped += 1
+				continue
+		if mag is not None:
+			mag_f = float(mag)
+			if cfg.mag_min is not None and mag_f < float(cfg.mag_min):
+				dropped += 1
+				continue
+			if cfg.mag_max is not None and mag_f > float(cfg.mag_max):
+				dropped += 1
+				continue
+
+		dirs.append(p)
 
 	if cfg.max_events is not None and cfg.max_events > 0:
 		dirs = dirs[: int(cfg.max_events)]
 
 	if not dirs:
 		raise ValueError(f'No event dirs found under: {base} (glob={cfg.event_glob})')
+
+	print(f'event filter: total={len(candidates)} kept={len(dirs)} dropped={dropped}')
 	return dirs
 
 
@@ -63,7 +150,7 @@ def pipeline_loki_waveform_stacking(
 	cfg.loki_data_path.mkdir(parents=True, exist_ok=True)
 	cfg.loki_output_path.mkdir(parents=True, exist_ok=True)
 
-	event_dirs = _list_event_dirs(cfg)
+	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
 	# 前処理specは inputs から作る（yaml管理）。属性が無い場合はデフォルト値を使用。

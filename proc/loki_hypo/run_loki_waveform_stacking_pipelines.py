@@ -18,7 +18,10 @@ from common.load_config import load_config
 from common.run_snapshot import save_many_yaml_and_effective
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
-from pipelines.loki_waveform_stacking_pipelines import pipeline_loki_waveform_stacking
+from pipelines.loki_waveform_stacking_pipelines import (
+	list_event_dirs_filtered,
+	pipeline_loki_waveform_stacking,
+)
 from qc.loki_compare_qc import run_loki_vs_jma_qc
 from viz.gather import plot_gather
 from viz.plot_config import PlotConfig
@@ -120,27 +123,6 @@ def _picks_to_sample_idx(
 		s_idx[i] = (ts_dt - t_start_utc).total_seconds() * fs
 
 	return p_idx, s_idx
-
-
-def _list_event_dirs(
-	base_input_dir: Path, event_glob: str, max_events: int | None
-) -> list[Path]:
-	if not base_input_dir.is_dir():
-		raise FileNotFoundError(f'base_input_dir not found: {base_input_dir}')
-
-	dirs: list[Path] = []
-	for p in sorted(base_input_dir.glob(event_glob)):
-		if p.is_dir() and (p / 'event.json').is_file():
-			dirs.append(p)
-
-	if max_events is not None and max_events > 0:
-		dirs = dirs[: int(max_events)]
-
-	if not dirs:
-		raise ValueError(
-			f'No event dirs found under: {base_input_dir} (glob={event_glob})'
-		)
-	return dirs
 
 
 def _spec_from_inputs(inputs: LokiWaveformStackingInputs) -> DetrendBandpassSpec:
@@ -258,8 +240,7 @@ def main() -> None:
 	# ---- LOKI 本体 ----
 	pipeline_loki_waveform_stacking(cfg, inputs)
 
-	# ---- 追加: プロット（全イベント）----
-	# 直書き運用：必要ならここだけいじる
+	# ---- 追加: プロット（フィルタ済みイベントのみ）----
 	plot_components = ('U', 'N')
 	y_time = 'relative'  # "samples" | "absolute" | "relative"
 
@@ -270,9 +251,7 @@ def main() -> None:
 
 	pre_spec = _spec_from_inputs(inputs)
 
-	event_dirs = _list_event_dirs(
-		Path(cfg.base_input_dir), cfg.event_glob, cfg.max_events
-	)
+	event_dirs = list_event_dirs_filtered(cfg)
 	for event_dir in event_dirs:
 		_plot_waveforms_with_picks_for_event(
 			event_dir=event_dir,
@@ -299,6 +278,7 @@ def main() -> None:
 		plot_cfg=plot_cfg,
 		use_build_compare_df=True,
 		compare_csv_out=Path(cfg.loki_output_path) / 'compare_jma_vs_loki.csv',
+		allowed_event_ids={p.name for p in event_dirs},
 		out_png=Path(cfg.loki_output_path) / 'loki_vs_jma.png',
 	)
 

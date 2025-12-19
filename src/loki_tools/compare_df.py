@@ -16,7 +16,9 @@ from loki_tools.loki_parse import (
 
 
 def load_jma_event_jsons(
-	base_input_dir: Path, event_glob: str = '[0-9]*'
+	base_input_dir: Path,
+	event_glob: str = '[0-9]*',
+	allowed_event_ids: set[str] | None = None,
 ) -> pd.DataFrame:
 	if not base_input_dir.is_dir():
 		raise FileNotFoundError(f'base_input_dir not found: {base_input_dir}')
@@ -26,6 +28,8 @@ def load_jma_event_jsons(
 		ev = load_event_json(evdir)
 
 		event_id = str(ev.get('event_id', evdir.name))
+		if allowed_event_ids is not None and event_id not in allowed_event_ids:
+			continue
 
 		# 時刻キーは運用で揺れてOK（origin_time_jst を優先）
 		origin_time = ev.get('origin_time_jst', None)
@@ -75,7 +79,9 @@ def load_jma_event_jsons(
 
 
 def load_loki_loc_by_event_id(
-	loki_output_dir: Path, event_glob: str = '[0-9]*'
+	loki_output_dir: Path,
+	event_glob: str = '[0-9]*',
+	allowed_event_ids: set[str] | None = None,
 ) -> pd.DataFrame:
 	evdirs = list_event_dirs(loki_output_dir, event_glob=event_glob)
 	if not evdirs:
@@ -83,6 +89,8 @@ def load_loki_loc_by_event_id(
 
 	rows: list[dict] = []
 	for evdir in evdirs:
+		if allowed_event_ids is not None and evdir.name not in allowed_event_ids:
+			continue
 		res = parse_loki_event_dir(evdir)
 
 		# ntrial==1 前提（厳密）
@@ -112,13 +120,18 @@ def build_compare_df(
 	loki_output_dir: str | Path,
 	header_path: str | Path,
 	event_glob: str = '[0-9]*',
+	allowed_event_ids: set[str] | None = None,
 ) -> pd.DataFrame:
 	base_input_dir = Path(base_input_dir)
 	loki_output_dir = Path(loki_output_dir)
 	header_path = Path(header_path)
 
-	jma = load_jma_event_jsons(base_input_dir, event_glob=event_glob)
-	loki = load_loki_loc_by_event_id(loki_output_dir, event_glob=event_glob)
+	jma = load_jma_event_jsons(
+		base_input_dir, event_glob=event_glob, allowed_event_ids=allowed_event_ids
+	)
+	loki = load_loki_loc_by_event_id(
+		loki_output_dir, event_glob=event_glob, allowed_event_ids=allowed_event_ids
+	)
 
 	origin = parse_header_origin(header_path)
 
