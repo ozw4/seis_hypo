@@ -38,6 +38,11 @@ Thumbs.db
 *.loc
 *.eps
 *.patch
+*.ch
+*.cnt
+*.in
+*effective.yaml
+*source.yaml
 catalogue
 
 data/

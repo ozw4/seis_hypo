@@ -87,6 +87,7 @@ def run_loki_vs_jma_qc(
 		'dt_origin_sec',
 		'dh_km',
 		'dz_km',
+		'e_w3d_km',
 		'cmax',
 	}
 	missing = required - set(df.columns)
@@ -98,6 +99,7 @@ def run_loki_vs_jma_qc(
 	df['dt_origin_sec'] = df['dt_origin_sec'].astype(float)
 	df['dh_km'] = df['dh_km'].astype(float)
 	df['dz_km'] = df['dz_km'].astype(float)
+	df['e_w3d_km'] = df['e_w3d_km'].astype(float)
 	df['cmax'] = df['cmax'].astype(float)
 
 	error_out_dir = loki_output_dir / 'error_stats'

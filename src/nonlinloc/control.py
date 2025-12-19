@@ -41,44 +41,6 @@ def _format_vggrid(grid: GridSpec, *, quantity: str = 'SLOW_LEN') -> str:
 	)
 
 
-def _format_gtsrce_lines(
-	stations_df: pd.DataFrame,
-	*,
-	depth_km_mode: Literal['zero', 'from_elevation'] = 'zero',
-) -> list[str]:
-	"""Create GTSRCE lines.
-
-	depth_km_mode:
-		- "zero": depth=0.0 for all stations (safe default)
-		- "from_elevation": use -elevation_m/1000 as depth_km
-
-	Note:
-		The exact GTSRCE syntax can be tuned later if you decide to
-		encode station depth differently.
-
-	"""
-	df = normalize_station_rows(stations_df, require_elevation=True)
-
-	lines: list[str] = []
-	for sta, lat, lon, elev_m in df[
-		['station', 'lat', 'lon', 'elevation_m']
-	].itertuples(index=False, name=None):
-		if depth_km_mode == 'zero':
-			depth_km = 0.0
-		elif depth_km_mode == 'from_elevation':
-			depth_km = -float(elev_m) / 1000.0
-		else:
-			raise ValueError(f'unsupported depth_km_mode: {depth_km_mode}')
-
-		# Conservative, commonly-seen pattern:
-		# GTSRCE <label> LATLON <lat> <lon> <depth_km> 0
-		lines.append(
-			f'GTSRCE {sta} LATLON {float(lat):.6f} {float(lon):.6f} {depth_km:.3f} 0'
-		)
-
-	return lines
-
-
 def write_nll_control_files_ps(
 	grid: GridSpec,
 	stations_df: pd.DataFrame,
@@ -160,7 +122,6 @@ def write_nll_control_files_ps(
 	return p_path, s_path
 
 
-# ---- generate 側も最小でこう拡張してね（要点だけ） ----
 def generate_nll_control_text(
 	grid: GridSpec,
 	stations_df: pd.DataFrame,
@@ -180,21 +141,18 @@ def generate_nll_control_text(
 
 	必須修正ポイント:
 	- GTMODE の直後に GT_PLFD を必ず出す。
-	  例: `GT_PLFD 1.0e-3 0`
+	- depth_km_mode="from_elevation" のとき、elevation_m を深さ(下向き正)へ変換して
+	  GTSRCE の zSrce に入れる（陸上は負、海底は正）。
 	"""
+	_validate_grid(grid)
+
 	lines: list[str] = []
 
-	# ここはあなたの既存実装に合わせて構築
 	lines.append('CONTROL 1 54321')
-	lines.append(f'TRANS SIMPLE {grid.lat0_deg:.6f} {grid.lon0_deg:.6f} 0.0')
+	lines.append(_format_trans_simple(grid))
 	lines.append(f'VGOUT {Path(vgout_dir).as_posix()}/{model_label}')
 	lines.append(f'VGTYPE {phase}')
-
-	lines.append(
-		f'VGGRID {grid.nx} {grid.ny} {grid.nz} '
-		f'{grid.x0_km:.3f} {grid.y0_km:.3f} {grid.z0_km:.3f} '
-		f'{grid.dx_km:.3f} {grid.dy_km:.3f} {grid.dz_km:.3f} {quantity}'
-	)
+	lines.append(_format_vggrid(grid, quantity=quantity))
 	lines.append(f'INCLUDE {Path(layers_path).as_posix()}')
 
 	lines.append(
@@ -202,23 +160,24 @@ def generate_nll_control_text(
 		f'{Path(gtout_dir).as_posix()}/{model_label} {phase}'
 	)
 	lines.append(f'GTMODE {gtmode}')
-
-	# ★今回のバグ修正の核心
 	lines.append(f'GT_PLFD {gt_plfd_eps:.1e} {gt_plfd_sweep}')
 
-	# GTSRCE 群の追加は既存ロジックに合わせて
-	for row in stations_df.itertuples(index=False):
-		sta = str(row.station)
-		lat = float(row.lat)
-		lon = float(row.lon)
+	require_elev = depth_km_mode == 'from_elevation'
+	df = normalize_station_rows(stations_df, require_elevation=require_elev)
 
-		if depth_km_mode == 'from_elevation':
-			elev_m = float(getattr(row, 'elevation_m', 0.0))
-			dep = max(0.0, -elev_m / 1000.0)
+	for sta, lat, lon, elev_m in df[
+		['station', 'lat', 'lon', 'elevation_m']
+	].itertuples(index=False, name=None):
+		if depth_km_mode == 'zero':
+			dep_km = 0.0
+		elif depth_km_mode == 'from_elevation':
+			dep_km = -float(elev_m) / 1000.0
 		else:
-			dep = 0.0
+			raise ValueError(f'unsupported depth_km_mode: {depth_km_mode}')
 
-		lines.append(f'GTSRCE {sta} LATLON {lat:.6f} {lon:.6f} {dep:.3f} 0')
+		lines.append(
+			f'GTSRCE {sta} LATLON {float(lat):.6f} {float(lon):.6f} {dep_km:.3f} 0'
+		)
 
 	return '\n'.join(lines) + '\n'
 

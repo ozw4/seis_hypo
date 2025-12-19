@@ -82,7 +82,7 @@ def _force_components_une_by_order(
 
 	if not out_parts:
 		raise ValueError('no stations remained after forcing U/N/E mapping')
-
+	"""
 	if total_changed > 0:
 		logger.warning(
 			'forced components to %s for %d stations (showing up to %d): %s',
@@ -91,7 +91,7 @@ def _force_components_une_by_order(
 			log_limit,
 			', '.join(changed),
 		)
-
+	"""
 	return pd.concat(out_parts, ignore_index=True)
 
 

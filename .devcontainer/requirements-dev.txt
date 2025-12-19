@@ -42,3 +42,4 @@ HinetPy
 adjustText
 pyyaml
 playwright
+optuna

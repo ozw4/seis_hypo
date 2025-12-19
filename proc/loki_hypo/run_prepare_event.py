@@ -12,26 +12,19 @@
 
 from __future__ import annotations
 
-from netrc import netrc
 from pathlib import Path
 
 import pandas as pd
-from HinetPy import Client
 
 from catalog.selection import extract_events_in_region
 from common.config import PrepareEventsConfig
 from common.load_config import load_config
-from jma.download import download_win_for_event
+from jma.download import create_hinet_client, download_win_for_event
 from jma.station_reader import stations_within_radius
 
 # あなたの環境に合わせて書き換えればOK
 YAML_PATH = Path('/workspace/data/config/prepare_events.yaml')
 PRESET = 'mobara'
-
-
-def create_hinet_client() -> Client:
-	login, _, password = netrc().authenticators('hinet')
-	return Client(login, password)
 
 
 def select_stations_for_site(cfg: PrepareEventsConfig) -> list[str]:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 from collections.abc import Sequence
+from netrc import netrc
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -14,6 +15,11 @@ from HinetPy import Client
 from common.core import write_event_json
 from common.time_util import minute_range
 from jma.win32_reader import compute_event_time_window
+
+
+def create_hinet_client() -> Client:
+	login, _, password = netrc().authenticators('hinet')
+	return Client(login, password)
 
 
 def _name_stem(

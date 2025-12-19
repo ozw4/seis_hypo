@@ -7,6 +7,7 @@ from typing import Literal
 
 import pandas as pd
 
+from common.core import validate_columns
 from common.geo import latlon_to_local_xy_km
 from common.stations import normalize_station_rows
 

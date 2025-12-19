@@ -246,7 +246,6 @@ def main() -> None:
 	y_time = 'relative'  # "samples" | "absolute" | "relative"
 
 	header_path = Path(cfg.loki_hdr_filename)
-	header_path = cfg.loki_db_path / header_path
 	if not header_path.is_file():
 		raise FileNotFoundError(f'header not found: {header_path}')
 

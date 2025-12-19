@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -260,3 +261,138 @@ def load_jma_station_list_from_compact_file(path: str | Path) -> pd.DataFrame:
 
 	df = pd.DataFrame(rows)
 	return df
+
+
+def parse_network_codes_from_client_info(info_text: object) -> list[str]:
+	"""client.info() の出力から network_code を抽出する（6桁/末尾英字対応）。
+
+	例:
+	0101   : ...
+	0103A  : ...
+	010501 : ...
+	0402AN : ...  # 末尾2文字も来るので許容
+	"""
+	if info_text is None:
+		raise ValueError('client.info() returned None')
+
+	if isinstance(info_text, bytes):
+		text = info_text.decode('utf-8', errors='ignore')
+	elif isinstance(info_text, dict):
+		text = '\n'.join(f'{k}: {v}' for k, v in info_text.items())
+	elif isinstance(info_text, (list, tuple, set)):
+		text = '\n'.join(str(x) for x in info_text)
+	else:
+		text = str(info_text)
+
+	# 4桁 or 6桁 + 末尾英数0〜2文字（A, AN など）
+	code_pat = r'([0-9]{4}(?:[0-9]{2})?[0-9A-Z]{0,2})'
+
+	out: list[str] = []
+	seen: set[str] = set()
+
+	for raw in text.splitlines():
+		ln = raw.strip()
+		if not ln:
+			continue
+
+		# 行頭 "CODE : " / "CODE ： " / "CODE  " を拾う
+		m = re.match(rf'^{code_pat}\s*(?:[:：]|\s+)', ln)
+		if m:
+			c = m.group(1)
+			if c not in seen:
+				seen.add(c)
+				out.append(c)
+			continue
+
+		# 念のため行中も拾う（境界つき）
+		m2 = re.search(rf'\b{code_pat}\b', ln)
+		if m2:
+			c = m2.group(1)
+			if c not in seen:
+				seen.add(c)
+				out.append(c)
+
+	if not out:
+		head = text[:200].replace('\n', '\\n')
+		raise ValueError(
+			f'no network codes parsed from client.info() text; head="{head}"'
+		)
+
+	return out
+
+
+def build_station_names_by_network(
+	client,
+	network_codes: list[str],
+) -> dict[str, set[str]]:
+	"""network_code -> station name set を構築する（get_station_list 前提）。"""
+	if not network_codes:
+		raise ValueError('network_codes is empty')
+
+	out: dict[str, set[str]] = {}
+	for code in network_codes:
+		stations = client.get_station_list(str(code))
+		names: set[str] = set()
+		for s in stations:
+			name = getattr(s, 'name', None)
+			if name is None:
+				name = str(s)
+			names.add(str(name))
+		if not names:
+			raise ValueError(f'empty station list for network_code={code}')
+		out[str(code)] = names
+	return out
+
+
+def assign_network_code_by_membership(
+	station_codes: list[str],
+	*,
+	station_names_by_network: dict[str, set[str]],
+	priority: list[str] | None = None,
+	default_network_code: str = '',
+) -> dict[str, list[str]]:
+	"""station_code を station_names_by_network の所属で network に割り当てる。"""
+	if not station_codes:
+		raise ValueError('station_codes is empty')
+	if not station_names_by_network:
+		raise ValueError('station_names_by_network is empty')
+
+	priority = [str(x) for x in (priority or [])]
+	known_nets = set(station_names_by_network.keys())
+	for p in priority:
+		if p not in known_nets:
+			raise ValueError(
+				f'priority network_code not in info/get_station_list results: {p}'
+			)
+
+	def pick_network(candidates: list[str]) -> str:
+		if len(candidates) == 1:
+			return candidates[0]
+		for p in priority:
+			if p in candidates:
+				return p
+		raise ValueError(
+			f'station appears in multiple networks but no priority match: {candidates}'
+		)
+
+	out: dict[str, set[str]] = {}
+	missing: list[str] = []
+	for sta in station_codes:
+		sta = str(sta)
+		cands = [net for net, names in station_names_by_network.items() if sta in names]
+		if not cands:
+			if default_network_code:
+				out.setdefault(str(default_network_code), set()).add(sta)
+			else:
+				missing.append(sta)
+			continue
+		net = pick_network(cands)
+		out.setdefault(net, set()).add(sta)
+
+	if missing:
+		ex = ', '.join(missing[:20])
+		raise ValueError(
+			f'stations not found in any network station list: {ex} (total={len(missing)})'
+		)
+
+	return {k: sorted(v) for k, v in sorted(out.items(), key=lambda kv: kv[0])}

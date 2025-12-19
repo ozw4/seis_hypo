@@ -157,8 +157,8 @@ def build_compare_df(
 
 	dt_sec: list[float] = []
 	for r in df.itertuples(index=False):
-		j = to_utc(pd.Timestamp(r.origin_time_jma))
-		l = to_utc(pd.Timestamp(r.origin_time_loki))
+		j = to_utc(pd.Timestamp(r.origin_time_jma), naive_tz='Asia/Tokyo')
+		l = to_utc(pd.Timestamp(r.origin_time_loki), naive_tz='UTC')
 		dt_sec.append(float((l - j).total_seconds()))
 	df['dt_origin_sec'] = dt_sec
 
@@ -175,6 +175,12 @@ def build_compare_df(
 	df['dh_km'] = dh
 
 	df['dz_km'] = df['z_km_loki'] - df['depth_km_jma']
+
+	dh_arr = df['dh_km'].to_numpy(float)
+	dz_arr = df['dz_km'].to_numpy(float)
+	df['e3d_km'] = np.sqrt(dh_arr * dh_arr + dz_arr * dz_arr)
+	wz = 0.5
+	df['e_w3d_km'] = np.sqrt(dh_arr * dh_arr + (wz * dz_arr) * (wz * dz_arr))
 
 	# リンク線生成に便利な列（plot側で pairs 作りやすい）
 	df['lon_loki_from_xy'] = df['lon_loki']
