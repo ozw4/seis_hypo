@@ -8,7 +8,9 @@ import pandas as pd
 
 from common.core import load_event_json
 from common.geo import haversine_distance_km, local_xy_km_to_latlon
+from common.time_util import to_utc
 from loki_tools.loki_parse import (
+	infer_event_origin_time_from_loki_result,
 	list_event_dirs,
 	parse_header_origin,
 	parse_loki_event_dir,
@@ -92,7 +94,7 @@ def load_loki_loc_by_event_id(
 		if allowed_event_ids is not None and evdir.name not in allowed_event_ids:
 			continue
 		res = parse_loki_event_dir(evdir)
-
+		origin_loki = infer_event_origin_time_from_loki_result(res)
 		# ntrial==1 前提（厳密）
 		if len(res.loc_rows) != 1:
 			raise ValueError(
@@ -103,6 +105,7 @@ def load_loki_loc_by_event_id(
 		rows.append(
 			{
 				'event_id': res.event_name,
+				'origin_time_loki': str(origin_loki),
 				'x_km_loki': float(r.x_km),
 				'y_km_loki': float(r.y_km),
 				'z_km_loki': float(r.z_km),
@@ -147,6 +150,17 @@ def build_compare_df(
 	df = jma.merge(loki, on='event_id', how='inner')
 	if df.empty:
 		raise ValueError('no matched events between JMA and LOKI (event_id mismatch?)')
+
+	# ---- origin time error (LOKI - JMA) ----
+	df['origin_time_jma'] = pd.to_datetime(df['origin_time_jma'])
+	df['origin_time_loki'] = pd.to_datetime(df['origin_time_loki'])
+
+	dt_sec: list[float] = []
+	for r in df.itertuples(index=False):
+		j = to_utc(pd.Timestamp(r.origin_time_jma))
+		l = to_utc(pd.Timestamp(r.origin_time_loki))
+		dt_sec.append(float((l - j).total_seconds()))
+	df['dt_origin_sec'] = dt_sec
 
 	# haversine_distance_km は「基準点→点群」仕様なので、ペア距離は行ごとに計算（厳密優先）
 	dh: list[float] = []

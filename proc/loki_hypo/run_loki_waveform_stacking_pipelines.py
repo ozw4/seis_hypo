@@ -23,6 +23,7 @@ from pipelines.loki_waveform_stacking_pipelines import (
 	pipeline_loki_waveform_stacking,
 )
 from qc.loki_compare_qc import run_loki_vs_jma_qc
+from qc.loki_event_coherence_xy_plot import plot_loki_event_coherence_xy_overlay
 from viz.gather import plot_gather
 from viz.plot_config import PlotConfig
 from waveform.preprocess import DetrendBandpassSpec, preprocess_stream_detrend_bandpass
@@ -263,8 +264,18 @@ def main() -> None:
 			y_time=y_time,
 			pre_spec=pre_spec,
 		)
+		out_png = plot_loki_event_coherence_xy_overlay(
+			event_dir=event_dir,
+			loki_output_dir=Path(cfg.loki_output_path),
+			header_path=header_path,
+			trial=0,
+			dpi=200,
+		)
+		if out_png is None:
+			print(
+				f'[WARN] no corrmatrix for event={event_dir.name}, skip coherence plot'
+			)
 	print(f'Waveform plots written under: {cfg.loki_output_path}')
-
 	# ---- LOKI vs JMA QC ----
 	plot_config_yaml = Path('/workspace/data/config/plot_config.yaml')
 	plot_setting = 'mobara_default'

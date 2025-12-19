@@ -10,7 +10,7 @@ mobara:
   inputs_yaml: /workspace/data/config/loki_inputs.yaml
   inputs_preset: default
 
-  comp: [E,N,U]
+  comp: [N,E,U]
   precision: single
   search: classic
   extension: "*"

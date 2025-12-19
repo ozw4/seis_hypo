@@ -3,7 +3,7 @@ default:
   tshortp_max: 0.2
   tshorts_min: 0.3
   tshorts_max: 0.3
-  slrat: 3
+  slrat: 5
   npr: 2
   ntrial: 1
   derivative: True

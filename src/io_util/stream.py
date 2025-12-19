@@ -108,9 +108,20 @@ def build_stream_from_downloaded_win32(
 
 	meta = load_event_json(event_dir)
 
-	origin_time_jst = pd.to_datetime(meta['origin_time_jst']).to_pydatetime()
-	if origin_time_jst.tzinfo is None:
-		raise ValueError('origin_time_jst must be timezone-aware (e.g. +09:00)')
+	if 'origin_time_jst' not in meta:
+		raise ValueError('event.json must contain origin_time_jst')
+
+	origin_ts = pd.to_datetime(meta['origin_time_jst'])
+	if pd.isna(origin_ts):
+		raise ValueError('origin_time_jst is invalid/NaT')
+
+	# ★修正点：timezone-naiveな origin_time_jst は JST として扱う（入口の挙動を統一）
+	if origin_ts.tzinfo is None:
+		origin_ts = origin_ts.tz_localize('Asia/Tokyo')
+	else:
+		origin_ts = origin_ts.tz_convert('Asia/Tokyo')
+
+	origin_time_jst = origin_ts.to_pydatetime()
 
 	pre_sec = int(meta['window']['pre_sec'])
 	post_sec = int(meta['window']['post_sec'])

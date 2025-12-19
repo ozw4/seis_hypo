@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from loki_tools.grid import GridSpec
+
 
 @dataclass(frozen=True)
 class LokiLocRow:
@@ -143,6 +145,46 @@ def _infer_origin_from_phs_filename(phs_path: Path) -> pd.Timestamp | None:
 	if pd.isna(origin):
 		return None
 	return pd.Timestamp(origin)
+
+
+def _infer_origin_from_loc_filename(loc_path: Path) -> pd.Timestamp | None:
+	"""例: 2020-02-09T15:40:29.255374.loc
+	-> "2020-02-09T15:40:29.255374" を origin として使う
+
+	LOKI 側が ntrial<=1 のとき .loc を event_t0s(ISO) で保存する前提。
+	"""
+	stem = Path(loc_path).name
+	if stem.endswith('.loc'):
+		stem = stem.removesuffix('.loc')
+
+	origin = pd.to_datetime(stem, errors='coerce')
+	if pd.isna(origin):
+		return None
+	return pd.Timestamp(origin)
+
+
+def infer_event_origin_time_from_loki_result(res: LokiEventResult) -> pd.Timestamp:
+	"""イベントの発震時刻（origin time）を LOKI の出力から推定する。
+
+	優先順位:
+	1) .loc のファイル名（ntrial<=1 のとき LOKI が origin time をファイル名にする）
+	2) *_trial*.phs のファイル名（<ISO>_trialN.phs）
+
+	返り値は pandas Timestamp（tz-aware/naive は入力に依存）。
+	"""
+	origin = _infer_origin_from_loc_filename(res.loc_path)
+	if origin is not None:
+		return origin
+
+	for phs in res.phs_paths:
+		origin = _infer_origin_from_phs_filename(phs)
+		if origin is not None:
+			return origin
+
+	raise ValueError(
+		'cannot infer event origin time from LOKI outputs; '
+		f'need .loc filename as ISO or <ISO>_trial*.phs, event_dir={res.event_dir}'
+	)
 
 
 def _require_event_origin(phs_path: Path) -> pd.Timestamp:
@@ -396,6 +438,66 @@ def parse_loki_header(header_path: Path) -> LokiHeader:
 
 def parse_header_origin(header_path: Path) -> HeaderOrigin:
 	return parse_loki_header(header_path).origin
+
+
+def parse_loki_grid_spec(header_path: Path) -> GridSpec:
+	"""header.hdr からグリッド仕様（GridSpec）だけを取り出す。
+
+	固定フォーマット前提:
+	0: nx ny nz
+	1: x0 y0 z0   (km)
+	2: dx dy dz
+	3: lat0 lon0
+	"""
+	header_path = Path(header_path)
+	if not header_path.is_file():
+		raise FileNotFoundError(f'header not found: {header_path}')
+
+	lines = header_path.read_text(encoding='utf-8', errors='ignore').splitlines()
+	lines = [ln.strip() for ln in lines if ln and ln.strip()]
+	if len(lines) < 4:
+		raise ValueError(f'header too short (<4 lines): {header_path}')
+
+	nx_ny_nz = lines[0].split()
+	x0_y0_z0 = lines[1].split()
+	dx_dy_dz = lines[2].split()
+	lat0_lon0 = lines[3].split()
+	if (
+		len(nx_ny_nz) < 3
+		or len(x0_y0_z0) < 3
+		or len(dx_dy_dz) < 3
+		or len(lat0_lon0) < 2
+	):
+		raise ValueError(f'invalid header format: {header_path}')
+
+	nx = int(float(nx_ny_nz[0]))
+	ny = int(float(nx_ny_nz[1]))
+	nz = int(float(nx_ny_nz[2]))
+
+	x0_km = float(x0_y0_z0[0])
+	y0_km = float(x0_y0_z0[1])
+	z0_km = float(x0_y0_z0[2])
+
+	dx_km = float(dx_dy_dz[0])
+	dy_km = float(dx_dy_dz[1])
+	dz_km = float(dx_dy_dz[2])
+
+	lat0_deg = float(lat0_lon0[0])
+	lon0_deg = float(lat0_lon0[1])
+
+	return GridSpec(
+		nx=nx,
+		ny=ny,
+		nz=nz,
+		x0_km=x0_km,
+		y0_km=y0_km,
+		z0_km=z0_km,
+		dx_km=dx_km,
+		dy_km=dy_km,
+		dz_km=dz_km,
+		lat0_deg=lat0_deg,
+		lon0_deg=lon0_deg,
+	)
 
 
 def parse_phs_absolute_times(phs_path: Path, *, tz: str = 'utc') -> pd.DataFrame:

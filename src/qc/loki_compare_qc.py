@@ -80,12 +80,22 @@ def run_loki_vs_jma_qc(
 
 	# ---- error stats ----
 	df = compare_df.copy()
-	required = {'event_id', 'origin_time_jma', 'dh_km', 'dz_km', 'cmax'}
+	required = {
+		'event_id',
+		'origin_time_jma',
+		'origin_time_loki',
+		'dt_origin_sec',
+		'dh_km',
+		'dz_km',
+		'cmax',
+	}
 	missing = required - set(df.columns)
 	if missing:
 		raise ValueError(f'compare_df missing columns: {sorted(missing)}')
 
 	df['origin_time_jma'] = pd.to_datetime(df['origin_time_jma'])
+	df['origin_time_loki'] = pd.to_datetime(df['origin_time_loki'])
+	df['dt_origin_sec'] = df['dt_origin_sec'].astype(float)
 	df['dh_km'] = df['dh_km'].astype(float)
 	df['dz_km'] = df['dz_km'].astype(float)
 	df['cmax'] = df['cmax'].astype(float)
@@ -107,7 +117,13 @@ def run_loki_vs_jma_qc(
 		out_png=error_out_dir / 'dz_km_hist.png',
 		bins=20,
 	)
-
+	plot_hist(
+		df['dt_origin_sec'].to_numpy(),
+		title='Origin time error dt_origin_sec (LOKI - JMA)',
+		xlabel='dt_origin_sec [sec]',
+		out_png=error_out_dir / 'dt_origin_sec_hist.png',
+		bins=30,
+	)
 	plot_box(
 		[df['dh_km'].to_numpy()],
 		labels=['all'],
@@ -122,7 +138,13 @@ def run_loki_vs_jma_qc(
 		ylabel='dz_km [km]',
 		out_png=error_out_dir / 'dz_km_box_all.png',
 	)
-
+	plot_box(
+		[df['dt_origin_sec'].to_numpy()],
+		labels=['all'],
+		title='dt_origin_sec boxplot (all)',
+		ylabel='dt_origin_sec [sec]',
+		out_png=error_out_dir / 'dt_origin_sec_box_all.png',
+	)
 	df['coh_bin'] = make_coherence_bins(df, 'cmax', n_bins=4)
 	labels = sorted(df['coh_bin'].unique())
 	dh_by = [df.loc[df['coh_bin'] == b, 'dh_km'].to_numpy() for b in labels]

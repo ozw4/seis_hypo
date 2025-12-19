@@ -8,7 +8,7 @@ params:
   slrat: 5
   npr: 2
   ntrial: 1
-  derivative: false
+  derivative: true
   vfunc: erg
   hfunc: pca
   model: jma2001

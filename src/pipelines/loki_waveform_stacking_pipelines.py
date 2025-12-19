@@ -38,6 +38,9 @@ _PRE_KEYS = {
 	'pre_fstop_hi',
 	'pre_gpass',
 	'pre_gstop',
+	'pre_mad_scale',
+	'pre_mad_eps',
+	'pre_mad_c',
 }
 
 
