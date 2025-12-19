@@ -114,10 +114,6 @@ def build_station_candidates_from_jma_compact(
 
 
 if __name__ == '__main__':
-	raise RuntimeError('Call these functions from your chk_newwork_downloadable.py')
-
-
-if __name__ == '__main__':
 	NETWORK_CODES = [
 		'0101',
 		'0103',
@@ -144,7 +140,7 @@ if __name__ == '__main__':
 		site_lon=140.2,
 		radius_km=80.0,
 	)
-
+	when = dt.datetime(2025, 1, 1, 0, 0, 0)
 	df = check_network_downloadable_by_probe(
 		client=client,
 		when=when,

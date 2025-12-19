@@ -201,68 +201,6 @@ def _decode_lon_lat_from_13digits(code13: str) -> tuple[float, float]:
 	return lon, lat
 
 
-def load_jma_station_list_from_compact_file(path: str | Path) -> pd.DataFrame:
-	"""JMAの compact な stations ファイルを station list DataFrame に変換する。
-
-	戻り値カラム:
-	- station_code:   局コード (例 'OMAEZA', 'N.615S', 'V.ATKW')
-	- longitude_deg:  経度 (十進度)
-	- latitude_deg:   緯度 (十進度)
-	- raw_numeric:    元の数値文字列
-	- station_index:  行末の番号（あれば）
-	"""
-	path = Path(path)
-
-	rows: list[dict] = []
-
-	with path.open('r', encoding='utf-8') as f:
-		for lineno, line in enumerate(f, start=1):
-			raw = line.rstrip('\n')
-			if not raw.strip():
-				continue
-
-			tokens = raw.split()
-			if len(tokens) < 2:
-				msg = f'invalid line (too few tokens) at line {lineno}: {raw!r}'
-				raise ValueError(msg)
-
-			station_code = tokens[0]
-			num_str = tokens[1]
-			if not num_str.isdigit():
-				msg = f'non-digit numeric token at line {lineno}: {num_str!r}'
-				raise ValueError(msg)
-
-			if len(num_str) < 13:
-				msg = f'numeric token too short at line {lineno}: {num_str!r}'
-				raise ValueError(msg)
-
-			# 先頭13桁が経度・緯度コード
-			lonlat_code = num_str[:13]
-			longitude_deg, latitude_deg = _decode_lon_lat_from_13digits(lonlat_code)
-
-			# station index は:
-			#   - 3トークンある行: 第3トークンを採用
-			#   - 数字が17桁以上の行: 14桁目以降を index とみなす
-			station_index: int | None = None
-			if len(tokens) >= 3:
-				station_index = int(tokens[2])
-			elif len(num_str) > 13:
-				station_index = int(num_str[13:])
-
-			rows.append(
-				{
-					'station_code': station_code,
-					'longitude_deg': longitude_deg,
-					'latitude_deg': latitude_deg,
-					'raw_numeric': num_str,
-					'station_index': station_index,
-				}
-			)
-
-	df = pd.DataFrame(rows)
-	return df
-
-
 def parse_network_codes_from_client_info(info_text: object) -> list[str]:
 	"""client.info() の出力から network_code を抽出する（6桁/末尾英字対応）。
 
