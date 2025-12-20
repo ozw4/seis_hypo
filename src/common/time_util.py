@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import datetime as dt
 from collections.abc import Iterator
+from datetime import timezone
 
 import pandas as pd
 
@@ -29,6 +32,20 @@ def to_utc(ts: pd.Timestamp, *, naive_tz: str = 'Asia/Tokyo') -> pd.Timestamp:
 		raise ValueError('timestamp is NaT')
 	if ts.tzinfo is None:
 		ts = ts.tz_localize(naive_tz)
+	return ts.tz_convert('UTC')
+
+
+def as_utc_aware(d: dt.datetime) -> dt.datetime:
+	if d.tzinfo is None:
+		return d.replace(tzinfo=timezone.utc)
+	return d.astimezone(timezone.utc)
+
+
+def origin_to_utc(origin: object) -> pd.Timestamp:
+	"""Parse origin time treating naive as JST, return UTC-aware Timestamp."""
+	ts = pd.to_datetime(origin)
+	if ts.tzinfo is None:
+		ts = ts.tz_localize('Asia/Tokyo')
 	return ts.tz_convert('UTC')
 
 

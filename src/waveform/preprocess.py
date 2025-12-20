@@ -7,7 +7,24 @@ import numpy as np
 from obspy import Stream
 from scipy.signal import detrend as sp_detrend
 
+from common.config import LokiWaveformStackingInputs
 from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d
+
+
+def spec_from_inputs(inputs: LokiWaveformStackingInputs) -> DetrendBandpassSpec:
+	# inputs 側に pre_* が無ければデフォルトでOK
+	return DetrendBandpassSpec(
+		detrend=getattr(inputs, 'pre_detrend', 'linear'),
+		fstop_lo=float(getattr(inputs, 'pre_fstop_lo', 0.5)),
+		fpass_lo=float(getattr(inputs, 'pre_fpass_lo', 1.0)),
+		fpass_hi=float(getattr(inputs, 'pre_fpass_hi', 20.0)),
+		fstop_hi=float(getattr(inputs, 'pre_fstop_hi', 30.0)),
+		gpass=float(getattr(inputs, 'pre_gpass', 1.0)),
+		gstop=float(getattr(inputs, 'pre_gstop', 40.0)),
+		mad_scale=bool(getattr(inputs, 'pre_mad_scale', False)),
+		mad_eps=float(getattr(inputs, 'pre_mad_eps', 1.0)),
+		mad_c=float(getattr(inputs, 'pre_mad_c', 6.0)),
+	)
 
 
 @dataclass(frozen=True)

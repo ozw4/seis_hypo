@@ -184,3 +184,20 @@ def resolve_qc_config_fig_dir(cfg: QcConfig, preset_name: str) -> QcConfig:
 	run_parent = (Path(cfg.output_dir) / DEFAULT_NLL_RUN_DIR).parent
 	fig_dir = run_parent / 'qc' / preset_name
 	return replace(cfg, fig_dir=fig_dir)
+
+
+@dataclass(frozen=True, slots=True)
+class EqTInputs:
+	"""EqTransformer inference parameters.
+
+	Note:
+	- eqt_weights: SeisBench pretrained name (e.g. 'original') OR local weights path.
+	- channel_prefix: output trace channel prefix, last char becomes 'P'/'S' (e.g. 'HH' -> 'HHP'/'HHS')
+
+	"""
+
+	eqt_weights: str = 'original'
+	eqt_in_samples: int = 6000
+	eqt_overlap: int = 3000
+	eqt_batch_size: int = 64
+	eqt_channel_prefix: str = 'HH'

@@ -1,0 +1,209 @@
+# %%
+# file: proc/loki_hypo/run_loki_waveform_stacking_pipelines_eqt.py
+from __future__ import annotations
+
+from pathlib import Path
+
+from loki.loki import Loki
+from obspy import Stream
+
+from common.config import (
+	EqTInputs,
+	LokiWaveformStackingInputs,
+	LokiWaveformStackingPipelineConfig,
+)
+from common.load_config import load_config
+from common.read_yaml import fieldnames, read_yaml_preset
+from io_util.stream import build_stream_from_downloaded_win32
+from loki_tools.prob_stream import build_loki_ps_prob_stream
+from pick.eqt_probs import build_probs_by_station
+from pipelines.loki_waveform_stacking_pipelines import list_event_dirs_filtered
+from qc.loki_compare_qc import run_loki_vs_jma_qc
+from qc.loki_event_coherence_xy_plot import plot_loki_event_coherence_xy_overlay
+from qc.plot_waveforms_with_loki_picks import plot_waveforms_with_picks_for_event
+from viz.plot_config import PlotConfig
+from waveform.preprocess import (
+	preprocess_stream_detrend_bandpass,
+	spec_from_inputs,
+)
+
+# ========= USER EDIT HERE =========
+PIPELINE_YAML = Path('/workspace/data/config/loki_waveform_pipeline_eqt.yaml')
+PIPELINE_PRESET = 'mobara_eqt'
+
+RUN_QC_COMPARE = True
+RUN_PLOT_WAVEFORMS_WITH_PICKS = True
+RUN_PLOT_COHERENCE_XY = True
+
+PLOT_CONFIG_YAML = Path('/workspace/data/config/plot_config.yaml')
+PLOT_CONFIG_PRESET = 'mobara_default'
+
+PLOT_COMPONENTS = ('U', 'N')  # waveforms plot components
+Y_TIME = 'relative'  # "samples" | "absolute" | "relative"
+# =================================
+
+
+def _build_inputs_and_eqt(
+	yaml_path: Path,
+	preset: str,
+) -> tuple[LokiWaveformStackingInputs, EqTInputs]:
+	raw = read_yaml_preset(yaml_path, preset)
+
+	allowed_inputs = fieldnames(LokiWaveformStackingInputs)
+	allowed_eqt = fieldnames(EqTInputs)
+	allowed_union = allowed_inputs | allowed_eqt
+
+	unknown = sorted([k for k in raw.keys() if k not in allowed_union])
+	if unknown:
+		raise ValueError(f'プリセット "{preset}" に未知のキーがあります: {unknown}')
+
+	inputs_kwargs = {k: v for k, v in raw.items() if k in allowed_inputs}
+	eqt_kwargs = {k: v for k, v in raw.items() if k in allowed_eqt}
+
+	return LokiWaveformStackingInputs(**inputs_kwargs), EqTInputs(**eqt_kwargs)
+
+
+def main() -> None:
+	cfg = load_config(
+		LokiWaveformStackingPipelineConfig, PIPELINE_YAML, PIPELINE_PRESET
+	)
+
+	cfg.loki_data_path.mkdir(parents=True, exist_ok=True)
+	cfg.loki_output_path.mkdir(parents=True, exist_ok=True)
+
+	inputs_yaml = Path(cfg.inputs_yaml)
+	inputs_preset = str(cfg.inputs_preset)
+
+	# 同じpresetから2つのdataclassを読む（余計なキーは load_config 側で弾かれる）
+	inputs, eqt = _build_inputs_and_eqt(inputs_yaml, inputs_preset)
+	base_sampling_rate_hz = int(inputs.base_sampling_rate_hz)
+	fs_expected = float(base_sampling_rate_hz)
+
+	pre_enable = bool(getattr(inputs, 'pre_enable', True))
+	pre_spec = spec_from_inputs(inputs)
+
+	# header: db_path と hdr_filename を素直に結合（hdr_filenameが絶対ならhdr_filenameが勝つ）
+	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
+	if not header_path.is_file():
+		raise FileNotFoundError(f'header not found: {header_path}')
+
+	# ---- LOKI kwargs (direct_input: vfunc/hfunc を絶対に渡さない) ----
+	loki_kwargs: dict[str, object] = {
+		'npr': int(getattr(inputs, 'npr', 2)),
+		'model': str(getattr(inputs, 'model', 'jma2001')),
+	}
+
+	# ---- build prob streams for events ----
+	event_dirs = list_event_dirs_filtered(cfg)
+	streams_by_event: dict[str, Stream] = {}
+
+	for event_dir in event_dirs:
+		event_name = event_dir.name
+		(cfg.loki_data_path / event_name).mkdir(parents=True, exist_ok=True)
+
+		st = build_stream_from_downloaded_win32(
+			event_dir,
+			base_sampling_rate_hz=base_sampling_rate_hz,
+			components_order=('U', 'N', 'E'),
+		)
+
+		if pre_enable:
+			preprocess_stream_detrend_bandpass(
+				st, spec=pre_spec, fs_expected=fs_expected
+			)
+
+		# station -> {'P': (N,), 'S': (N,)}
+		probs_by_sta = build_probs_by_station(
+			st,
+			fs=fs_expected,
+			eqt_weights=str(eqt.eqt_weights),
+			eqt_in_samples=int(eqt.eqt_in_samples),
+			eqt_overlap=int(eqt.eqt_overlap),
+			eqt_batch_size=int(eqt.eqt_batch_size),
+		)
+
+		st_prob = build_loki_ps_prob_stream(
+			ref_stream=st,
+			probs_by_station=probs_by_sta,
+			channel_prefix=str(eqt.eqt_channel_prefix),  # -> HHP/HHS
+			require_both_ps=True,
+		)
+
+		streams_by_event[event_name] = st_prob
+		print(
+			f'prepared EqT prob stream: event={event_name} '
+			f'n_traces={len(st_prob)} stations={len(probs_by_sta)} '
+			f'pre={"on" if pre_enable else "off"}'
+		)
+
+	# ---- run LOKI (direct_input: comp=['P','S']) ----
+	comp = list(getattr(cfg, 'comp', ['P', 'S']))
+	if comp != ['P', 'S']:
+		print(f"[WARN] cfg.comp is {comp}, but EqT direct_input assumes ['P','S']")
+
+	l1 = Loki(
+		str(cfg.loki_data_path),
+		str(cfg.loki_output_path),
+		str(cfg.loki_db_path),
+		str(cfg.loki_hdr_filename),
+		mode='locator',
+	)
+
+	l1.location(
+		extension=cfg.extension,
+		comp=['P', 'S'],
+		precision=cfg.precision,
+		search=cfg.search,
+		streams_by_event=streams_by_event,
+		**loki_kwargs,
+	)
+
+	# ---- QC compare (optional) ----
+	if RUN_QC_COMPARE:
+		plot_cfg = load_config(PlotConfig, PLOT_CONFIG_YAML, PLOT_CONFIG_PRESET)
+		allowed_event_ids = {p.name for p in event_dirs}
+
+		run_loki_vs_jma_qc(
+			base_input_dir=Path(cfg.base_input_dir),
+			loki_output_dir=Path(cfg.loki_output_path),
+			header_path=header_path,
+			event_glob=cfg.event_glob,
+			plot_cfg=plot_cfg,
+			use_build_compare_df=True,
+			compare_csv_out=Path(cfg.loki_output_path) / 'compare_jma_vs_loki.csv',
+			allowed_event_ids=allowed_event_ids,
+			out_png=Path(cfg.loki_output_path) / 'loki_vs_jma.png',
+		)
+
+	# ---- Per-event plots (optional) ----
+	if RUN_PLOT_WAVEFORMS_WITH_PICKS or RUN_PLOT_COHERENCE_XY:
+		for event_dir in event_dirs:
+			if RUN_PLOT_WAVEFORMS_WITH_PICKS:
+				plot_waveforms_with_picks_for_event(
+					event_dir=event_dir,
+					loki_output_dir=Path(cfg.loki_output_path),
+					header_path=header_path,
+					base_sampling_rate_hz=base_sampling_rate_hz,
+					components_order=('U', 'N', 'E'),
+					plot_components=PLOT_COMPONENTS,
+					y_time=Y_TIME,
+					pre_spec=pre_spec,
+				)
+
+			if RUN_PLOT_COHERENCE_XY:
+				out_png = plot_loki_event_coherence_xy_overlay(
+					event_dir=event_dir,
+					loki_output_dir=Path(cfg.loki_output_path),
+					header_path=header_path,
+					trial=0,
+					dpi=200,
+				)
+				if out_png is None:
+					print(
+						f'[WARN] no corrmatrix for event={event_dir.name}, '
+						'skip coherence plot'
+					)
+
+
+if __name__ == '__main__':
+	main()
