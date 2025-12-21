@@ -108,35 +108,21 @@ def build_stream_from_downloaded_win32(
 
 	meta = load_event_json(event_dir)
 
-	if 'origin_time_jst' not in meta:
-		raise ValueError('event.json must contain origin_time_jst')
-
-	origin_ts = pd.to_datetime(meta['origin_time_jst'])
-	if pd.isna(origin_ts):
-		raise ValueError('origin_time_jst is invalid/NaT')
-
-	# ★修正点：timezone-naiveな origin_time_jst は JST として扱う（入口の挙動を統一）
-	if origin_ts.tzinfo is None:
-		origin_ts = origin_ts.tz_localize('Asia/Tokyo')
-	else:
-		origin_ts = origin_ts.tz_convert('Asia/Tokyo')
-
-	origin_time_jst = origin_ts.to_pydatetime()
+	origin_time_jst = pd.to_datetime(meta['origin_time_jst']).to_pydatetime()
+	if origin_time_jst.tzinfo is None:
+		raise ValueError('origin_time_jst must be timezone-aware (e.g. +09:00)')
 
 	pre_sec = int(meta['window']['pre_sec'])
 	post_sec = int(meta['window']['post_sec'])
 	span_min = int(meta['win32']['span_min'])
 
-	ch_path = event_dir / str(meta['win32']['ch_file'])
-	if not ch_path.is_file():
-		raise FileNotFoundError(f'.ch not found: {ch_path}')
-
-	cnt_path_list = [event_dir / n for n in meta['win32']['cnt_files']]
-	if not cnt_path_list:
-		raise ValueError(f'cnt_files is empty in event.json: {event_dir}')
-	for p in cnt_path_list:
-		if not p.is_file():
-			raise FileNotFoundError(f'.cnt not found: {p}')
+	win32 = meta['win32']
+	if isinstance(win32, dict) and 'groups' in win32:
+		groups = list(win32['groups'])
+		if not groups:
+			raise ValueError(f'win32.groups is empty in event.json: {event_dir}')
+	else:
+		groups = [{'ch_file': win32['ch_file'], 'cnt_files': win32['cnt_files']}]
 
 	t_start_jst = origin_time_jst - dt.timedelta(seconds=pre_sec)
 	t_end_jst = origin_time_jst + dt.timedelta(seconds=post_sec)
@@ -145,52 +131,65 @@ def build_stream_from_downloaded_win32(
 
 	first_minute = floor_minute(t_start_jst)
 
-	# ★ここが修正点：component表記でフィルタせず、局ごとに先頭3本をU,N,Eとして再ラベル
-	ch_df_raw = read_hinet_channel_table(ch_path)
-	ch_df = _force_components_une_by_order(ch_df_raw, components_order=components_order)
-
-	arr_list: list[np.ndarray] = []
-	duration_sec = span_min * 60
-	for cnt in cnt_path_list:
-		arr_min = read_win32(
-			cnt,
-			ch_df,
-			base_sampling_rate_HZ=int(base_sampling_rate_hz),
-			duration_SECOND=int(duration_sec),
-		)
-		arr_list.append(arr_min)
-
-	arr_concat = arr_list[0] if len(arr_list) == 1 else np.concatenate(arr_list, axis=1)
-
 	offset_start_sec = (t_start_jst - first_minute).total_seconds()
 	offset_end_sec = (t_end_jst - first_minute).total_seconds()
-
 	start_idx = int(round(offset_start_sec * base_sampling_rate_hz))
 	end_idx = int(round(offset_end_sec * base_sampling_rate_hz))
-
-	arr_event = slice_with_pad(arr_concat, start_idx, end_idx)
 
 	starttime_utc = UTCDateTime(t_start_jst.astimezone(dt.timezone.utc))
 	delta = 1.0 / float(base_sampling_rate_hz)
 
 	st = Stream()
-	stations = sorted(ch_df['station'].unique().tolist())
+	duration_sec = span_min * 60
 
-	for sta in stations:
-		df_sta = ch_df[ch_df['station'] == sta]
-		for comp in components_order:
-			rows = df_sta.index[df_sta['component'] == comp].to_list()
-			if len(rows) != 1:
-				raise ValueError(
-					f'station={sta} comp={comp} must exist exactly once, got {len(rows)}'
-				)
-			i = rows[0]
+	for g in groups:
+		ch_path = event_dir / str(g['ch_file'])
+		if not ch_path.is_file():
+			raise FileNotFoundError(f'.ch not found: {ch_path}')
 
-			tr = Trace(data=arr_event[i].astype(np.float32, copy=False))
-			tr.stats.starttime = starttime_utc
-			tr.stats.delta = delta
-			tr.stats.station = sta
-			tr.stats.channel = f'{channel_prefix}{comp}'  # 末尾U/N/E
-			st += tr
+		cnt_path_list = [event_dir / str(n) for n in g['cnt_files']]
+		if not cnt_path_list:
+			raise ValueError(f'cnt_files is empty in event.json group: {event_dir}')
+		for p in cnt_path_list:
+			if not p.is_file():
+				raise FileNotFoundError(f'.cnt not found: {p}')
+
+		ch_df_raw = read_hinet_channel_table(ch_path)
+		ch_df = _force_components_une_by_order(
+			ch_df_raw, components_order=components_order
+		)
+
+		arr_list: list[np.ndarray] = []
+		for cnt in cnt_path_list:
+			arr_min = read_win32(
+				cnt,
+				ch_df,
+				base_sampling_rate_HZ=int(base_sampling_rate_hz),
+				duration_SECOND=int(duration_sec),
+			)
+			arr_list.append(arr_min)
+
+		arr_concat = (
+			arr_list[0] if len(arr_list) == 1 else np.concatenate(arr_list, axis=1)
+		)
+		arr_event = slice_with_pad(arr_concat, start_idx, end_idx)
+
+		stations = sorted(ch_df['station'].unique().tolist())
+		for sta in stations:
+			df_sta = ch_df[ch_df['station'] == sta]
+			for comp in components_order:
+				rows = df_sta.index[df_sta['component'] == comp].to_list()
+				if len(rows) != 1:
+					raise ValueError(
+						f'station={sta} comp={comp} must exist exactly once, got {len(rows)}'
+					)
+				i = rows[0]
+
+				tr = Trace(data=arr_event[i].astype(np.float32, copy=False))
+				tr.stats.starttime = starttime_utc
+				tr.stats.delta = delta
+				tr.stats.station = sta
+				tr.stats.channel = f'{channel_prefix}{comp}'
+				st += tr
 
 	return st

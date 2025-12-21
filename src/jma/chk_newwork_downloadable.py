@@ -6,138 +6,183 @@ from pathlib import Path
 
 import pandas as pd
 
-from jma.download import create_hinet_client, download_win_for_stations
+from jma.download import create_hinet_client
 
 
-def probe_stations_from_station_csv(
-	client,
+def _to_t0_str(when: dt.datetime) -> str:
+	# HinetPyは 'YYYYMMDDHHMM' をよく使うので固定
+	if when.tzinfo is not None:
+		# ここは「probe用途」なので、tz-aware渡すなら先にJST/UTCの方針決めてからにして
+		raise ValueError(
+			'when must be timezone-naive JST datetime for this probe script'
+		)
+	return when.strftime('%Y%m%d%H%M')
+
+
+def probe_networks_by_get_continuous_waveform(
 	*,
-	station_csv_path: str | Path,
-	network_codes: list[str],
+	network_info: dict[str, str],
 	when: dt.datetime,
-	outdir: str | Path,
+	base_outdir: str | Path = 'network_test_downloads',
 	span_min: int = 1,
 	threads: int = 4,
-	max_trials_per_network: int = 500,
-	max_success_per_network: int = 10,
-	start_row: int = 0,
+	cleanup: bool = True,
+	keep_cnt: bool = True,
 ) -> pd.DataFrame:
-	"""station.csv の station_code を先頭から順に、各network_codeへ1局ずつprobeする。
+	"""network_codeごとに1回だけ get_continuous_waveform を叩いて可否を調べる。
 
-	- 半径フィルタなし（CSV全体を候補にする）
-	- 1 station / 1 network / 1 minute で download を試す
-	- 失敗は検査目的なので握って継続（※フォールバック扱い：警告を出す）
+	- 成功: outdir/<code>/probe_<code>_YYYYMMDDHHMM_1m.cnt + .ch
+	- 失敗: error_type/error_msg に理由を保存
 	"""
-	station_csv_path = Path(station_csv_path)
-	if not station_csv_path.is_file():
-		raise FileNotFoundError(f'station_csv_path not found: {station_csv_path}')
+	if not network_info:
+		raise ValueError('network_info is empty')
 
-	if not network_codes:
-		raise ValueError('network_codes is empty')
+	t0 = _to_t0_str(when)
 
-	df = pd.read_csv(station_csv_path)
-	if df.empty:
-		raise ValueError(f'station csv is empty: {station_csv_path}')
+	base_outdir = Path(base_outdir)
+	base_outdir.mkdir(parents=True, exist_ok=True)
 
-	if 'station_code' not in df.columns:
-		raise ValueError(
-			f'station csv missing station_code column: have={df.columns.tolist()}'
-		)
-
-	stations_all = df['station_code'].astype(str).tolist()
-	if start_row < 0 or start_row >= len(stations_all):
-		raise ValueError(f'start_row out of range: {start_row} (n={len(stations_all)})')
-
-	outdir = Path(outdir)
-	outdir.mkdir(parents=True, exist_ok=True)
+	client = create_hinet_client()
 
 	rows: list[dict[str, str]] = []
+	for code, name in network_info.items():
+		code = str(code).strip()
+		if not code:
+			raise ValueError('empty network_code in network_info')
 
-	for code in network_codes:
-		code = str(code)
-		net_dir = outdir / code
-		net_dir.mkdir(parents=True, exist_ok=True)
+		outdir = base_outdir / code
+		outdir.mkdir(parents=True, exist_ok=True)
 
-		success = 0
-		trials = 0
+		cnt_name = f'probe_{code}_{t0}_{int(span_min)}m.cnt'
+		ch_name = f'probe_{code}_{t0}_{int(span_min)}m.ch'
 
-		for sta in stations_all[start_row:]:
-			if trials >= int(max_trials_per_network):
-				break
-			if success >= int(max_success_per_network):
-				break
+		ok = False
+		cnt_path = ''
+		ch_path = ''
+		error_type = ''
+		error_msg = ''
 
-			trials += 1
-			sta = str(sta)
-
-			try:
-				cnt_path, ch_path = download_win_for_stations(
-					client,
-					stations=[sta],
-					when=when,
-					network_code=code,
-					span_min=int(span_min),
-					outdir=net_dir,
-					threads=int(threads),
-					cleanup=True,
-					clear_selection=True,
-					skip_if_exists=False,
-				)
-			except Exception as e:
-				# [WARN] 検査目的の継続（フォールバック扱い）
-				print(
-					f'[WARN] probe failed: network={code} station={sta} err={type(e).__name__}: {e}'
-				)
-				continue
-
-			rows.append(
-				{
-					'network_code': code,
-					'station_success': sta,
-					'trial_index': str(trials),
-					'cnt_path': str(cnt_path),
-					'ch_path': str(ch_path),
-				}
+		try:
+			# 互換性のため positional を使う（code,t0,span_min）
+			data, ctable = client.get_continuous_waveform(
+				code,
+				t0,
+				int(span_min),
+				outdir=str(outdir),
+				data=cnt_name,
+				ctable=ch_name,
+				threads=int(threads),
+				cleanup=bool(cleanup),
 			)
-			success += 1
+			ok = True
+
+			# 戻り値が filename / Path / str のどれでも拾えるようにする
+			cnt_path = str(outdir / str(data))
+			ch_path = str(outdir / str(ctable))
+
+			if not keep_cnt:
+				p = Path(cnt_path)
+				if p.exists():
+					p.unlink()
+				cnt_path = ''
+		except Exception as e:
+			# probe用途：失敗しても継続（例外的にtry/except許容）
+			error_type = type(e).__name__
+			error_msg = str(e)
+			print(
+				f'[WARN] network_code={code} connection failed: {error_type}: {error_msg}'
+			)
 
 		rows.append(
 			{
 				'network_code': code,
-				'station_success': '',
-				'trial_index': str(trials),
-				'cnt_path': '',
-				'ch_path': '',
-				'summary': f'success={success} trials={trials}',
+				'network_name': str(name),
+				'ok': str(ok),
+				'outdir': str(outdir),
+				'cnt_path': cnt_path,
+				'ch_path': ch_path,
+				'error_type': error_type,
+				'error_msg': error_msg,
 			}
 		)
 
-	return pd.DataFrame(rows)
+	df = pd.DataFrame(
+		rows,
+		columns=[
+			'network_code',
+			'network_name',
+			'ok',
+			'outdir',
+			'cnt_path',
+			'ch_path',
+			'error_type',
+			'error_msg',
+		],
+	)
+
+	out_csv = base_outdir / 'network_probe_results.csv'
+	df.to_csv(out_csv, index=False, encoding='utf-8')
+	print(f'[INFO] wrote: {out_csv}')
+
+	return df
 
 
 if __name__ == '__main__':
-	client = create_hinet_client()
-
-	# 観測が確実にありそうな時刻にする（JSTの naive を渡して良いならそのまま）
+	# pasted.txt のこれをそのままコピペでOK
 	when = dt.datetime(2025, 1, 1, 0, 0, 0)
 
-	NETWORK_CODES = [
-		'0201',
-	]
+	NETWORK_INFO = {
+		'0101': 'NIED Hi-net',
+		'0103': 'NIED F-net (broadband)',
+		'0103A': 'NIED F-net (strong motion)',
+		'010501': 'NIED V-net (Tokachidake)',
+		'010502': 'NIED V-net (Tarumaesan)',
+		'010503': 'NIED V-net (Usuzan)',
+		'010504': 'NIED V-net (Hokkaido-Komagatake)',
+		'010505': 'NIED V-net (Iwatesan)',
+		'010506': 'NIED V-net (Nasudake)',
+		'010507': 'NIED V-net (Asamayama)',
+		'010508': 'NIED V-net (Kusatsu-Shiranesan)',
+		'010509': 'NIED V-net (Fujisan)',
+		'010510': 'NIED V-net (Miyakejima)',
+		'010511': 'NIED V-net (Izu-Oshima)',
+		'010512': 'NIED V-net (Asosan)',
+		'010513': 'NIED V-net (Unzendake)',
+		'010514': 'NIED V-net (Kirishimayama)',
+		'0106': 'NIED Temp. obs. in eastern Shikoku',
+		'0120': 'NIED S-net (velocity)',
+		'0120A': 'NIED S-net (acceleration)',
+		'0120B': 'NIED S-net (acceleration 2LG)',
+		'0120C': 'NIED S-net (acceleration 2HG)',
+		'0131': 'NIED MeSO-net',
+		'0201': 'Hokkaido University',
+		'0202': 'Tohoku University',
+		'0203': 'Tokyo University',
+		'0204': 'Kyoto University',
+		'0205': 'Kyushu University',
+		'0206': 'Hirosaki University',
+		'0207': 'Nagoya University',
+		'0208': 'Kochi University',
+		'0209': 'Kagoshima University',
+		'0231': 'MeSO-net (~2017.03)',
+		'0301': 'JMA Seismometer Network',
+		'0401': 'JAMSTEC Realtime Data from the Deep Sea Floor Observatory',
+		'0501': 'AIST',
+		'0601': 'GSI',
+		'0701': 'Tokyo Metropolitan Government',
+		'0702': 'Hot Spring Research Institute of Kanagawa Prefecture',
+		'0703': 'Aomori Prefectural Government',
+		'0705': 'Shizuoka Prefectural Government',
+		'0801': 'ADEP',
+	}
 
-	df = probe_stations_from_station_csv(
-		client,
-		station_csv_path='/workspace/data/station/station.csv',
-		network_codes=NETWORK_CODES,
+	df = probe_networks_by_get_continuous_waveform(
+		network_info=NETWORK_INFO,
 		when=when,
-		outdir='network_test_downloads',
+		base_outdir='network_test_downloads',
 		span_min=1,
 		threads=4,
-		max_trials_per_network=10,
-		max_success_per_network=5,
-		start_row=0,
+		cleanup=True,
+		keep_cnt=False,  # .chだけ欲しいならFalseが軽い
 	)
-
 	print(df)
-	df.to_csv('network_probe_results.csv', index=False, encoding='utf-8')
-	print('wrote network_probe_results.csv')

@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+# --- src/common/core.py に追加（write_event_json の下あたり） ---
+
 
 def validate_columns(df: pd.DataFrame, required: list[str], label: str) -> None:
 	missing = [c for c in required if c not in df.columns]
@@ -75,3 +77,46 @@ def load_event_json(event_dir: Path) -> dict[str, Any]:
 		raise FileNotFoundError(f'event.json not found: {p}')
 	with p.open('r', encoding='utf-8') as f:
 		return json.load(f)
+
+
+def write_event_json_win32_groups(
+	*,
+	event_dir: Path,
+	event_id: int,
+	origin_time_jst: dt.datetime,
+	pre_sec: int,
+	post_sec: int,
+	span_min: int,
+	threads: int,
+	win32_groups: list[dict[str, Any]],
+	extra: dict[str, Any] | None = None,
+) -> None:
+	"""event.json を "groups" 形式で書く。
+
+	win32_groups の各要素（最低限）:
+	- network_code: str
+	- stations: list[str]
+	- cnt_files: list[str]
+	- ch_file: str
+	- select_used: bool
+	"""
+	if not win32_groups:
+		raise ValueError('win32_groups is empty')
+
+	obj: dict[str, Any] = {
+		'event_id': int(event_id),
+		'origin_time_jst': origin_time_jst.isoformat(),
+		'window': {'pre_sec': int(pre_sec), 'post_sec': int(post_sec)},
+		'win32': {
+			'format': 'groups',
+			'span_min': int(span_min),
+			'threads': int(threads),
+			'groups': win32_groups,
+		},
+	}
+	if extra:
+		obj['extra'] = extra
+
+	out = event_dir / 'event.json'
+	with out.open('w', encoding='utf-8') as f:
+		json.dump(obj, f, ensure_ascii=False, indent=2)

@@ -63,7 +63,7 @@ USER ${USERNAME}
 # ---- Devcontainer niceties ----
 COPY ruff.toml /home/${USERNAME}/ruff.toml
 
-ENV PYTHONPATH="${PYTHONPATH}:/workspace/util"
+ENV PYTHONPATH="${PYTHONPATH}:/workspace/src"
 WORKDIR /workspace
 
 CMD ["/bin/bash"]
