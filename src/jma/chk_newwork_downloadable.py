@@ -19,10 +19,34 @@ def _to_t0_str(when: dt.datetime) -> str:
 	return when.strftime('%Y%m%d%H%M')
 
 
+def _normalize_return_path(outdir: Path, ret: object | None) -> str:
+	"""get_continuous_waveformの戻り値(data/ctable)を実在パス優先で正規化して返す。"""
+	if ret is None:
+		return ''
+
+	p = Path(str(ret))
+
+	# 1) 絶対パスで実在
+	if p.is_absolute() and p.exists():
+		return str(p)
+
+	# 2) 返り値が outdir 付き相対パスで実在（例: network_test_downloads/0101/xxx.ch）
+	if p.exists():
+		return str(p)
+
+	# 3) ファイル名だけを返してくるケース
+	cand = outdir / p
+	if cand.exists():
+		return str(cand)
+
+	# 4) 実在しない（空扱い）
+	return ''
+
+
 def probe_networks_by_get_continuous_waveform(
 	*,
 	network_info: dict[str, str],
-	when: dt.datetime,
+	when,
 	base_outdir: str | Path = 'network_test_downloads',
 	span_min: int = 1,
 	threads: int = 4,
@@ -31,8 +55,7 @@ def probe_networks_by_get_continuous_waveform(
 ) -> pd.DataFrame:
 	"""network_codeごとに1回だけ get_continuous_waveform を叩いて可否を調べる。
 
-	- 成功: outdir/<code>/probe_<code>_YYYYMMDDHHMM_1m.cnt + .ch
-	- 失敗: error_type/error_msg に理由を保存
+	success条件は「.ch が存在すること」。
 	"""
 	if not network_info:
 		raise ValueError('network_info is empty')
@@ -63,7 +86,6 @@ def probe_networks_by_get_continuous_waveform(
 		error_msg = ''
 
 		try:
-			# 互換性のため positional を使う（code,t0,span_min）
 			data, ctable = client.get_continuous_waveform(
 				code,
 				t0,
@@ -74,19 +96,29 @@ def probe_networks_by_get_continuous_waveform(
 				threads=int(threads),
 				cleanup=bool(cleanup),
 			)
-			ok = True
 
-			# 戻り値が filename / Path / str のどれでも拾えるようにする
-			cnt_path = str(outdir / str(data))
-			ch_path = str(outdir / str(ctable))
+			# 戻り値パス正規化（outdir二重連結も潰す）
+			cnt_path = _normalize_return_path(outdir, data)
+			ch_path = _normalize_return_path(outdir, ctable)
 
-			if not keep_cnt:
+			# .ch が取れないケースは「失敗」として扱う（ここが重要）
+			if not ch_path:
+				error_type = 'MissingChannelTable'
+				error_msg = 'ctable is None or .ch not found'
+				ok = False
+			else:
+				ok = Path(ch_path).is_file()
+				if not ok:
+					error_type = 'MissingChannelTable'
+					error_msg = f'.ch not found: {ch_path}'
+
+			if (not keep_cnt) and cnt_path:
 				p = Path(cnt_path)
 				if p.exists():
 					p.unlink()
 				cnt_path = ''
+
 		except Exception as e:
-			# probe用途：失敗しても継続（例外的にtry/except許容）
 			error_type = type(e).__name__
 			error_msg = str(e)
 			print(
@@ -125,64 +157,3 @@ def probe_networks_by_get_continuous_waveform(
 	print(f'[INFO] wrote: {out_csv}')
 
 	return df
-
-
-if __name__ == '__main__':
-	# pasted.txt のこれをそのままコピペでOK
-	when = dt.datetime(2025, 1, 1, 0, 0, 0)
-
-	NETWORK_INFO = {
-		'0101': 'NIED Hi-net',
-		'0103': 'NIED F-net (broadband)',
-		'0103A': 'NIED F-net (strong motion)',
-		'010501': 'NIED V-net (Tokachidake)',
-		'010502': 'NIED V-net (Tarumaesan)',
-		'010503': 'NIED V-net (Usuzan)',
-		'010504': 'NIED V-net (Hokkaido-Komagatake)',
-		'010505': 'NIED V-net (Iwatesan)',
-		'010506': 'NIED V-net (Nasudake)',
-		'010507': 'NIED V-net (Asamayama)',
-		'010508': 'NIED V-net (Kusatsu-Shiranesan)',
-		'010509': 'NIED V-net (Fujisan)',
-		'010510': 'NIED V-net (Miyakejima)',
-		'010511': 'NIED V-net (Izu-Oshima)',
-		'010512': 'NIED V-net (Asosan)',
-		'010513': 'NIED V-net (Unzendake)',
-		'010514': 'NIED V-net (Kirishimayama)',
-		'0106': 'NIED Temp. obs. in eastern Shikoku',
-		'0120': 'NIED S-net (velocity)',
-		'0120A': 'NIED S-net (acceleration)',
-		'0120B': 'NIED S-net (acceleration 2LG)',
-		'0120C': 'NIED S-net (acceleration 2HG)',
-		'0131': 'NIED MeSO-net',
-		'0201': 'Hokkaido University',
-		'0202': 'Tohoku University',
-		'0203': 'Tokyo University',
-		'0204': 'Kyoto University',
-		'0205': 'Kyushu University',
-		'0206': 'Hirosaki University',
-		'0207': 'Nagoya University',
-		'0208': 'Kochi University',
-		'0209': 'Kagoshima University',
-		'0231': 'MeSO-net (~2017.03)',
-		'0301': 'JMA Seismometer Network',
-		'0401': 'JAMSTEC Realtime Data from the Deep Sea Floor Observatory',
-		'0501': 'AIST',
-		'0601': 'GSI',
-		'0701': 'Tokyo Metropolitan Government',
-		'0702': 'Hot Spring Research Institute of Kanagawa Prefecture',
-		'0703': 'Aomori Prefectural Government',
-		'0705': 'Shizuoka Prefectural Government',
-		'0801': 'ADEP',
-	}
-
-	df = probe_networks_by_get_continuous_waveform(
-		network_info=NETWORK_INFO,
-		when=when,
-		base_outdir='network_test_downloads',
-		span_min=1,
-		threads=4,
-		cleanup=True,
-		keep_cnt=False,  # .chだけ欲しいならFalseが軽い
-	)
-	print(df)

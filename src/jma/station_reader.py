@@ -8,91 +8,109 @@ import pandas as pd
 
 from common.geo import haversine_distance_km
 
-# Hi-net チャネルテーブル (hinet_channelstbl_YYYYMMDD) の
-# 先頭 18 列に対応するカラム名
 COLS18 = [
-	'ch_hex',  # [1] 16進チャネル番号
-	'rec_flag',  # [2]
-	'line_delay_ms',  # [3]
-	'station',  # [4] 局名
-	'component',  # [5] 成分 (U/N/E など)
-	'monitor_gain_idx',  # [6]
-	'adc_bits',  # [7]
-	'sensor_sensitivity',  # [8]
-	'input_unit',  # [9]
-	'nat_period_s',  # [10]
-	'damping',  # [11]
-	'preamp_gain_db',  # [12]
-	'ad_lsb_delta_v',  # [13]
-	'lat',  # [14] 緯度 (deg)
-	'lon',  # [15] 経度 (deg)
-	'elevation_m',  # [16]
-	'tt_corr_p',  # [17] P 走時計算の局補正
-	'tt_corr_s',  # [18] S 走時計算の局補正
+	'ch_hex',
+	'rec_flag',
+	'line_delay_ms',
+	'station',
+	'component',
+	'monitor_gain_idx',
+	'adc_bits',
+	'sensor_sensitivity',
+	'input_unit',
+	'nat_period_s',
+	'damping',
+	'preamp_gain_db',
+	'ad_lsb_delta_v',
+	'lat',
+	'lon',
+	'elevation_m',
+	'tt_corr_p',
+	'tt_corr_s',
 ]
+
+_INT_COLS = ['rec_flag', 'line_delay_ms', 'monitor_gain_idx', 'adc_bits']
+_FLOAT_COLS = [
+	'sensor_sensitivity',
+	'nat_period_s',
+	'damping',
+	'preamp_gain_db',
+	'ad_lsb_delta_v',
+	'lat',
+	'lon',
+	'elevation_m',
+	'tt_corr_p',
+	'tt_corr_s',
+]
+
+_DASH_TRANSLATION = str.maketrans(
+	{
+		'−': '-',  # U+2212
+		'－': '-',  # U+FF0D
+		'–': '-',  # U+2013
+		'—': '-',  # U+2014
+	}
+)
+
+# damping と preamp_gain_db が "0.70-10" みたいに結合されるケースを展開する
+# 例: "0.70-10" -> ("0.70", "-10")
+_DAMP_PREAMP_FUSED = re.compile(r'^(?P<damp>\d+(?:\.\d+)?)(?P<pre>[+-]\d+(?:\.\d+)?)$')
+
+
+def _first_18_fields_by_spans(line: str, lineno_1based: int, path: Path) -> list[str]:
+	line = line.translate(_DASH_TRANSLATION)
+
+	spans = [(m.start(), m.end()) for m in re.finditer(r'\S+', line)]
+	if len(spans) < 18:
+		raise ValueError(
+			f'expected >=18 fields, got {len(spans)} at line={lineno_1based} in {path}'
+		)
+
+	fields = [line[a:b] for a, b in spans]
+
+	# damping位置（0-based index=10）で fused を展開して列ズレを修正
+	if len(fields) >= 11:
+		m = _DAMP_PREAMP_FUSED.match(fields[10])
+		if m:
+			fields = fields[:10] + [m.group('damp'), m.group('pre')] + fields[11:]
+
+	if len(fields) < 18:
+		raise ValueError(
+			f'expected >=18 fields after normalization, got {len(fields)} at line={lineno_1based} in {path}'
+		)
+
+	return [s.strip() for s in fields[:18]]
 
 
 def read_hinet_channel_table(path: str | Path) -> pd.DataFrame:
-	"""Hi-net チャネルテーブルを読み込んで標準化した DataFrame を返す.
-
-	処理内容:
-	- 先頭 18 列を読み込んで COLS18 というカラム名を付与
-	- 型変換:
-		* ch_hex -> 大文字 16進文字列
-		* ch_int -> ch_hex を int にした列を追加
-		* rec_flag, line_delay_ms, monitor_gain_idx, adc_bits -> int
-		* それ以外の数値列は float
-	- conv_coeff 列を付与:
-		conv_coeff = ad_lsb_delta_v / (sensor_sensitivity * 10**(preamp_gain_db/20))
-		これで AD 値 I から物理量 v を v = I * conv_coeff で計算できる。
-
-	戻り値 DataFrame の主なカラム:
-		ch_hex, ch_int, station, component, input_unit,
-		lat, lon, elevation_m, rec_flag, line_delay_ms, monitor_gain_idx,
-		adc_bits, sensor_sensitivity, preamp_gain_db, ad_lsb_delta_v,
-		nat_period_s, damping, tt_corr_p, tt_corr_s, conv_coeff
-	"""
 	path = Path(path)
+	if not path.is_file():
+		raise FileNotFoundError(f'.ch not found: {path}')
 
-	df_raw = pd.read_table(
-		path,
-		sep=r'\s+',
-		engine='python',
-		comment='#',
-		header=None,
-		dtype=str,
-	)
+	rows: list[list[str]] = []
+	with open(path, encoding='utf-8', errors='ignore') as f:
+		for lineno_1based, raw in enumerate(f, start=1):
+			line = raw.rstrip('\n')
+			if not line.strip():
+				continue
+			if line.lstrip().startswith('#'):
+				continue
+			rows.append(_first_18_fields_by_spans(line, lineno_1based, path))
 
-	if df_raw.shape[1] < 18:
-		raise ValueError(f'expected >=18 columns, got {df_raw.shape[1]} in {path}')
+	if not rows:
+		raise ValueError(f'no data rows found in {path}')
 
-	df = df_raw.iloc[:, :18].copy()
-	df.columns = COLS18
+	df = pd.DataFrame(rows, columns=COLS18, dtype=str)
 
-	# チャネル番号: 16進文字列と int を両方持っておく
 	df['ch_hex'] = df['ch_hex'].str.upper()
-	df['ch_int'] = df['ch_hex'].apply(lambda s: int(s, 16))
+	df['ch_int'] = df['ch_hex'].map(lambda s: int(s, 16))
 
-	# int 型カラム
-	for col in ['rec_flag', 'line_delay_ms', 'monitor_gain_idx', 'adc_bits']:
-		df[col] = df[col].astype(int)
+	for c in _INT_COLS:
+		df[c] = df[c].astype(int)
 
-	# float 型カラム
-	for col in [
-		'sensor_sensitivity',
-		'nat_period_s',
-		'damping',
-		'preamp_gain_db',
-		'ad_lsb_delta_v',
-		'lat',
-		'lon',
-		'elevation_m',
-		'tt_corr_p',
-		'tt_corr_s',
-	]:
-		df[col] = df[col].astype(float)
+	for c in _FLOAT_COLS:
+		df[c] = df[c].str.replace('D', 'E', regex=False).astype(float)
 
-	# AD -> 物理量変換係数
 	df['conv_coeff'] = df['ad_lsb_delta_v'] / (
 		df['sensor_sensitivity'] * (10.0 ** (df['preamp_gain_db'] / 20.0))
 	)

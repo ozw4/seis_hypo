@@ -1,6 +1,6 @@
 # file: src/pick/eqt_probs.py
-from __future__ import annotations
-
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -10,27 +10,81 @@ from scipy.signal import resample_poly
 from seisbench.models import EQTransformer
 
 from pick.eqt_io import station_zne_from_stream
-
-# EqT backend（あなたが src/pick などに追加した想定）
-# backend_eqt_probs(x_3cn, fs, weights=..., in_samples=..., overlap=..., batch_size=...)
 from waveform.filters import zscore_channelwise
 
 _EQT_MODELS: dict[tuple[str, int], EQTransformer] = {}
 
 
+def _is_local_weights_spec(weights: str) -> bool:
+	w = str(weights).strip()
+	if not w:
+		return False
+	if w.startswith(('~', '/', './', '../')):
+		return True
+	if ('/' in w) or ('\\' in w):
+		return True
+	suf = Path(w).suffix.lower()
+	return suf in {'.pt', '.pth', '.ckpt'}
+
+
+def _extract_state_dict(obj: object) -> Mapping[str, torch.Tensor]:
+	if isinstance(obj, Mapping):
+		# 純粋な state_dict
+		if obj and all(isinstance(k, str) for k in obj.keys()):
+			vals = list(obj.values())
+			if vals and all(torch.is_tensor(v) for v in vals):
+				return obj  # type: ignore[return-value]
+
+		# よくあるチェックポイント形式: {"state_dict": ...}
+		if 'state_dict' in obj and isinstance(obj['state_dict'], Mapping):
+			sd = obj['state_dict']
+			if sd and all(isinstance(k, str) for k in sd.keys()):
+				vals = list(sd.values())
+				if vals and all(torch.is_tensor(v) for v in vals):
+					return sd  # type: ignore[return-value]
+
+	raise ValueError(
+		'Invalid checkpoint format. Please save a pure state_dict (Mapping[str, Tensor]) '
+		'or a dict with a "state_dict" key containing that mapping.'
+	)
+
+
 def _get_eqt(weights: str, in_samples: int) -> EQTransformer:
-	key = (weights, int(in_samples))
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	in_samples_i = int(in_samples)
+
+	if _is_local_weights_spec(weights):
+		p = Path(str(weights)).expanduser()
+		if not p.is_file():
+			raise FileNotFoundError(f'EqT weights file not found: {p}')
+
+		key = (f'file:{p.resolve()}', in_samples_i)
+		m = _EQT_MODELS.get(key)
+		if m is not None:
+			return m
+
+		# ユーザー希望の形式
+		model = EQTransformer(in_channels=3, in_samples=in_samples_i)
+		obj = torch.load(str(p), map_location=device)
+		state_dict = _extract_state_dict(obj)
+		model.load_state_dict(state_dict)
+		model.eval().to(device)
+
+		_EQT_MODELS[key] = model
+		return model
+
+	# seisbench の pretrained 名
+	key = (f'pretrained:{weights}', in_samples_i)
 	m = _EQT_MODELS.get(key)
 	if m is not None:
 		return m
 
 	model = EQTransformer.from_pretrained(weights)
-	if int(model.in_samples) != int(in_samples):
+	if int(model.in_samples) != in_samples_i:
 		raise ValueError(
-			f'in_samples mismatch: model={model.in_samples} requested={in_samples}'
+			f'in_samples mismatch: model={model.in_samples} requested={in_samples_i}'
 		)
 
-	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	model.eval().to(device)
 	_EQT_MODELS[key] = model
 	return model

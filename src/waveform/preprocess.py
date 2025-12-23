@@ -12,18 +12,18 @@ from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d
 
 
 def spec_from_inputs(inputs: LokiWaveformStackingInputs) -> DetrendBandpassSpec:
-	# inputs 側に pre_* が無ければデフォルトでOK
+	base = DetrendBandpassSpec()
 	return DetrendBandpassSpec(
-		detrend=getattr(inputs, 'pre_detrend', 'linear'),
-		fstop_lo=float(getattr(inputs, 'pre_fstop_lo', 0.5)),
-		fpass_lo=float(getattr(inputs, 'pre_fpass_lo', 1.0)),
-		fpass_hi=float(getattr(inputs, 'pre_fpass_hi', 20.0)),
-		fstop_hi=float(getattr(inputs, 'pre_fstop_hi', 30.0)),
-		gpass=float(getattr(inputs, 'pre_gpass', 1.0)),
-		gstop=float(getattr(inputs, 'pre_gstop', 40.0)),
-		mad_scale=bool(getattr(inputs, 'pre_mad_scale', False)),
-		mad_eps=float(getattr(inputs, 'pre_mad_eps', 1.0)),
-		mad_c=float(getattr(inputs, 'pre_mad_c', 6.0)),
+		detrend=getattr(inputs, 'pre_detrend', base.detrend),
+		fstop_lo=float(getattr(inputs, 'pre_fstop_lo', base.fstop_lo)),
+		fpass_lo=float(getattr(inputs, 'pre_fpass_lo', base.fpass_lo)),
+		fpass_hi=float(getattr(inputs, 'pre_fpass_hi', base.fpass_hi)),
+		fstop_hi=float(getattr(inputs, 'pre_fstop_hi', base.fstop_hi)),
+		gpass=float(getattr(inputs, 'pre_gpass', base.gpass)),
+		gstop=float(getattr(inputs, 'pre_gstop', base.gstop)),
+		mad_scale=bool(getattr(inputs, 'pre_mad_scale', base.mad_scale)),
+		mad_eps=float(getattr(inputs, 'pre_mad_eps', base.mad_eps)),
+		mad_c=float(getattr(inputs, 'pre_mad_c', base.mad_c)),
 	)
 
 
@@ -32,15 +32,15 @@ class DetrendBandpassSpec:
 	# detrend: 'constant' | 'linear' | None
 	detrend: str | None = 'linear'
 
-	# bandpass params
+	# bandpass params（LokiWaveformStackingInputs の pre_* と一致）
 	fstop_lo: float = 0.5
-	fpass_lo: float = 3.0
-	fpass_hi: float = 12.5
-	fstop_hi: float = 15.0
+	fpass_lo: float = 1.0
+	fpass_hi: float = 23.0
+	fstop_hi: float = 25.0
 	gpass: float = 1.0
 	gstop: float = 40.0
 
-	# robust scaling
+	# robust scaling（LokiWaveformStackingInputs の pre_mad_* と一致）
 	mad_scale: bool = True
 	mad_eps: float = 1e-6
 	mad_c: float = 1.4826

@@ -47,7 +47,7 @@ def main() -> None:
 	plot_components = ('U', 'N')
 	y_time = 'relative'  # "samples" | "absolute" | "relative"
 
-	header_path = Path(cfg.loki_hdr_filename)
+	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
 	if not header_path.is_file():
 		raise FileNotFoundError(f'header not found: {header_path}')
 
