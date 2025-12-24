@@ -10,6 +10,7 @@ from scipy.signal import resample_poly
 from seisbench.models import EQTransformer
 
 from pick.eqt_io import station_zne_from_stream
+from pick.overlap import stack_overlap_1d
 from waveform.filters import zscore_channelwise
 
 _EQT_MODELS: dict[tuple[str, int], EQTransformer] = {}
@@ -90,51 +91,6 @@ def _get_eqt(weights: str, in_samples: int) -> EQTransformer:
 	return model
 
 
-def _stack_overlap_max(dst: np.ndarray, src: np.ndarray, start: int) -> None:
-	"""dst[start:start+len(src)] に src を max で縫い付ける（NaNは未埋め扱い）。
-
-	- dst は最終的に欲しい長さ（例: N_eff）
-	- src はモデル出力窓の長さ（例: in_samples=6000）
-	- N_eff < in_samples のときは、dst 範囲に収まる分だけ src を切って縫う
-	"""
-	if dst.ndim != 1 or src.ndim != 1:
-		raise ValueError(f'dst/src must be 1D: dst={dst.shape} src={src.shape}')
-	if start < 0:
-		raise ValueError(f'start must be >= 0, got {start}')
-
-	n_dst = int(dst.shape[0])
-	if n_dst == 0:
-		return
-	if start >= n_dst:
-		return
-
-	n_src = int(src.shape[0])
-	end = min(start + n_src, n_dst)
-	n_put = end - start
-	if n_put <= 0:
-		return
-
-	src2 = src[:n_put]
-	sl = slice(start, end)
-
-	cur = dst[sl]
-	cur_nan = np.isnan(cur)
-	if cur_nan.all():
-		dst[sl] = src2
-		return
-
-	src_nan = np.isnan(src2)
-	out = cur.copy()
-
-	mask_src_only = cur_nan & ~src_nan
-	out[mask_src_only] = src2[mask_src_only]
-
-	mask_both = ~cur_nan & ~src_nan
-	out[mask_both] = np.maximum(out[mask_both], src2[mask_both])
-
-	dst[sl] = out
-
-
 def _stitch_eqt_batch(
 	buf: list[tuple[int, torch.Tensor]],
 	model: EQTransformer,
@@ -152,9 +108,9 @@ def _stitch_eqt_batch(
 
 	for s0, d0, p0, s0s in zip(starts, y_det, y_p, y_s, strict=False):
 		s0i = int(s0)
-		_stack_overlap_max(det, d0, s0i)
-		_stack_overlap_max(probP, p0, s0i)
-		_stack_overlap_max(probS, s0s, s0i)
+		stack_overlap_1d(det, d0, s0i)
+		stack_overlap_1d(probP, p0, s0i)
+		stack_overlap_1d(probS, s0s, s0i)
 
 	buf.clear()
 
