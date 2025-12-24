@@ -25,6 +25,55 @@ def _finite_1d(x: np.ndarray) -> np.ndarray:
 	return a[np.isfinite(a)]
 
 
+def _stats_1d(x: np.ndarray) -> tuple[int, float, float, float]:
+	v = _finite_1d(x)
+	if v.size == 0:
+		return (0, float('nan'), float('nan'), float('nan'))
+	mean_v = float(np.mean(v))
+	median_v = float(np.median(v))
+	rmse_v = float(np.sqrt(np.mean(v * v)))
+	return (int(v.size), mean_v, median_v, rmse_v)
+
+
+def _d3_km_from_df(df: pd.DataFrame, dh_col: str, dz_col: str) -> np.ndarray:
+	dh = np.asarray(df[dh_col].to_numpy(), dtype=float).ravel()
+	dz = np.asarray(df[dz_col].to_numpy(), dtype=float).ravel()
+	if dh.size != dz.size:
+		raise ValueError('dh and dz length mismatch')
+	mask = np.isfinite(dh) & np.isfinite(dz)
+	dh2 = dh[mask]
+	dz2 = dz[mask]
+	return np.sqrt(dh2 * dh2 + dz2 * dz2)
+
+
+def print_error_summary(
+	dfs: list[pd.DataFrame],
+	labels: list[str],
+	*,
+	dh_col: str = 'dh_km',
+	dz_col: str = 'dz_km',
+) -> None:
+	if len(dfs) != len(labels):
+		raise ValueError('len(dfs) must match len(labels)')
+	print('=== Error summary (LOKI vs JMA) ===')
+	for df, lbl in zip(dfs, labels, strict=True):
+		n_dh, mean_dh, med_dh, rmse_dh = _stats_1d(df[dh_col].to_numpy())
+		dz = np.asarray(df[dz_col].to_numpy(), dtype=float)
+		dz_abs = np.abs(dz)
+		n_dz_abs, mae_dz, med_abs_dz, rmse_abs_dz = _stats_1d(dz_abs)
+		d3 = _d3_km_from_df(df, dh_col, dz_col)
+		n_d3, mean_d3, med_d3, rmse_d3 = _stats_1d(d3)
+		print(
+			f'[{lbl}] '
+			f'dh_km: n={n_dh}, mean={mean_dh:.3f}, median={med_dh:.3f}, '
+			f'RMSE={rmse_dh:.3f} | '
+			f'|dz|_km: n={n_dz_abs}, MAE={mae_dz:.3f}, median={med_abs_dz:.3f}, '
+			f'RMSE={rmse_abs_dz:.3f} | '
+			f'd3_km: n={n_d3}, mean={mean_d3:.3f}, median={med_d3:.3f}, '
+			f'RMSE={rmse_d3:.3f}'
+		)
+
+
 def plot_hist_overlay(
 	series: list[np.ndarray],
 	labels: list[str],
@@ -81,6 +130,7 @@ def compare_error_hists_from_compare_csvs(
 	bins_dz: int = 25,
 	bins_dt: int = 25,
 	density: bool = False,
+	print_stats: bool = True,
 	min_cmax: float | None = None,
 	max_cmax: float | None = None,
 ) -> None:
@@ -116,6 +166,9 @@ def compare_error_hists_from_compare_csvs(
 		if max_cmax is not None:
 			df = df[df['cmax'] <= float(max_cmax)]
 		dfs.append(df)
+
+	if print_stats:
+		print_error_summary(dfs, lbls)
 
 	out_dir = Path(out_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
@@ -195,12 +248,13 @@ def run_loki_vs_jma_qc(
 	plot_events_map_and_sections(
 		df_loki_plot,
 		out_png=out_png,
-		mag_col='cmax',
+		mag_col='mag_jma',
 		size_col='mag_jma',
 		depth_col='depth_km',
 		origin_time_col='origin_time',
 		lat_col='latitude_deg',
 		lon_col='longitude_deg',
+		min_mag=2,
 		lon_range=tuple(plot_cfg.lon_range),
 		lat_range=tuple(plot_cfg.lat_range),
 		depth_range=tuple(plot_cfg.depth_range),

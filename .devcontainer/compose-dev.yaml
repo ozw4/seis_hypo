@@ -40,6 +40,9 @@ services:
         source: /home/aiuser4/Desktop/mobara2025
         target: /home/dcuser/mobara2025
       - type: bind
+        source: /home/aiuser4/Desktop/daseventnet/data
+        target: /home/dcuser/daseventnet/data
+      - type: bind
         source: /home/aiuser4/Desktop/data
         target: /home/dcuser/data
       - type: bind
