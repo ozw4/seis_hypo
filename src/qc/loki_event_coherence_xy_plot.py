@@ -153,7 +153,7 @@ def plot_loki_event_coherence_xy_overlay(
 			name_col = c
 			break
 	corr = np.load(corr_path)
-	coh_xy = _coherence_xy_from_corrmatrix(corr, nx=grid.nx, ny=grid.ny, nz=grid.nz)
+	coh_xy = _coherence_xy_from_corrmatrix(corr.T, nx=grid.nx, ny=grid.ny, nz=grid.nz)
 
 	# extent for imshow (km)
 	x0 = float(grid.x0_km)

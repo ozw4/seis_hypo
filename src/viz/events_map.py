@@ -21,6 +21,7 @@ def plot_events_map_and_sections(
 	*,
 	out_png: str | Path | None = None,
 	mag_col: str | None = 'mag1',
+	size_col: str | None = None,
 	depth_col: str = 'depth_km',
 	origin_time_col: str = 'origin_time',
 	lat_col: str = 'latitude_deg',
@@ -73,41 +74,58 @@ def plot_events_map_and_sections(
 		raise RuntimeError('プロット可能なイベントがありません。')
 	df = df.reset_index(drop=True)
 
-	# ---- mag -> 色 & サイズ（絶対スケール）----
-	has_mag = (
-		mag_col is not None and mag_col in df.columns and df[mag_col].notna().any()
+	def _sizes_from_values(vals: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+		size_min = max(0.1, float(markersize) * 0.1)
+		size_max = float(markersize) * 9.0
+
+		out = np.empty_like(vals, dtype=float)
+		mask = np.isfinite(vals)
+		if vmax > vmin:
+			v = np.clip(vals[mask], vmin, vmax)
+			n = (v - vmin) / (vmax - vmin)
+			out[mask] = size_min + n * (size_max - size_min)
+		else:
+			out[mask] = 0.5 * (size_min + size_max)
+		out[~mask] = 0.5 * (size_min + size_max)
+		return out
+
+	color_col = mag_col
+	size_col_eff = size_col if size_col is not None else mag_col
+
+	has_color = (
+		color_col is not None
+		and color_col in df.columns
+		and df[color_col].notna().any()
 	)
+	has_size = (
+		size_col_eff is not None
+		and size_col_eff in df.columns
+		and df[size_col_eff].notna().any()
+	)
+
 	cmap = None
 	norm = None
 	sizes: np.ndarray | None = None
 
-	if has_mag:
-		mag_series = df[mag_col].astype(float)
-		mag_valid = mag_series.dropna().to_numpy()
-		if mag_valid.size > 0:
-			size_min = max(0.1, float(markersize) * 0.1)
-			size_max = float(markersize) * 9.0
+	color_vmin = -2.0
+	color_vmax = 7.0
+	vals_color: np.ndarray | None = None
+	if has_color and color_col is not None:
+		vals_color = df[color_col].astype(float).to_numpy()
+		if color_col == 'cmax':
+			color_vmin = df[color_col].min()
+			color_vmax = df[color_col].max()
+		cmap = plt.get_cmap('winter')
+		norm = colors.Normalize(vmin=float(color_vmin), vmax=float(color_vmax))
 
-			mags = mag_series.to_numpy()
-			sizes = np.empty_like(mags, dtype=float)
-			mask_valid = np.isfinite(mags)
-
-			mag_vmin = -2.0
-			mag_vmax = 7.0
-
-			if mag_vmax > mag_vmin:
-				m_clip = np.clip(mags[mask_valid], mag_vmin, mag_vmax)
-				norm_mag = (m_clip - mag_vmin) / (mag_vmax - mag_vmin)
-				sizes[mask_valid] = size_min + norm_mag * (size_max - size_min)
-			else:
-				sizes[mask_valid] = 0.5 * (size_min + size_max)
-
-			sizes[~mask_valid] = 0.5 * (size_min + size_max)
-
-			cmap = plt.get_cmap('jet')
-			norm = colors.Normalize(vmin=mag_vmin, vmax=mag_vmax)
-		else:
-			has_mag = False
+	if has_size and size_col_eff is not None:
+		vals_size = df[size_col_eff].astype(float).to_numpy()
+		size_vmin = -2.0
+		size_vmax = 7.0
+		if size_col_eff == 'cmax':
+			size_vmin = 0.0
+			size_vmax = 1.0
+		sizes = _sizes_from_values(vals_size, float(size_vmin), float(size_vmax))
 
 	# ---- GeoDataFrame (XY 用) ----
 	geometry = [
@@ -115,34 +133,27 @@ def plot_events_map_and_sections(
 	]
 	gdf = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:4326')
 
-	# ---- 表示範囲 ----
-	if lon_range is None:
-		minx, maxx = 118.0, 155.0
-	else:
-		if len(lon_range) != 2:
-			raise ValueError(
-				'lon_range は (min_lon, max_lon) の長さ2タプルである必要があります。'
-			)
-		minx = float(lon_range[0])
-		maxx = float(lon_range[1])
-		if not np.isfinite(minx) or not np.isfinite(maxx):
-			raise ValueError('lon_range の値は有限実数である必要があります。')
-		if minx >= maxx:
-			raise ValueError('lon_range は min_lon < max_lon を満たす必要があります。')
+	if len(lon_range) != 2:
+		raise ValueError(
+			'lon_range は (min_lon, max_lon) の長さ2タプルである必要があります。'
+		)
+	minx = float(lon_range[0])
+	maxx = float(lon_range[1])
+	if not np.isfinite(minx) or not np.isfinite(maxx):
+		raise ValueError('lon_range の値は有限実数である必要があります。')
+	if minx >= maxx:
+		raise ValueError('lon_range は min_lon < max_lon を満たす必要があります。')
 
-	if lat_range is None:
-		miny, maxy = 22.0, 48.0
-	else:
-		if len(lat_range) != 2:
-			raise ValueError(
-				'lat_range は (min_lat, max_lat) の長さ2タプルである必要があります。'
-			)
-		miny = float(lat_range[0])
-		maxy = float(lat_range[1])
-		if not np.isfinite(miny) or not np.isfinite(maxy):
-			raise ValueError('lat_range の値は有限実数である必要があります。')
-		if miny >= maxy:
-			raise ValueError('lat_range は min_lat < max_lat を満たす必要があります。')
+	if len(lat_range) != 2:
+		raise ValueError(
+			'lat_range は (min_lat, max_lat) の長さ2タプルである必要があります。'
+		)
+	miny = float(lat_range[0])
+	maxy = float(lat_range[1])
+	if not np.isfinite(miny) or not np.isfinite(maxy):
+		raise ValueError('lat_range の値は有限実数である必要があります。')
+	if miny >= maxy:
+		raise ValueError('lat_range は min_lat < max_lat を満たす必要があります。')
 
 	if depth_range is None:
 		minz, maxz = 0.0, 400.0
@@ -171,9 +182,9 @@ def plot_events_map_and_sections(
 			lats = np.array([float(p[1]) for p in xy], float)
 			style = {
 				'label': item.get('label', 'Extra'),
-				'marker': item.get('marker', 'X'),
-				'color': item.get('color', 'black'),
-				'size': item.get('size', 40.0),
+				'marker': item.get('marker', 'o'),
+				'color': item.get('color', 'red'),
+				'size': item.get('size', 20.0),
 				'annotate': bool(item.get('annotate', False)),
 				'names': item.get('names'),
 			}
@@ -194,6 +205,7 @@ def plot_events_map_and_sections(
 				'marker': item.get('marker', 'X'),
 				'color': item.get('color', 'black'),
 				'size': item.get('size', 40.0),
+				'mag': item.get('mag'),
 				'annotate': bool(item.get('annotate', False)),
 				'names': item.get('names'),
 			}
@@ -236,18 +248,12 @@ def plot_events_map_and_sections(
 		label='Pref.',
 	)
 
-	if (
-		has_mag
-		and cmap is not None
-		and norm is not None
-		and sizes is not None
-		and mag_col is not None
-	):
-		gdf_mag = gdf[gdf[mag_col].notna()].copy()
-		size_xy = sizes[gdf_mag.index.to_numpy()]
+	if has_color and cmap is not None and norm is not None and color_col is not None:
+		gdf_mag = gdf[gdf[color_col].notna()].copy()
+		size_xy = sizes[gdf_mag.index.to_numpy()] if sizes is not None else markersize
 		gdf_mag.plot(
 			ax=ax_xy,
-			column=mag_col,
+			column=color_col,
 			cmap=cmap,
 			norm=norm,
 			markersize=size_xy,
@@ -306,15 +312,22 @@ def plot_events_map_and_sections(
 
 	# ---- XY extras_lld（点）----
 	for lons, lats, deps, st in extras_lld_items:
+		s_val = None
+		mag_vals = st.get('mag')
+		if mag_vals is not None:
+			m = np.asarray(mag_vals, dtype=float)
+			if m.size != lons.size:
+				raise ValueError('extras_lld mag length mismatch')
+			s_val = _sizes_from_values(m, -2.0, 7.0)
 		h_extra = ax_xy.scatter(
 			lons,
 			lats,
 			marker=st['marker'],
-			s=float(st['size']),
+			s=float(st['size']) if s_val is None else s_val,
 			c=st['color'],
-			edgecolors='k',
+			edgecolors=None,
 			linewidths=0.4,
-			alpha=0.9,
+			alpha=0.5,
 			zorder=3,
 			label=st['label'],
 		)
@@ -344,18 +357,12 @@ def plot_events_map_and_sections(
 	ax_xy.set_aspect('auto')
 
 	# ---- XZ ----
-	if (
-		has_mag
-		and cmap is not None
-		and norm is not None
-		and sizes is not None
-		and mag_col is not None
-	):
+	if has_color and cmap is not None and norm is not None and color_col is not None:
 		ax_xz.scatter(
 			df[lon_col],
 			df[depth_col],
-			c=df[mag_col],
-			s=sizes,
+			c=df[color_col],
+			s=markersize if sizes is None else sizes,
 			cmap=cmap,
 			norm=norm,
 			edgecolors='k',
@@ -374,15 +381,22 @@ def plot_events_map_and_sections(
 		)
 
 	for lons, lats, deps, st in extras_lld_items:
+		s_val = None
+		mag_vals = st.get('mag')
+		if mag_vals is not None:
+			m = np.asarray(mag_vals, dtype=float)
+			if m.size != lons.size:
+				raise ValueError('extras_lld mag length mismatch')
+			s_val = _sizes_from_values(m, -2.0, 7.0)
 		ax_xz.scatter(
 			lons,
 			deps,
 			marker=st['marker'],
-			s=float(st['size']),
+			s=float(st['size']) if s_val is None else s_val,
 			c=st['color'],
-			edgecolors='k',
+			edgecolors=None,
 			linewidths=0.4,
-			alpha=0.9,
+			alpha=0.5,
 			zorder=3,
 		)
 
@@ -392,18 +406,12 @@ def plot_events_map_and_sections(
 	ax_xz.invert_yaxis()
 
 	# ---- YZ ----
-	if (
-		has_mag
-		and cmap is not None
-		and norm is not None
-		and sizes is not None
-		and mag_col is not None
-	):
+	if has_color and cmap is not None and norm is not None and color_col is not None:
 		ax_yz.scatter(
 			df[depth_col],
 			df[lat_col],
-			c=df[mag_col],
-			s=sizes,
+			c=df[color_col],
+			s=markersize if sizes is None else sizes,
 			cmap=cmap,
 			norm=norm,
 			edgecolors='k',
@@ -422,15 +430,22 @@ def plot_events_map_and_sections(
 		)
 
 	for lons, lats, deps, st in extras_lld_items:
+		s_val = None
+		mag_vals = st.get('mag')
+		if mag_vals is not None:
+			m = np.asarray(mag_vals, dtype=float)
+			if m.size != deps.size:
+				raise ValueError('extras_lld mag length mismatch')
+			s_val = _sizes_from_values(m, -2.0, 7.0)
 		ax_yz.scatter(
 			deps,
 			lats,
 			marker=st['marker'],
-			s=float(st['size']),
+			s=float(st['size']) if s_val is None else s_val,
 			c=st['color'],
-			edgecolors='k',
+			edgecolors=None,
 			linewidths=0.4,
-			alpha=0.9,
+			alpha=0.5,
 			zorder=3,
 		)
 
@@ -505,7 +520,7 @@ def plot_events_map_and_sections(
 	ax_yz.set_ylim(_yz_ylim)
 
 	# ---- カラーバー + サイズ凡例 + extras/links 凡例 ----
-	if has_mag and cmap is not None and norm is not None and sizes is not None:
+	if has_color and cmap is not None and norm is not None:
 		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 		sm.set_array([])
 		cbar = fig.colorbar(
@@ -516,11 +531,22 @@ def plot_events_map_and_sections(
 			pad=0.07,
 			fraction=0.02,
 		)
-		cbar.set_label('magnitude')
+		cbar.set_label(str(color_col))
 
-		mag_samples = np.array([0.0, 3.0, 5.0, 7.0])
-		mag_vmin = float(norm.vmin)
-		mag_vmax = float(norm.vmax)
+	if sizes is not None and size_col_eff is not None:
+		size_title = (
+			'Magnitude (size)'
+			if 'mag' in str(size_col_eff)
+			else f'{size_col_eff} (size)'
+		)
+
+		mag_samples = (
+			np.array([0.0, 3.0, 5.0, 7.0])
+			if 'mag' in str(size_col_eff)
+			else np.array([0.0, 0.3, 0.6, 1.0])
+		)
+		mag_vmin = -2.0 if 'mag' in str(size_col_eff) else 0.0
+		mag_vmax = 7.0 if 'mag' in str(size_col_eff) else 1.0
 
 		size_min = max(0.1, float(markersize) * 0.1)
 		size_max = float(markersize) * 9.0
@@ -550,7 +576,7 @@ def plot_events_map_and_sections(
 		ax_xy.legend(
 			all_handles,
 			all_labels,
-			title='Magnitude (size)',
+			title=size_title,
 			loc='lower right',
 			scatterpoints=1,
 			fontsize=fontsize - 1,

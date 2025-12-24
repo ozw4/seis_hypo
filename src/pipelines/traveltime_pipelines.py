@@ -75,6 +75,7 @@ def run_traveltime_pipeline(cfg: TravelTimeBaseConfig) -> TravelTimePipelineResu
 		dy_km=cfg.dy_km,
 		dz_km=cfg.dz_km,
 		pad_km=cfg.pad_km,
+		xy_half_width_km=cfg.xy_half_width_km,
 		z0_km=cfg.z0_km,
 		zmax_km=cfg.zmax_km,
 		center_mode=cfg.center_mode,

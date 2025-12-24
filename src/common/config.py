@@ -70,6 +70,7 @@ class TravelTimeBaseConfig:
 	dy_km: float
 	dz_km: float
 	pad_km: float
+	xy_half_width_km: float
 	z0_km: float
 	zmax_km: float
 	center_mode: str

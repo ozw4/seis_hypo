@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, isfinite
 from pathlib import Path
 from typing import Literal
 
@@ -67,6 +67,7 @@ def propose_grid_from_stations(
 	dy_km: float = 1.0,
 	dz_km: float = 1.0,
 	pad_km: float = 10.0,
+	xy_half_width_km: float | None = None,
 	z0_km: float = -5.0,
 	zmax_km: float = 80.0,
 	center_mode: Literal['fixed', 'mean', 'median'] = 'fixed',
@@ -74,6 +75,11 @@ def propose_grid_from_stations(
 	lon0_deg: float | None = None,
 ) -> GridSpec:
 	"""Station 分布から LOKI用グリッドを提案する。
+
+	xy_half_width_km:
+		None のときは stations の min/max に pad_km を足して XY 範囲を決める。
+		指定したときは XY を [-xy_half_width_km, +xy_half_width_km] の対称ボックスに固定する。
+		このとき pad_km は XY には適用しない（ぴったり指定を優先）。
 
 	center_mode:
 		- "fixed"  : ここで渡した lat0/lon0 をグリッド中心に採用
@@ -117,10 +123,35 @@ def propose_grid_from_stations(
 		lon0_deg=lon0,
 	)
 
-	xmin = float(x_km.min()) - pad_km
-	xmax = float(x_km.max()) + pad_km
-	ymin = float(y_km.min()) - pad_km
-	ymax = float(y_km.max()) + pad_km
+	if xy_half_width_km is None:
+		xmin = float(x_km.min()) - pad_km
+		xmax = float(x_km.max()) + pad_km
+		ymin = float(y_km.min()) - pad_km
+		ymax = float(y_km.max()) + pad_km
+	else:
+		half = float(xy_half_width_km)
+		if not isfinite(half) or half <= 0.0:
+			raise ValueError('xy_half_width_km must be a finite positive number')
+
+		abs_x = pd.Series(x_km).abs()
+		abs_y = pd.Series(y_km).abs()
+		viol = (abs_x > half) | (abs_y > half)
+		if bool(viol.any()):
+			sta = stations_df['station'].astype(str).reset_index(drop=True)
+			bad = sta[viol].tolist()
+			max_abs_x = float(abs_x.max())
+			max_abs_y = float(abs_y.max())
+			head = ','.join(bad[:10])
+			raise ValueError(
+				'xy_half_width_km is too small to cover stations: '
+				f'max_abs_x={max_abs_x:.3f} km, max_abs_y={max_abs_y:.3f} km, half={half:.3f} km, '
+				f'violations={len(bad)}, stations={head}'
+			)
+
+		xmin = -half
+		xmax = half
+		ymin = -half
+		ymax = half
 
 	if xmax <= xmin or ymax <= ymin:
 		raise ValueError('invalid station extent after padding')

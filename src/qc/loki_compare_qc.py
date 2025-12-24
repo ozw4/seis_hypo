@@ -20,6 +20,135 @@ from viz.events_map import plot_events_map_and_sections
 from viz.plot_config import PlotConfig
 
 
+def _finite_1d(x: np.ndarray) -> np.ndarray:
+	a = np.asarray(x, dtype=float).ravel()
+	return a[np.isfinite(a)]
+
+
+def plot_hist_overlay(
+	series: list[np.ndarray],
+	labels: list[str],
+	*,
+	title: str,
+	xlabel: str,
+	out_png: Path,
+	bins: int,
+	density: bool = True,
+) -> None:
+	if len(series) == 0:
+		raise ValueError('series must be non-empty')
+	if len(series) != len(labels):
+		raise ValueError('len(series) must match len(labels)')
+
+	series_f = [_finite_1d(s) for s in series]
+	all_vals = np.concatenate([s for s in series_f if s.size > 0], axis=0)
+	if all_vals.size == 0:
+		raise RuntimeError('no finite values to plot')
+
+	edges = np.histogram_bin_edges(all_vals, bins=bins)
+
+	fig = plt.figure(figsize=(9, 4.8))
+	ax = fig.add_subplot(111)
+	for s, lbl in zip(series_f, labels, strict=True):
+		if s.size == 0:
+			continue
+		ax.hist(
+			s,
+			bins=edges,
+			histtype='step',
+			density=bool(density),
+			label=f'{lbl} (n={s.size})',
+			linewidth=2.0,
+		)
+
+	ax.set_title(title)
+	ax.set_xlabel(xlabel)
+	ax.set_ylabel('Density' if density else 'Count')
+	ax.legend()
+	fig.tight_layout()
+
+	out_png.parent.mkdir(parents=True, exist_ok=True)
+	fig.savefig(out_png, dpi=200)
+	plt.close(fig)
+
+
+def compare_error_hists_from_compare_csvs(
+	compare_csvs: list[Path],
+	*,
+	labels: list[str] | None = None,
+	out_dir: Path,
+	bins_dh: int = 24,
+	bins_dz: int = 25,
+	bins_dt: int = 25,
+	density: bool = False,
+	min_cmax: float | None = None,
+	max_cmax: float | None = None,
+) -> None:
+	if len(compare_csvs) == 0:
+		raise ValueError('compare_csvs must be non-empty')
+
+	csvs = [Path(p) for p in compare_csvs]
+	for p in csvs:
+		if not p.is_file():
+			raise FileNotFoundError(f'compare_csv not found: {p}')
+
+	if labels is None:
+		lbls = [p.parent.name for p in csvs]
+	else:
+		lbls = list(labels)
+		if len(lbls) != len(csvs):
+			raise ValueError('len(labels) must match len(compare_csvs)')
+
+	required = {'dh_km', 'dz_km', 'dt_origin_sec', 'cmax'}
+	dfs: list[pd.DataFrame] = []
+	for p in csvs:
+		df = pd.read_csv(p)
+		missing = required - set(df.columns)
+		if missing:
+			raise ValueError(f'compare_df missing columns in {p}: {sorted(missing)}')
+		df = df.copy()
+		df['dh_km'] = df['dh_km'].astype(float)
+		df['dz_km'] = df['dz_km'].astype(float)
+		df['dt_origin_sec'] = df['dt_origin_sec'].astype(float)
+		df['cmax'] = df['cmax'].astype(float)
+		if min_cmax is not None:
+			df = df[df['cmax'] >= float(min_cmax)]
+		if max_cmax is not None:
+			df = df[df['cmax'] <= float(max_cmax)]
+		dfs.append(df)
+
+	out_dir = Path(out_dir)
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	plot_hist_overlay(
+		[d['dh_km'].to_numpy() for d in dfs],
+		lbls,
+		title='Horizontal error dh_km (LOKI vs JMA)',
+		xlabel='dh_km [km]',
+		out_png=out_dir / 'dh_km_hist_compare.png',
+		bins=int(bins_dh),
+		density=bool(density),
+	)
+	plot_hist_overlay(
+		[d['dz_km'].to_numpy() for d in dfs],
+		lbls,
+		title='Depth error dz_km (LOKI - JMA)',
+		xlabel='dz_km [km]',
+		out_png=out_dir / 'dz_km_hist_compare.png',
+		bins=int(bins_dz),
+		density=bool(density),
+	)
+	plot_hist_overlay(
+		[d['dt_origin_sec'].to_numpy() for d in dfs],
+		lbls,
+		title='Origin time error dt_origin_sec (LOKI - JMA)',
+		xlabel='dt_origin_sec [sec]',
+		out_png=out_dir / 'dt_origin_sec_hist_compare.png',
+		bins=int(bins_dt),
+		density=bool(density),
+	)
+
+
 def run_loki_vs_jma_qc(
 	base_input_dir: Path,
 	loki_output_dir: Path,
@@ -67,6 +196,7 @@ def run_loki_vs_jma_qc(
 		df_loki_plot,
 		out_png=out_png,
 		mag_col='cmax',
+		size_col='mag_jma',
 		depth_col='depth_km',
 		origin_time_col='origin_time',
 		lat_col='latitude_deg',

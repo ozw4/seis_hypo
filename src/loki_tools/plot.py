@@ -32,6 +32,7 @@ def make_loki_plot_df(compare_df: pd.DataFrame) -> pd.DataFrame:
 		'lon_loki',
 		'dep_loki_km',
 		'cmax',
+		'mag_jma',
 	}
 	missing = req - set(compare_df.columns)
 	if missing:
@@ -45,12 +46,13 @@ def make_loki_plot_df(compare_df: pd.DataFrame) -> pd.DataFrame:
 			'longitude_deg': compare_df['lon_loki'].astype(float),
 			'depth_km': compare_df['dep_loki_km'].astype(float),
 			'cmax': compare_df['cmax'].astype(float),
+			'mag_jma': compare_df['mag_jma'].astype(float),
 		}
 	)
 
 
 def make_extras_lld_jma(compare_df: pd.DataFrame) -> list[dict]:
-	req = {'lon_jma', 'lat_jma', 'depth_km_jma'}
+	req = {'lon_jma', 'lat_jma', 'depth_km_jma', 'mag_jma'}
 	missing = req - set(compare_df.columns)
 	if missing:
 		raise ValueError(
@@ -65,12 +67,15 @@ def make_extras_lld_jma(compare_df: pd.DataFrame) -> list[dict]:
 			strict=True,
 		)
 	)
+	mags = compare_df['mag_jma'].astype(float).to_list()
 	return [
 		{
 			'label': 'JMA',
-			'marker': '*',
-			'color': 'black',
+			'marker': 'o',
+			'color': 'lightcoral',
+			'alpha': 0.6,
 			'size': 90.0,
+			'mag': mags,
 			'annotate': False,
 			'names': None,
 			'lld': lld,
