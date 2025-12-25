@@ -43,3 +43,4 @@ adjustText
 pyyaml
 playwright
 optuna
+git+https://github.com/AI4EPS/GaMMA.git@zenodo

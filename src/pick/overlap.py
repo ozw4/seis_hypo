@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def _stack_overlap_1d(
+def stack_overlap_1d(
 	dst: np.ndarray, src: np.ndarray, start: int, mode: str = 'max'
 ) -> None:
 	"""dst[start:start+len(src)] に src を縫い付ける（NaNは未埋め扱い）。

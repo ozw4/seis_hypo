@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 
 
@@ -10,7 +8,7 @@ def _detect_local_peaks_2d(
 	thr: float,
 	min_sep: int,
 	gate: np.ndarray | None = None,
-	gate_threshold: float
+	gate_threshold: float = 0.3,
 ) -> list[tuple[int, int, float]]:
 	"""Detect local maxima (peaks) in a 2D probability map with optional gating and per-channel de-dup.
 
