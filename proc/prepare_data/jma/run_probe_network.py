@@ -167,7 +167,7 @@ if __name__ == '__main__':
 		'0801': 'ADEP',
 	}
 
-	download_folder = '/workspace/data/station/newwork_test_downloads'
+	download_folder = '/workspace/data/station/jma/newwork_test_downloads'
 
 	if probe_download:
 		df = probe_networks_monthly_retry(

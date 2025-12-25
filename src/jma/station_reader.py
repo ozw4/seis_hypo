@@ -145,7 +145,7 @@ def stations_within_radius(
 	lon: float,
 	radius_km: float,
 	channel_table_path: str
-	| Path = '/workspace/data/station/hinet_channelstbl_20251007',
+	| Path = '/workspace/data/station/jma/hinet_channelstbl_20251007',
 	*,
 	output: Literal['list', 'rows', 'both'] = 'list',
 ) -> list[str] | pd.DataFrame | tuple[list[str], pd.DataFrame]:

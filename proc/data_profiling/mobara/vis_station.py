@@ -5,7 +5,7 @@ from viz.stations_map import plot_stations_by_affiliation_from_station_csv
 
 if __name__ == '__main__':
 	plot_stations_by_affiliation_from_station_csv(
-		station_csv='/workspace/data/station/station.csv',
+		station_csv='/workspace/data/station/jma/station.csv',
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 		out_png='img/Figure_Stations_all.png',
 		station_codes=None,  # サブセットにしたいときは ["ABASH2", ...] を渡す
@@ -23,7 +23,7 @@ if __name__ == '__main__':
 	)
 
 	plot_stations_by_affiliation_from_station_csv(
-		station_csv='/workspace/data/station/station.csv',
+		station_csv='/workspace/data/station/jma/station.csv',
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 		out_png='img/Figure_Stations_NIED.png',
 		station_codes=None,  # サブセットにしたいときは ["ABASH2", ...] を渡す
@@ -38,7 +38,7 @@ if __name__ == '__main__':
 	)
 
 	plot_stations_by_affiliation_from_station_csv(
-		station_csv='/workspace/data/station/station.csv',
+		station_csv='/workspace/data/station/jma/station.csv',
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 		out_png='img/Figure_Stations_JMA.png',
 		station_codes=None,  # サブセットにしたいときは ["ABASH2", ...] を渡す
@@ -53,7 +53,7 @@ if __name__ == '__main__':
 	)
 
 	plot_stations_by_affiliation_from_station_csv(
-		station_csv='/workspace/data/station/station.csv',
+		station_csv='/workspace/data/station/jma/station.csv',
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 		out_png='img/Figure_Stations_NIED.png',
 		station_codes=None,  # サブセットにしたいときは ["ABASH2", ...] を渡す

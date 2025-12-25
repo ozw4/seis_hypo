@@ -17,7 +17,7 @@ from jma.chk_newwork_downloadable import probe_networks_by_get_continuous_wavefo
 # 設定（ここだけ直に編集）
 # ==========================
 NETWORK_INFO_CSV = Path(
-	'/workspace/data/station/network_info.csv'
+	'/workspace/data/station/jma/network_info.csv'
 )  # columns: network_code, network_name
 OUT_ROOT = Path(
 	'snapshots/yearly'

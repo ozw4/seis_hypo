@@ -19,6 +19,12 @@ OUT_LIFESPANS = MONTHLY_ROOT / 'monthly_lifespans.csv'
 COL_NETWORK = 'network_code'
 COL_STATION = 'station'
 
+# stations_*.csv に含まれるメタ情報（monthly_presence.csv にも持たせる）
+COL_STATION_NAME = 'station_name'
+COL_LAT = 'lat'
+COL_LON = 'lon'
+COL_ELEV_M = 'elevation_m'
+
 # monthly の YYYY-MM ディレクトリ
 _RE_MONTH_DIR = re.compile(r'^\d{4}-\d{2}$')
 # stations_YYYYMMDDHHMM.csv や、親ディレクトリ名 YYYYMMDDHHMM から拾う
@@ -108,6 +114,124 @@ def _load_station_sets(csv_path: Path) -> dict[str, set[str]]:
 	for net, g in d.groupby(COL_NETWORK, sort=False):
 		out[net] = set(g[COL_STATION].tolist())
 	return out
+
+
+def _load_station_meta(csv_path: Path) -> dict[str, dict[str, object]]:
+	"""stations_*.csv から (net:station) -> メタ情報（座標など）を作る"""
+	if not csv_path.is_file():
+		raise FileNotFoundError(f'missing stations csv: {csv_path}')
+
+	h = pd.read_csv(csv_path, nrows=0)
+	cols = list(h.columns)
+
+	need = [COL_NETWORK, COL_STATION, COL_LAT, COL_LON]
+	missing = [c for c in need if c not in cols]
+	if missing:
+		raise ValueError(
+			f'{csv_path} missing required columns for coords: '
+			f'missing={missing} got={cols}'
+		)
+
+	usecols = [COL_NETWORK, COL_STATION, COL_LAT, COL_LON]
+	if COL_STATION_NAME in cols:
+		usecols.append(COL_STATION_NAME)
+	if COL_ELEV_M in cols:
+		usecols.append(COL_ELEV_M)
+
+	df = pd.read_csv(csv_path, usecols=usecols, dtype=str)
+	df[COL_NETWORK] = df[COL_NETWORK].map(_canon_network_code)
+	df[COL_STATION] = df[COL_STATION].astype(str).str.strip()
+
+	if COL_STATION_NAME in df.columns:
+		df[COL_STATION_NAME] = df[COL_STATION_NAME].astype(str).str.strip()
+	else:
+		df[COL_STATION_NAME] = ''
+
+	df[COL_LAT] = pd.to_numeric(df[COL_LAT], errors='raise')
+	df[COL_LON] = pd.to_numeric(df[COL_LON], errors='raise')
+	if COL_ELEV_M in df.columns:
+		df[COL_ELEV_M] = pd.to_numeric(df[COL_ELEV_M], errors='raise')
+	else:
+		df[COL_ELEV_M] = pd.NA
+
+	df = df[(df[COL_NETWORK] != '') & (df[COL_STATION] != '')]
+	if df.empty:
+		return {}
+
+	df['__key'] = df[COL_NETWORK] + ':' + df[COL_STATION]
+
+	out: dict[str, dict[str, object]] = {}
+	for key, g in df.groupby('__key', sort=False):
+		row0 = g.iloc[0]
+		lat_vals = g[COL_LAT].unique()
+		lon_vals = g[COL_LON].unique()
+		if len(lat_vals) != 1 or len(lon_vals) != 1:
+			raise ValueError(f'{csv_path} has inconsistent coords for key={key}')
+
+		elev = None
+		elev_vals = g[COL_ELEV_M].dropna().unique()
+		if len(elev_vals) == 1:
+			elev = float(elev_vals[0])
+		elif len(elev_vals) > 1:
+			raise ValueError(f'{csv_path} has inconsistent elevation for key={key}')
+
+		out[key] = {
+			'network_code': row0[COL_NETWORK],
+			'station': row0[COL_STATION],
+			'station_name': row0[COL_STATION_NAME],
+			'lat': float(lat_vals[0]),
+			'lon': float(lon_vals[0]),
+			'elevation_m': elev,
+		}
+	return out
+
+
+def _merge_station_meta(
+	dst: dict[str, dict[str, object]],
+	src: dict[str, dict[str, object]],
+	*,
+	max_jump_deg: float = 0.02,
+	max_jump_m: float = 500.0,
+) -> None:
+	"""同一 key を上書き更新する。
+
+	座標が大きく飛ぶ場合はデータ破損の可能性が高いので即落とす。
+	"""
+	for key, m in src.items():
+		if key not in dst:
+			dst[key] = m
+			continue
+
+		d = dst[key]
+		dlat = abs(float(d['lat']) - float(m['lat']))
+		dlon = abs(float(d['lon']) - float(m['lon']))
+		if dlat > max_jump_deg or dlon > max_jump_deg:
+			raise ValueError(
+				'conflicting station coords: '
+				f'key={key} '
+				f"dst(lat,lon)=({d['lat']},{d['lon']}) "
+				f"src(lat,lon)=({m['lat']},{m['lon']}) "
+				f'max_jump_deg={max_jump_deg}'
+			)
+
+		d_e = d.get('elevation_m')
+		s_e = m.get('elevation_m')
+		if d_e is not None and s_e is not None:
+			delev = abs(float(d_e) - float(s_e))
+			if delev > max_jump_m:
+				raise ValueError(
+					'conflicting station elevation: '
+					f'key={key} dst={d_e} src={s_e} max_jump_m={max_jump_m}'
+				)
+
+		# src が欠損なら dst を引き継ぐ
+		if not m.get('station_name') and d.get('station_name'):
+			m['station_name'] = d['station_name']
+		if m.get('elevation_m') is None and d.get('elevation_m') is not None:
+			m['elevation_m'] = d['elevation_m']
+
+		# 新しいメタ情報で上書き
+		dst[key] = m
 
 
 def _infer_when_from_path(p: Path) -> dt.datetime:
@@ -226,6 +350,18 @@ def main() -> None:
 	for label, p in monthly_station_csv.items():
 		monthly_sets[label] = _load_station_sets(p)
 
+	# stations_*.csv から座標メタ情報を集約（monthly_presence.csv に埋め込む）
+	meta_sources: list[tuple[dt.datetime, Path]] = []
+	for when, p in anchors:
+		meta_sources.append((when, p))
+	for p in monthly_station_csv.values():
+		meta_sources.append((_infer_when_from_path(p), p))
+	meta_sources.sort(key=lambda x: x[0])
+
+	station_meta: dict[str, dict[str, object]] = {}
+	for _, p in meta_sources:
+		_merge_station_meta(station_meta, _load_station_meta(p))
+
 	# 月列の範囲：monthly の月 + yearly の範囲 を全部カバー
 	min_month = None
 	max_month = None
@@ -258,7 +394,24 @@ def main() -> None:
 		nets.append(net)
 		stas.append(sta)
 
-	presence = pd.DataFrame({'network_code': nets, 'station': stas})
+	keys = [f'{n}:{s}' for n, s in zip(nets, stas)]
+	missing_meta = [k for k in keys if k not in station_meta]
+	if missing_meta:
+		raise ValueError(
+			f'missing station meta for {len(missing_meta)} keys '
+			f'(example: {missing_meta[:5]})'
+		)
+
+	presence = pd.DataFrame(
+		{
+			'network_code': nets,
+			'station': stas,
+			'station_name': [station_meta[k].get('station_name', '') for k in keys],
+			'lat': [station_meta[k]['lat'] for k in keys],
+			'lon': [station_meta[k]['lon'] for k in keys],
+			'elevation_m': [station_meta[k].get('elevation_m') for k in keys],
+		}
+	)
 	for label in month_labels:
 		presence[label] = pd.Series([pd.NA] * len(all_keys), dtype='Int8')
 

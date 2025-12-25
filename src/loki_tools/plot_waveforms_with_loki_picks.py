@@ -121,7 +121,7 @@ def main() -> None:
 	# =========================
 	event_id = '3163344'
 
-	base_input_dir = Path('/workspace/data/waveform')
+	base_input_dir = Path('/workspace/data/waveform/jma')
 	loki_output_dir = Path('/workspace/proc/loki_hypo/loki_output_mobara_w_preprocess')
 	header_path = Path('/workspace/proc/loki_hypo/mobara_traveltime/db/header.hdr')
 

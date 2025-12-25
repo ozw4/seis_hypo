@@ -19,7 +19,7 @@ from jma.chk_newwork_downloadable import probe_networks_by_get_continuous_wavefo
 # ==========================
 CANDIDATES_CSV = Path('snapshots/yearly/refine_candidates.csv')  # input
 NETWORK_INFO_CSV = Path(
-	'/workspace/data/station/network_info.csv'
+	'/workspace/data/station/jma/network_info.csv'
 )  # columns: network_code, network_name
 
 OUT_ROOT = Path('snapshots/monthly')  # outputs: snapshots/monthly/YYYY-MM/<stamp>/...

@@ -11,7 +11,7 @@ from qc.hypo_event_quality_plot import plot_event_quality
 from viz.events_map import plot_events_map_and_sections
 from viz.plot_config import PlotConfig
 
-sta_file = Path('/workspace/data/station/stations_hypoinverse.sta')
+sta_file = Path('/workspace/data/station/jma/stations_hypoinverse.sta')
 pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
 scrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_S.crh')
 exe_file = Path('/workspace/external_source/hyp1.40/hypoinverse.exe')
@@ -126,7 +126,7 @@ df_meas = df_meas[df_meas['event_id'].isin(df_epic['event_id'])].reset_index(dro
 write_hypoinverse_arc(
 	df_epic,
 	df_meas,
-	'/workspace/data/station/station.csv',
+	'/workspace/data/station/jma/station.csv',
 	str(arc_file),
 	default_depth_km=default_depth_km,
 	use_jma_flag=use_jma_flag,

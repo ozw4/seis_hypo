@@ -15,7 +15,7 @@ from qc.hypo_event_quality_plot import plot_event_quality
 from viz.events_map import plot_events_map_and_sections
 from viz.plot_config import PlotConfig
 
-sta_file = Path('/workspace/data/station/stations_hypoinverse_with_das.sta')
+sta_file = Path('/workspace/data/station/jma/stations_hypoinverse_with_das.sta')
 pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
 scrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_S.crh')
 exe_file = Path('/workspace/external_source/hyp1.40/hypoinverse.exe')
@@ -200,7 +200,7 @@ for das_total_weight, use_das_channels in param_combinations:
 	write_hypoinverse_arc_from_phases(
 		df_epic,
 		phases_all,
-		'/workspace/data/station/station_with_das.csv',
+		'/workspace/data/station/jma/station_with_das.csv',
 		str(arc_file),
 		default_depth_km=default_depth_km,
 		use_jma_flag=use_jma_flag,

@@ -17,7 +17,7 @@ MEA_FILE = '/workspace/data/arrivetime/JMA/arrivetime_measurements.csv'
 MEA_COL = 'station_code'
 
 # 2) sta（あなたが言ってる sta_set 側：例として monthly_presence と同じファイルにしてある）
-STA_FILE = '/workspace/data/station/station.csv'
+STA_FILE = '/workspace/data/station/jma/station.csv'
 STA_COL = 'station_code'
 
 # 3) ch（.ch側：これも例として monthly_presence と同じにしてある。別なら差し替え）
