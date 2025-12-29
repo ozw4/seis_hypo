@@ -118,69 +118,31 @@ def probe_networks_monthly_retry(
 
 
 if __name__ == '__main__':
-	probe_download = False
+	probe_download = True
 	# pasted.txt のこれをそのままコピペでOK
-	when = dt.datetime(2025, 1, 1, 0, 0, 0)
+	start = dt.datetime(2004, 4, 1, 0, 0, 0)
+	end = dt.datetime(2025, 12, 1, 0, 0, 0)
 
 	NETWORK_INFO = {
-		'0101': 'NIED Hi-net',
-		'0103': 'NIED F-net (broadband)',
-		'0103A': 'NIED F-net (strong motion)',
-		'010501': 'NIED V-net (Tokachidake)',
-		'010502': 'NIED V-net (Tarumaesan)',
-		'010503': 'NIED V-net (Usuzan)',
-		'010504': 'NIED V-net (Hokkaido-Komagatake)',
-		'010505': 'NIED V-net (Iwatesan)',
-		'010506': 'NIED V-net (Nasudake)',
-		'010507': 'NIED V-net (Asamayama)',
-		'010508': 'NIED V-net (Kusatsu-Shiranesan)',
-		'010509': 'NIED V-net (Fujisan)',
-		'010510': 'NIED V-net (Miyakejima)',
-		'010511': 'NIED V-net (Izu-Oshima)',
-		'010512': 'NIED V-net (Asosan)',
-		'010513': 'NIED V-net (Unzendake)',
-		'010514': 'NIED V-net (Kirishimayama)',
-		'0106': 'NIED Temp. obs. in eastern Shikoku',
-		'0120': 'NIED S-net (velocity)',
-		'0120A': 'NIED S-net (acceleration)',
-		'0120B': 'NIED S-net (acceleration 2LG)',
-		'0120C': 'NIED S-net (acceleration 2HG)',
-		'0131': 'NIED MeSO-net',
-		'0201': 'Hokkaido University',
-		'0202': 'Tohoku University',
-		'0203': 'Tokyo University',
-		'0204': 'Kyoto University',
-		'0205': 'Kyushu University',
-		'0206': 'Hirosaki University',
-		'0207': 'Nagoya University',
-		'0208': 'Kochi University',
-		'0209': 'Kagoshima University',
-		'0231': 'MeSO-net (~2017.03)',
 		'0301': 'JMA Seismometer Network',
-		'0401': 'JAMSTEC Realtime Data from the Deep Sea Floor Observatory',
-		'0501': 'AIST',
-		'0601': 'GSI',
-		'0701': 'Tokyo Metropolitan Government',
-		'0702': 'Hot Spring Research Institute of Kanagawa Prefecture',
-		'0703': 'Aomori Prefectural Government',
-		'0705': 'Shizuoka Prefectural Government',
-		'0801': 'ADEP',
 	}
 
-	download_folder = '/workspace/data/station/jma/newwork_test_downloads'
+	for when in pd.date_range(start=start, end=end, freq='MS'):
+		print(f'=== Probing for {when.strftime("%Y-%m")} ===')
+		download_folder = '/workspace/data/station/jma/newwork_test_downloads_jma'
 
-	if probe_download:
-		df = probe_networks_monthly_retry(
-			network_info=NETWORK_INFO,
-			when=when,
-			download_folder=download_folder,
-			max_tries=300,  # 4年分
-			span_min=1,
-			threads=4,
-			cleanup=True,
-			keep_cnt=False,
-		)
-		print(df)
+		if probe_download:
+			df = probe_networks_monthly_retry(
+				network_info=NETWORK_INFO,
+				when=when,
+				download_folder=download_folder,
+				max_tries=300,  # 4年分
+				span_min=1,
+				threads=4,
+				cleanup=True,
+				keep_cnt=False,
+			)
+			print(df)
 
 	df_ch = export_channels_from_probe_ch_dirs(
 		base_probe_dir=download_folder,

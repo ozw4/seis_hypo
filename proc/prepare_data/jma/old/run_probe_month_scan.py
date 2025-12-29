@@ -33,7 +33,7 @@ THREADS = 4
 CLEANUP = True
 KEEP_CNT = False
 
-SKIP_IF_EXISTS = True  # 同じstampの成果物が揃ってたらスキップ
+SKIP_IF_EXISTS = False  # 同じstampの成果物が揃ってたらスキップ
 
 
 COL_NETWORK = 'network_code'

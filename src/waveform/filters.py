@@ -111,7 +111,7 @@ def smooth_ma_same(x: np.ndarray, win: int) -> np.ndarray:
 	return np.convolve(a, kernel, mode='same')
 
 
-def zscore_channelwise(x: ArrayLike, axis: int = -1, eps: float = 1e-6) -> ArrayLike:
+def zscore_tracewise(x: ArrayLike, axis: int = -1, eps: float = 1e-6) -> ArrayLike:
 	"""チャネル毎に z-score 正規化（平均0・標準偏差1）"""
 	if isinstance(x, torch.Tensor):
 		m = x.mean(dim=axis, keepdim=True)
@@ -125,7 +125,7 @@ def zscore_channelwise(x: ArrayLike, axis: int = -1, eps: float = 1e-6) -> Array
 		s = np.maximum(s, eps)
 		return (x - m) / s
 
-	raise TypeError(f'Unsupported type for zscore_channelwise: {type(x)}')
+	raise TypeError(f'Unsupported type for zscore_tracewise: {type(x)}')
 
 
 def mad_scale_1d(x: np.ndarray, *, eps: float = 1e-6, c: float = 1.4826) -> np.ndarray:

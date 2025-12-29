@@ -52,6 +52,7 @@ def probe_networks_by_get_continuous_waveform(
 	threads: int = 4,
 	cleanup: bool = True,
 	keep_cnt: bool = True,
+	skip_if_ch_exists: bool = True,
 ) -> pd.DataFrame:
 	"""network_codeごとに1回だけ get_continuous_waveform を叩いて可否を調べる。
 
@@ -85,6 +86,37 @@ def probe_networks_by_get_continuous_waveform(
 		error_type = ''
 		error_msg = ''
 
+		expected_cnt = outdir / cnt_name
+		expected_ch = outdir / ch_name
+
+		# 既に .ch があるなら通信しない（OK扱いで out_csv にも出す）
+		if bool(skip_if_ch_exists) and expected_ch.is_file():
+			ok = True
+			ch_path = str(expected_ch)
+
+			if bool(keep_cnt):
+				if expected_cnt.is_file():
+					cnt_path = str(expected_cnt)
+			elif expected_cnt.exists():
+				expected_cnt.unlink()
+
+			error_type = 'SkippedExistingChannelTable'
+			error_msg = f'used existing .ch: {ch_path}'
+
+			rows.append(
+				{
+					'network_code': code,
+					'network_name': str(name),
+					'ok': str(ok),
+					'outdir': str(outdir),
+					'cnt_path': cnt_path,
+					'ch_path': ch_path,
+					'error_type': error_type,
+					'error_msg': error_msg,
+				}
+			)
+			continue
+
 		try:
 			data, ctable = client.get_continuous_waveform(
 				code,
@@ -101,7 +133,7 @@ def probe_networks_by_get_continuous_waveform(
 			cnt_path = _normalize_return_path(outdir, data)
 			ch_path = _normalize_return_path(outdir, ctable)
 
-			# .ch が取れないケースは「失敗」として扱う（ここが重要）
+			# .ch が取れないケースは「失敗」
 			if not ch_path:
 				error_type = 'MissingChannelTable'
 				error_msg = 'ctable is None or .ch not found'

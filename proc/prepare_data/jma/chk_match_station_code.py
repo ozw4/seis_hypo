@@ -13,7 +13,7 @@ import pandas as pd
 # ========== 設定（ここだけ直せばOK） ==========
 
 # 1) mea（arrivetime_measurements）
-MEA_FILE = '/workspace/data/arrivetime/JMA/arrivetime_measurements.csv'
+MEA_FILE = '/workspace/proc/prepare_data/jma/station_measurement.csv'
 MEA_COL = 'station_code'
 
 # 2) sta（あなたが言ってる sta_set 側：例として monthly_presence と同じファイルにしてある）

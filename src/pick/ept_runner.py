@@ -5,14 +5,14 @@ import torch
 
 # Reuse your repo functions (same style as pipeline_loki_waveform_stacking_eqt)
 from pick.eqt_probs import _get_eqt
-from waveform.filters import zscore_channelwise
+from waveform.filters import zscore_tracewise
 
 
 class EqTWindowRunner:
 	"""Run EqTransformer on windowed DAS traces (each channel treated as one trace).
 	Uses:
 	  - pick.eqt_probs._get_eqt
-	  - waveform.filters.zscore_channelwise
+	  - waveform.filters.zscore_tracewise
 	"""
 
 	def __init__(self, weights: str, in_samples: int, batch_traces: int):
@@ -48,7 +48,7 @@ class EqTWindowRunner:
 			x = torch.zeros((i1 - i0, 3, L), device=self.device, dtype=w.dtype)
 			x[:, 0, :] = w
 
-			x = zscore_channelwise(x, axis=-1, eps=1e-6)
+			x = zscore_tracewise(x, axis=-1, eps=1e-6)
 
 			y_det, y_p, y_s = self.model(x)
 			det[i0:i1, :] = y_det.detach().cpu().numpy().astype(np.float32, copy=False)

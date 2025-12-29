@@ -41,6 +41,7 @@ Thumbs.db
 *.ch
 *.cnt
 *.in
+*.evt
 *effective.yaml
 *source.yaml
 catalogue

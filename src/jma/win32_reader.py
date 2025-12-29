@@ -4,6 +4,8 @@ import datetime as dt
 import mmap
 import warnings
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numba
@@ -517,3 +519,184 @@ def read_event_win32_window_as_array(
 	arr_event = slice_with_pad(arr_concat, start_idx, end_idx)
 
 	return arr_event, station_df, t_start, t_end
+
+
+@dataclass(frozen=True)
+class EvtInfo:
+	start_time: datetime
+	end_time_exclusive: datetime
+	n_second_blocks: int
+	span_seconds: int
+	missing_seconds_est: int
+	timestamp_anomalies: int
+	sampling_rates_hz: tuple[int, ...]
+	base_sampling_rate_hz: int
+
+
+def _parse_bcd_datetime_8(ts8: bytes) -> datetime | None:
+	"""WIN32系の8バイトBCD時刻を datetime にする。
+	フォーマット（推定）:
+	  YY(2bytes), MM, DD, hh, mm, ss, deci(0.1s)
+	"""
+	if len(ts8) != 8:
+		raise ValueError('timestamp must be 8 bytes')
+
+	# 0000-00-00... を無効扱い
+	if ts8[0] == 0x00 and ts8[1] == 0x00 and ts8[2] == 0x00 and ts8[3] == 0x00:
+		return None
+
+	y = (
+		(ts8[0] >> 4) * 1000
+		+ (ts8[0] & 0x0F) * 100
+		+ (ts8[1] >> 4) * 10
+		+ (ts8[1] & 0x0F)
+	)
+	mo = (ts8[2] >> 4) * 10 + (ts8[2] & 0x0F)
+	da = (ts8[3] >> 4) * 10 + (ts8[3] & 0x0F)
+	hh = (ts8[4] >> 4) * 10 + (ts8[4] & 0x0F)
+	mi = (ts8[5] >> 4) * 10 + (ts8[5] & 0x0F)
+	ss = (ts8[6] >> 4) * 10 + (ts8[6] & 0x0F)
+
+	# deci秒は下位ニブルのみ利用（レポ実装に合わせる）
+	deci = ts8[7] & 0x0F
+	us = deci * 100_000  # 0.1s = 100ms = 100,000us
+
+	return datetime(y, mo, da, hh, mi, ss, us)
+
+
+def _iter_secondblocks(evt_path: Path):
+	"""yield: (timestamp(datetime|None), block_size(int), payload_offset(int))"""
+	with evt_path.open('rb') as f:
+		# 先頭4バイトは予約領域っぽい（レポ実装に合わせてスキップ）
+		f.seek(4)
+
+		while True:
+			hdr = f.read(16)
+			if len(hdr) == 0:
+				return
+			if len(hdr) < 16:
+				raise ValueError(f'truncated header in {evt_path.name}')
+
+			ts = _parse_bcd_datetime_8(hdr[0:8])
+			block_size = int.from_bytes(hdr[12:16], 'big')
+			if block_size == 0:
+				return
+
+			payload_offset = f.tell()
+			yield ts, block_size, payload_offset
+
+			f.seek(block_size, 1)
+
+
+def _scan_sampling_rates_in_secondblock(payload: bytes) -> set[int]:
+	rates: set[int] = set()
+	off = 0
+	n = len(payload)
+
+	while off < n:
+		if off + 10 > n:
+			break
+
+		# byte4 high nibble = sample_size_code, low nibble + next byte = sampling_rate
+		b4 = payload[off + 4]
+		b5 = payload[off + 5]
+		sample_size_code = (b4 & 0xF0) >> 4
+		sampling_rate_hz = ((b4 & 0x0F) << 4) | b5
+		rates.add(sampling_rate_hz)
+
+		diff = sampling_rate_hz - 1
+		if sample_size_code == 0:
+			diff_bytes = diff // 2 + (1 if (diff % 2) else 0)
+		elif sample_size_code == 1:
+			diff_bytes = diff
+		elif sample_size_code == 2:
+			diff_bytes = diff * 2
+		elif sample_size_code == 3:
+			diff_bytes = diff * 3
+		elif sample_size_code == 4:
+			diff_bytes = diff * 4
+		else:
+			raise ValueError(f'unknown sample_size_code={sample_size_code}')
+
+		off += 10 + diff_bytes
+
+	return rates
+
+
+def get_evt_info(evt_path: str | Path, scan_rate_blocks: int = 1) -> EvtInfo:
+	evt_path = Path(evt_path)
+	if not evt_path.is_file():
+		raise FileNotFoundError(evt_path)
+
+	first: datetime | None = None
+	last: datetime | None = None
+	prev: datetime | None = None
+
+	n_blocks = 0
+	missing = 0
+	anomalies = 0
+
+	# sampling rate scan用（先頭Nブロック分だけ読む）
+	rates_union: set[int] = set()
+	scanned = 0
+
+	with evt_path.open('rb') as f:
+		for ts, block_size, payload_offset in _iter_secondblocks(evt_path):
+			if ts is not None:
+				if first is None:
+					first = ts
+				last = ts
+
+				if prev is not None:
+					delta = int(round((ts - prev).total_seconds()))
+					if delta > 1:
+						missing += delta - 1
+					elif delta <= 0:
+						anomalies += 1
+				prev = ts
+				n_blocks += 1
+
+			if scanned < scan_rate_blocks:
+				f.seek(payload_offset)
+				payload = f.read(block_size)
+				rates_union |= _scan_sampling_rates_in_secondblock(payload)
+				scanned += 1
+
+	if first is None or last is None:
+		raise ValueError(f'no valid timestamps found in {evt_path.name}')
+
+	if not rates_union:
+		raise ValueError(f'no sampling rates found in {evt_path.name}')
+
+	span_seconds = int(round((last - first).total_seconds())) + 1
+	sampling_rates = tuple(sorted(rates_union))
+	base_rate = max(rates_union)
+
+	return EvtInfo(
+		start_time=first,
+		end_time_exclusive=last + timedelta(seconds=1),
+		n_second_blocks=n_blocks,
+		span_seconds=span_seconds,
+		missing_seconds_est=missing,
+		timestamp_anomalies=anomalies,
+		sampling_rates_hz=sampling_rates,
+		base_sampling_rate_hz=base_rate,
+	)
+
+
+# --------------------
+# 使い方（ここだけ書き換え）
+# --------------------
+EVT_PATH = Path('D20100101000151_20.evt')
+
+if __name__ == '__main__':
+	info = get_evt_info(EVT_PATH, scan_rate_blocks=1)
+
+	print(f'start_time          : {info.start_time}')
+	print(f'end_time_exclusive  : {info.end_time_exclusive}')
+	print(f'n_second_blocks     : {info.n_second_blocks}')
+	print(f'span_seconds        : {info.span_seconds}')
+	print(f'missing_seconds_est : {info.missing_seconds_est}')
+	print(f'timestamp_anomalies : {info.timestamp_anomalies}')
+	print(f'sampling_rates_hz   : {info.sampling_rates_hz}')
+	print(f'base_sampling_rate  : {info.base_sampling_rate_hz}')

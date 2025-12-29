@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 
 import numpy as np
 from obspy import Stream
 from scipy.signal import detrend as sp_detrend
+from scipy.signal import resample_poly
 
 from common.config import LokiWaveformStackingInputs
-from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d
+from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d, zscore_tracewise
 
 
 def spec_from_inputs(inputs: LokiWaveformStackingInputs) -> DetrendBandpassSpec:
@@ -107,3 +109,103 @@ def preprocess_stream_detrend_bandpass(
 		tr.data = np.asarray(x, dtype=spec.out_dtype)
 
 	return st
+
+
+def _as_int_rate(fs: float, name: str) -> int:
+	if float(fs) <= 0.0:
+		raise ValueError(f'{name} must be > 0, got {fs}')
+	i = int(round(float(fs)))
+	if abs(float(fs) - float(i)) > 1e-6:
+		raise ValueError(f'{name} must be integer-like, got {fs}')
+	return int(i)
+
+
+def strainrate_to_pseudovel_window(
+	wave: np.ndarray,
+	*,
+	fs_in: float,
+	target_fs: float,
+	post_bp_low_hz: float,
+	post_bp_high_hz: float,
+	post_bp_order: int,
+	pseudovel_scale: float = 1.0,
+	zscore_per_trace: bool = True,
+) -> np.ndarray:
+	"""strain-rate -> pseudo-velocity -> resample -> bandpass -> (optional) zscore."""
+	x = np.asarray(wave, dtype=float)
+	if x.ndim != 2:
+		raise ValueError(f'wave must be 2D (C,N), got shape={x.shape}')
+
+	fi = _as_int_rate(fs_in, 'fs_in')
+	fo = _as_int_rate(target_fs, 'target_fs')
+
+	x = x - x.mean(axis=1, keepdims=True)
+	v = np.cumsum(x, axis=1) * (float(pseudovel_scale) / float(fi))
+
+	if int(fi) != int(fo):
+		v = resample_poly(v, up=int(fo), down=int(fi), axis=1)
+
+	y = bandpass_iir_filtfilt(
+		v,
+		fs=float(fo),
+		fstop_lo=float(post_bp_low_hz) * 0.8,
+		fpass_lo=float(post_bp_low_hz),
+		fpass_hi=float(post_bp_high_hz),
+		fstop_hi=float(post_bp_high_hz) * 1.2,
+	)
+
+	_ = int(post_bp_order)  # placeholder: kept for signature compatibility
+
+	if bool(zscore_per_trace):
+		y = zscore_tracewise(y, axis=1, eps=1e-6)
+
+	return np.asarray(y, dtype=np.float32)
+
+
+def resample_bandpass_zscore_window(
+	x: np.ndarray,
+	*,
+	fs_in: float,
+	fs_out: float,
+	out_len: int,
+	post_bp_low_hz: float,
+	post_bp_high_hz: float,
+	post_bp_order: int,
+	zscore_per_trace: bool,
+) -> np.ndarray:
+	"""Resample -> bandpass -> (optional) zscore."""
+	w = np.asarray(x, dtype=float)
+	if w.ndim != 2:
+		raise ValueError(f'x must be 2D (C,N), got shape={w.shape}')
+
+	fi = _as_int_rate(fs_in, 'fs_in')
+	fo = _as_int_rate(fs_out, 'fs_out')
+
+	if int(fi) != int(fo):
+		r = Fraction(int(fo), int(fi))  # out/in
+		up = int(r.numerator)
+		down = int(r.denominator)
+		if (int(w.shape[1]) * int(up)) % int(down) != 0:
+			raise ValueError(
+				f'resample length not integral: n={w.shape[1]} up={up} down={down}'
+			)
+		w = resample_poly(w, up=up, down=down, axis=1)
+
+	if int(w.shape[1]) != int(out_len):
+		raise ValueError(f'out_len mismatch: got={w.shape[1]} expected={out_len}')
+
+	y = bandpass_iir_filtfilt(
+		w,
+		fs=float(fo),
+		fstop_lo=float(post_bp_low_hz) * 0.8,
+		fpass_lo=float(post_bp_low_hz),
+		fpass_hi=float(post_bp_high_hz),
+		fstop_hi=float(post_bp_high_hz) * 1.2,
+	)
+
+	_ = int(post_bp_order)  # placeholder: kept for signature compatibility
+
+	if bool(zscore_per_trace):
+		y = zscore_tracewise(y, axis=1, eps=1e-6)
+
+	return np.asarray(y, dtype=np.float32)

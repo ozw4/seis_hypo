@@ -191,7 +191,7 @@ def _merge_station_meta(
 	src: dict[str, dict[str, object]],
 	*,
 	max_jump_deg: float = 0.02,
-	max_jump_m: float = 500.0,
+	max_jump_m: float = 50000.0,
 ) -> None:
 	"""同一 key を上書き更新する。
 
@@ -209,8 +209,8 @@ def _merge_station_meta(
 			raise ValueError(
 				'conflicting station coords: '
 				f'key={key} '
-				f"dst(lat,lon)=({d['lat']},{d['lon']}) "
-				f"src(lat,lon)=({m['lat']},{m['lon']}) "
+				f'dst(lat,lon)=({d["lat"]},{d["lon"]}) '
+				f'src(lat,lon)=({m["lat"]},{m["lon"]}) '
 				f'max_jump_deg={max_jump_deg}'
 			)
 

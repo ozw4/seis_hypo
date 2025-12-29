@@ -11,7 +11,7 @@ from seisbench.models import EQTransformer
 
 from pick.eqt_io import station_zne_from_stream
 from pick.overlap import stack_overlap_1d
-from waveform.filters import zscore_channelwise
+from waveform.filters import zscore_tracewise
 
 _EQT_MODELS: dict[tuple[str, int], EQTransformer] = {}
 
@@ -177,7 +177,7 @@ def backend_eqt_probs(
 
 	def _to_tensor(w: np.ndarray) -> torch.Tensor:
 		t = torch.from_numpy(w[None, :, :]).to(device)
-		return zscore_channelwise(t, axis=-1, eps=1e-6)
+		return zscore_tracewise(t, axis=-1, eps=1e-6)
 
 	with torch.no_grad():
 		buf: list[tuple[int, torch.Tensor]] = []
