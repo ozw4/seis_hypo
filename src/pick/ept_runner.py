@@ -52,7 +52,7 @@ class EqTWindowRunner:
 			x = zscore_tracewise(x, axis=-1, eps=1e-6)
 
 			y_det, y_p, y_s = self.model(x)
-			print(x.shape, y_p.max(), y_s.max())
+
 			det[i0:i1, :] = y_det.detach().cpu().numpy().astype(np.float32, copy=False)
 			p[i0:i1, :] = y_p.detach().cpu().numpy().astype(np.float32, copy=False)
 			s[i0:i1, :] = y_s.detach().cpu().numpy().astype(np.float32, copy=False)

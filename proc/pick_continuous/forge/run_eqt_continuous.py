@@ -14,7 +14,7 @@ ZARR_DATASET = 'block'
 
 EQT_IN_SAMPLES = 6000
 EQT_OVERLAP = 3000
-EQT_WEIGHTS = 'original'
+EQT_WEIGHTS = '/workspace/model_weight/010_Train_EqT_FT-STEAD_rot30_Hinet selftrain.pth'
 EQT_BATCH_TRACES = 64
 
 # NOTE:
@@ -44,9 +44,9 @@ PRINT_EVERY_WINDOWS = 50
 
 # ---- (if you already added conversion flags earlier, keep them as-is here) ----
 CONVERT_STRAINRATE_TO_PSEUDOVEL = False
-TARGET_FS_HZ = 100.0
+TARGET_FS_HZ = 250.0
 POST_BP_LOW_HZ = 25.0
-POST_BP_HIGH_HZ = 45.0
+POST_BP_HIGH_HZ = 110.0
 POST_BP_ORDER = 4
 PSEUDOVEL_SCALE = 1.0
 # =========================
