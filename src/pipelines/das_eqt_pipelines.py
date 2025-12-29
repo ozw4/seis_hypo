@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
+from common.core import as_int_rate
 from io_util.zarr_block import ZarrBlockWindowIterator
 from pick.ept_runner import EqTWindowRunner
 from pick.picks_from_probs import _detect_local_peaks_2d
@@ -26,15 +27,6 @@ from waveform.preprocess import (
 class DasEqtPickStats:
 	windows_processed: int
 	picks_written: int
-
-
-def _as_int_rate(fs: float, name: str) -> int:
-	if float(fs) <= 0.0:
-		raise ValueError(f'{name} must be > 0, got {fs}')
-	i = int(round(float(fs)))
-	if abs(float(fs) - float(i)) > 1e-6:
-		raise ValueError(f'{name} must be integer-like, got {fs}')
-	return int(i)
 
 
 def _ensure_parent(p: Path) -> None:
@@ -164,8 +156,8 @@ def pipeline_das_eqt_pick_to_csv(
 	block = root[str(dataset_name)]
 	tb = int(block.shape[2])
 	fs_zarr = float(root.attrs['fs_out_hz'])
-	fi = _as_int_rate(fs_zarr, 'zarr fs_out_hz')
-	fo = _as_int_rate(target_fs_hz, 'target_fs_hz')
+	fi = as_int_rate(fs_zarr, 'zarr fs_out_hz')
+	fo = as_int_rate(target_fs_hz, 'target_fs_hz')
 	apply_resample = int(fi) != int(fo)
 	fs_used = float(fo) if bool(apply_resample) else float(fi)
 

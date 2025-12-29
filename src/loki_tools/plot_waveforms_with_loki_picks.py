@@ -23,6 +23,7 @@ import pandas as pd
 
 from common.core import load_event_json
 from io_util.stream import build_stream_from_downloaded_win32
+from io_util.trace_util import trace_station_comp
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
 from viz.gather import (
 	plot_gather,  # ←あなたの plot_gather があるモジュールに合わせてimport先修正して
@@ -31,25 +32,6 @@ from waveform.preprocess import (
 	DetrendBandpassSpec,
 	preprocess_stream_detrend_bandpass,
 )
-
-
-def _station_key(network: str | None, station: str) -> str:
-	if network:
-		return f'{network}.{station}'
-	return station
-
-
-def _trace_station_comp(tr) -> tuple[str, str]:
-	# obspy Trace想定
-	net = getattr(tr.stats, 'network', None)
-	sta = getattr(tr.stats, 'station', None)
-	cha = getattr(tr.stats, 'channel', None)
-	if sta is None or cha is None:
-		raise ValueError('trace.stats.station/channel missing')
-
-	sta_full = _station_key(str(net) if net is not None else None, str(sta))
-	comp = str(cha)[-1]  # ...U / ...N / ...E を想定
-	return sta_full, comp
 
 
 def _build_gather_matrix(
@@ -64,7 +46,7 @@ def _build_gather_matrix(
 	"""
 	trs = []
 	for tr in stream:
-		sta_full, c = _trace_station_comp(tr)
+		sta_full, c = trace_station_comp(tr)
 		if c != comp:
 			continue
 		trs.append((sta_full, tr))

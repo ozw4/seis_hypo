@@ -120,3 +120,12 @@ def write_event_json_win32_groups(
 	out = event_dir / 'event.json'
 	with out.open('w', encoding='utf-8') as f:
 		json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+def as_int_rate(fs: float, name: str) -> int:
+	if float(fs) <= 0.0:
+		raise ValueError(f'{name} must be > 0, got {fs}')
+	i = int(round(float(fs)))
+	if abs(float(fs) - float(i)) > 1e-6:
+		raise ValueError(f'{name} must be integer-like, got {fs}')
+	return int(i)
