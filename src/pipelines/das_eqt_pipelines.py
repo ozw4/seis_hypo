@@ -15,8 +15,9 @@ from io_util.zarr_block import ZarrBlockWindowIterator
 from pick.ept_runner import EqTWindowRunner
 from pick.picks_from_probs import _detect_local_peaks_2d
 from waveform.preprocess import (
-	resample_bandpass_zscore_window,
-	strainrate_to_pseudovel_window,
+	bandpass_window,
+	resample_window_poly,
+	strainrate_to_pseudovel,
 )
 
 # (If you already added scipy-based conversion helpers earlier, keep them in this file.
@@ -140,7 +141,6 @@ def pipeline_das_eqt_pick_to_csv(
 	post_bp_high_hz: float = 45.0,
 	post_bp_order: int = 4,
 	pseudovel_scale: float = 1.0,
-	zscore_per_trace: bool = True,
 ) -> DasEqtPickStats:
 	if overlap_merge not in ('max', 'mean'):
 		raise ValueError(f"overlap_merge must be 'max' or 'mean', got {overlap_merge}")
@@ -441,41 +441,28 @@ def pipeline_das_eqt_pick_to_csv(
 			if keep_idx is not None:
 				wave_in = wave_in[np.asarray(keep_idx, dtype=np.int32), :]
 
-			if bool(apply_resample):
-				if bool(convert_strainrate_to_pseudovel):
-					wave_in = strainrate_to_pseudovel_window(
-						wave_in,
-						fs_in=float(fi),
-						target_fs=float(fo),
-						post_bp_low_hz=float(post_bp_low_hz),
-						post_bp_high_hz=float(post_bp_high_hz),
-						post_bp_order=int(post_bp_order),
-						pseudovel_scale=float(pseudovel_scale),
-						zscore_per_trace=bool(zscore_per_trace),
-					)
-				else:
-					wave_in = resample_bandpass_zscore_window(
-						wave_in,
-						fs_in=float(fi),
-						fs_out=float(fo),
-						out_len=int(L),
-						post_bp_low_hz=float(post_bp_low_hz),
-						post_bp_high_hz=float(post_bp_high_hz),
-						post_bp_order=int(post_bp_order),
-						zscore_per_trace=bool(zscore_per_trace),
-					)
-			elif bool(convert_strainrate_to_pseudovel):
-				wave_in = strainrate_to_pseudovel_window(
+			if bool(convert_strainrate_to_pseudovel):
+				wave_in = strainrate_to_pseudovel(
 					wave_in,
 					fs_in=float(fi),
-					target_fs=float(fo),
-					post_bp_low_hz=float(post_bp_low_hz),
-					post_bp_high_hz=float(post_bp_high_hz),
-					post_bp_order=int(post_bp_order),
 					pseudovel_scale=float(pseudovel_scale),
-					zscore_per_trace=bool(zscore_per_trace),
 				)
 
+			if bool(apply_resample):
+				wave_in = resample_window_poly(
+					wave_in,
+					fs_in=float(fi),
+					fs_out=float(fo),
+					out_len=int(L),
+				)
+
+			wave_in = bandpass_window(
+				wave_in,
+				fs=float(fs_used),
+				post_bp_low_hz=float(post_bp_low_hz),
+				post_bp_high_hz=float(post_bp_high_hz),
+				post_bp_order=int(post_bp_order),
+			)
 			if int(wave_in.shape[1]) != int(L):
 				raise ValueError(
 					f'wave length mismatch: got {wave_in.shape[1]}, expected {L}'

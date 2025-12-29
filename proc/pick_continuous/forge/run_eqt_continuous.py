@@ -49,7 +49,6 @@ POST_BP_LOW_HZ = 25.0
 POST_BP_HIGH_HZ = 45.0
 POST_BP_ORDER = 4
 PSEUDOVEL_SCALE = 1.0
-ZSCORE_PER_TRACE = True
 # =========================
 
 
@@ -82,7 +81,6 @@ def main() -> None:
 		post_bp_high_hz=POST_BP_HIGH_HZ,
 		post_bp_order=POST_BP_ORDER,
 		pseudovel_scale=PSEUDOVEL_SCALE,
-		zscore_per_trace=ZSCORE_PER_TRACE,
 	)
 
 

@@ -44,13 +44,15 @@ class EqTWindowRunner:
 			i1 = min(i0 + self.batch_traces, C)
 			w = torch.from_numpy(wave[i0:i1, :]).to(self.device)  # (B,L)
 
-			# EqT expects 3 channels; DAS is 1 component so put it in U, keep others 0.
+			# EqT expects 3 channels; DAS is 1 component so put it in U, keep others U.
 			x = torch.zeros((i1 - i0, 3, L), device=self.device, dtype=w.dtype)
 			x[:, 0, :] = w
-
+			x[:, 1, :] = w
+			x[:, 2, :] = w
 			x = zscore_tracewise(x, axis=-1, eps=1e-6)
 
 			y_det, y_p, y_s = self.model(x)
+			print(x.shape, y_p.max(), y_s.max())
 			det[i0:i1, :] = y_det.detach().cpu().numpy().astype(np.float32, copy=False)
 			p[i0:i1, :] = y_p.detach().cpu().numpy().astype(np.float32, copy=False)
 			s[i0:i1, :] = y_s.detach().cpu().numpy().astype(np.float32, copy=False)

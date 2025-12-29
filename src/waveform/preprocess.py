@@ -11,7 +11,7 @@ from scipy.signal import resample_poly
 
 from common.config import LokiWaveformStackingInputs
 from common.core import as_int_rate
-from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d, zscore_tracewise
+from waveform.filters import bandpass_iir_filtfilt, mad_scale_1d
 
 
 def spec_from_inputs(inputs: LokiWaveformStackingInputs) -> DetrendBandpassSpec:
@@ -112,60 +112,42 @@ def preprocess_stream_detrend_bandpass(
 	return st
 
 
-def strainrate_to_pseudovel_window(
+def strainrate_to_pseudovel(
 	wave: np.ndarray,
 	*,
 	fs_in: float,
-	target_fs: float,
-	post_bp_low_hz: float,
-	post_bp_high_hz: float,
-	post_bp_order: int,
 	pseudovel_scale: float = 1.0,
-	zscore_per_trace: bool = True,
 ) -> np.ndarray:
-	"""strain-rate -> pseudo-velocity -> resample -> bandpass -> (optional) zscore."""
+	"""strain-rate -> pseudo-velocity（時間積分）。
+
+	- サンプリング周波数と長さは保持する（resampleしない）
+	- 正規化（zscore）はここでは行わない（EqT直前で統一）
+	"""
 	x = np.asarray(wave, dtype=float)
 	if x.ndim != 2:
 		raise ValueError(f'wave must be 2D (C,N), got shape={x.shape}')
 
 	fi = as_int_rate(fs_in, 'fs_in')
-	fo = as_int_rate(target_fs, 'target_fs')
 
+	# DC寄りを落としてから積分（cumsum）してドリフトを抑える
 	x = x - x.mean(axis=1, keepdims=True)
 	v = np.cumsum(x, axis=1) * (float(pseudovel_scale) / float(fi))
 
-	if int(fi) != int(fo):
-		v = resample_poly(v, up=int(fo), down=int(fi), axis=1)
-
-	y = bandpass_iir_filtfilt(
-		v,
-		fs=float(fo),
-		fstop_lo=float(post_bp_low_hz) * 0.8,
-		fpass_lo=float(post_bp_low_hz),
-		fpass_hi=float(post_bp_high_hz),
-		fstop_hi=float(post_bp_high_hz) * 1.2,
-	)
-
-	_ = int(post_bp_order)  # placeholder: kept for signature compatibility
-
-	if bool(zscore_per_trace):
-		y = zscore_tracewise(y, axis=1, eps=1e-6)
-
-	return np.asarray(y, dtype=np.float32)
+	return np.asarray(v, dtype=np.float32)
 
 
-def resample_bandpass_zscore_window(
+def resample_window_poly(
 	x: np.ndarray,
 	*,
 	fs_in: float,
 	fs_out: float,
 	out_len: int,
-	post_bp_low_hz: float,
-	post_bp_high_hz: float,
-	post_bp_order: int,
-	zscore_per_trace: bool,
 ) -> np.ndarray:
-	"""Resample -> bandpass -> (optional) zscore."""
+	"""resample_polyで (C,N) を (C,out_len) にする。
+
+	- resampleしない場合も out_len 一致を厳密チェック
+	- フィルタや正規化は別段で実施
+	"""
 	w = np.asarray(x, dtype=float)
 	if w.ndim != 2:
 		raise ValueError(f'x must be 2D (C,N), got shape={w.shape}')
@@ -186,9 +168,28 @@ def resample_bandpass_zscore_window(
 	if int(w.shape[1]) != int(out_len):
 		raise ValueError(f'out_len mismatch: got={w.shape[1]} expected={out_len}')
 
+	return np.asarray(w, dtype=np.float32)
+
+
+def bandpass_window(
+	x: np.ndarray,
+	*,
+	fs: float,
+	post_bp_low_hz: float,
+	post_bp_high_hz: float,
+	post_bp_order: int,
+) -> np.ndarray:
+	"""bandpass（0-phase IIR）を (C,N) に適用する。
+
+	- 正規化（zscore）はここでは行わない（EqT直前で統一）
+	"""
+	w = np.asarray(x, dtype=float)
+	if w.ndim != 2:
+		raise ValueError(f'x must be 2D (C,N), got shape={w.shape}')
+
 	y = bandpass_iir_filtfilt(
 		w,
-		fs=float(fo),
+		fs=float(fs),
 		fstop_lo=float(post_bp_low_hz) * 0.8,
 		fpass_lo=float(post_bp_low_hz),
 		fpass_hi=float(post_bp_high_hz),
@@ -196,8 +197,5 @@ def resample_bandpass_zscore_window(
 	)
 
 	_ = int(post_bp_order)  # placeholder: kept for signature compatibility
-
-	if bool(zscore_per_trace):
-		y = zscore_tracewise(y, axis=1, eps=1e-6)
 
 	return np.asarray(y, dtype=np.float32)
