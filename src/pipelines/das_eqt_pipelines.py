@@ -179,11 +179,6 @@ def pipeline_das_eqt_pick_to_csv(
 	hop_zarr = int(in_samples_zarr) - int(overlap_zarr)
 	if hop_zarr <= 0:
 		raise ValueError('overlap_zarr must be smaller than in_samples_zarr')
-	if (int(in_samples_zarr) % int(tb)) != 0 or (int(hop_zarr) % int(tb)) != 0:
-		raise ValueError(
-			f'in_samples_zarr ({in_samples_zarr}) and hop_zarr ({hop_zarr}) '
-			f'must be multiples of Tb ({tb}).'
-		)
 
 	keep_idx: np.ndarray | None = None
 	channel_ids: np.ndarray | None = None

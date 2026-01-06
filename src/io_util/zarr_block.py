@@ -20,16 +20,20 @@ class WindowMeta:
 
 
 class ZarrBlockWindowIterator:
-	"""Read block-aligned windows from a Zarr store:
+	"""Read sample windows from a Zarr store:
 	  block: (B, C, Tb)
+
 	Constraints:
 	  - windows never cross segment_id boundaries
-	  - trims trailing short blocks in a segment (valid_out_samples < Tb)
+	  - ignores blocks with valid_out_samples < Tb (commonly trailing short blocks)
 
 	Yields:
-	  wave: (Csel, EQT_IN_SAMPLES)
+	  wave: (Csel, in_samples)
 	  meta: WindowMeta
-
+	
+	Notes:
+	  - Unlike the previous block-aligned implementation, in_samples and hop do NOT
+	    need to be multiples of Tb.
 	"""
 
 	def __init__(
@@ -70,18 +74,12 @@ class ZarrBlockWindowIterator:
 
 		self.in_samples = int(in_samples)
 		self.overlap = int(overlap)
+		if self.in_samples <= 0:
+			raise ValueError('in_samples must be positive')
 		if self.overlap < 0 or self.overlap >= self.in_samples:
 			raise ValueError('overlap must satisfy 0 <= overlap < in_samples')
 
 		self.hop = self.in_samples - self.overlap
-
-		if (self.in_samples % self.tb) != 0 or (self.hop % self.tb) != 0:
-			raise ValueError(
-				f'in_samples ({self.in_samples}) and hop ({self.hop}) must be multiples of Tb ({self.tb})'
-			)
-
-		self.w_blocks = self.in_samples // self.tb
-		self.h_blocks = self.hop // self.tb
 
 		if channel_range is None:
 			self.ch0, self.ch1 = 0, self.n_ch
@@ -106,38 +104,70 @@ class ZarrBlockWindowIterator:
 		yield (s0, start, self.n_blocks)
 
 	def __iter__(self) -> Iterator[tuple[np.ndarray, WindowMeta]]:
-		tb = self.tb
-		w = self.w_blocks
-		hb = self.h_blocks
-		ch0, ch1 = self.ch0, self.ch1
+		tb = int(self.tb)
+		wS = int(self.in_samples)
+		hop = int(self.hop)
+		ch0, ch1 = int(self.ch0), int(self.ch1)
+		fs_hz = float(self.fs_hz)
+		dt_ms = 1000.0 / float(fs_hz)
 
 		for seg_id, s_start, s_end in self._segment_ranges():
 			# trim trailing short blocks (common when segment ends with a short file)
 			s_end_full = int(s_end)
-			while s_end_full > s_start and int(self.valid_out[s_end_full - 1]) < tb:
+			while s_end_full > int(s_start) and int(self.valid_out[s_end_full - 1]) < tb:
 				s_end_full -= 1
 
-			if (s_end_full - s_start) < w:
-				continue
-
 			b = int(s_start)
-			b_last = int(s_end_full - w)
+			while b < int(s_end_full):
+				# Skip non-full blocks
+				while b < int(s_end_full) and int(self.valid_out[b]) < tb:
+					b += 1
+				run_start = int(b)
+				while b < int(s_end_full) and int(self.valid_out[b]) >= tb:
+					b += 1
+				run_end = int(b)
 
-			while b <= b_last:
-				# window blocks are guaranteed within one segment here
-				x = self.arr[b : b + w, ch0:ch1, :].astype(
-					np.float32, copy=False
-				)  # (w, Csel, Tb)
-				wave = x.transpose(1, 0, 2).reshape(
-					(ch1 - ch0, w * tb)
-				)  # (Csel, in_samples)
+				n_full = int(run_end - run_start)
+				if n_full <= 0:
+					continue
 
-				meta = WindowMeta(
-					segment_id=int(seg_id),
-					block_start=int(b),
-					window_start_utc_ms=int(self.start_ms[b]),
-					fs_hz=float(self.fs_hz),
-					channels=(int(ch0), int(ch1)),
-				)
-				yield wave, meta
-				b += hb
+				total = int(n_full * tb)
+				if total < wS:
+					continue
+
+				off = 0
+				while int(off + wS) <= int(total):
+					b_rel = int(off // tb)
+					s_off = int(off % tb)
+					b0 = int(run_start + b_rel)
+
+					need = int(s_off + wS)
+					nb = (need + tb - 1) // tb
+
+					x = self.arr[b0 : b0 + nb, ch0:ch1, :].astype(np.float32, copy=False)  # (nb, Csel, Tb)
+
+					if nb == 1:
+						wave = x[0, :, s_off : s_off + wS]
+					else:
+						parts: list[np.ndarray] = []
+						take = int(min(tb - s_off, wS))
+						parts.append(x[0, :, s_off : s_off + take])
+						rem = int(wS - take)
+						k = 1
+						while rem > 0:
+							take = int(min(tb, rem))
+							parts.append(x[k, :, 0:take])
+							rem -= take
+							k += 1
+						wave = np.concatenate(parts, axis=1)
+
+					start_ms = int(self.start_ms[b0]) + int(round(float(s_off) * float(dt_ms)))
+					meta = WindowMeta(
+						segment_id=int(seg_id),
+						block_start=int(b0),
+						window_start_utc_ms=int(start_ms),
+						fs_hz=float(self.fs_hz),
+						channels=(int(ch0), int(ch1)),
+					)
+					yield wave, meta
+					off += hop
