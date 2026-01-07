@@ -44,3 +44,4 @@ pyyaml
 playwright
 optuna
 git+https://github.com/AI4EPS/GaMMA.git@zenodo
+seisai-pick   @ git+https://github.com/ozw4/seisai.git@chore/monorepo-workspace_noisedataset#subdirectory=packages/seisai-pick
