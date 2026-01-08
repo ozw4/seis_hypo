@@ -16,9 +16,7 @@ DATA_DIR = Path('/home/dcuser/daseventnet/data/silixa')
 
 ZARR_PATH = DATA_DIR / 'forge_dfit_block_78AB_250Hz.zarr'
 EVENT_CSV = DATA_DIR / 'FORGE_DFIT_NAV_with_silixa_locations.csv'
-STATION_META_CSV = Path(
-	'/workspace/proc/prepare_data/forge/forge_das_station_metadata.csv'
-)
+STATION_META_CSV = Path('/workspace/data/station/forge/forge_das_station_metadata.csv')
 
 OUT_BASE_DIR = DATA_DIR / 'cut_events_for_loki'
 DB_DIR = OUT_BASE_DIR / 'db'

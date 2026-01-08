@@ -31,7 +31,7 @@ IN_PICK_CSV = Path(
 	'/workspace/proc/pick_continuous/forge/out/das_eqt_picks_woconvert.csv'
 )
 IN_STATION_META_CSV = Path(
-	'/workspace/proc/prepare_data/forge/forge_das_station_metadata.csv'
+	'/workspace/data/station/forge/forge_das_station_metadata.csv'
 )
 OUT_GAMMA_PICKS_CSV = Path('./forge_gamma_picks.csv')
 

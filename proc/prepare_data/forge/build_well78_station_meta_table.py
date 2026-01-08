@@ -27,8 +27,8 @@ W78A = dict(
 	N_m=4262991.99,
 	elev_head_m=1701.92,
 	depth_bottom_m=989.90,
-	ch_shallow=1080,
-	ch_deep=70,
+	ch_shallow=1062,
+	ch_deep=92,
 )
 
 W78B = dict(
@@ -37,8 +37,8 @@ W78B = dict(
 	N_m=4262983.53,
 	elev_head_m=1705.62,
 	depth_bottom_m=1193.42,
-	ch_shallow=1196,
-	ch_deep=2400,
+	ch_shallow=1216,
+	ch_deep=2385,
 )
 
 # ---- Report-correct well ranges (0-based, inclusive) ----
@@ -51,7 +51,7 @@ ORIGIN_E_m = W78B['E_m']
 ORIGIN_N_m = W78B['N_m']
 
 # 出力
-OUT_DIR = Path()
+OUT_DIR = Path('/workspace/data/station/forge')
 OUT_CSV = OUT_DIR / 'forge_das_station_metadata.csv'
 OUT_MEMO = OUT_DIR / 'forge_das_station_metadata_README.md'
 

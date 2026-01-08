@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
@@ -191,5 +192,101 @@ def build_stream_from_downloaded_win32(
 				tr.stats.station = sta
 				tr.stats.channel = f'{channel_prefix}{comp}'
 				st += tr
+
+	return st
+
+
+def _validate_index_0_to_n_minus_1(idx: pd.Series, *, label: str) -> None:
+	idx_i = idx.astype(int)
+	if idx_i.min() != 0:
+		raise ValueError(f'{label} index must start at 0. min={idx_i.min()}')
+	if idx_i.nunique() != len(idx_i):
+		raise ValueError(f'{label} index must be unique per row')
+	if idx_i.max() != len(idx_i) - 1:
+		raise ValueError(
+			f'{label} index must end at N-1. max={idx_i.max()} N={len(idx_i)}'
+		)
+
+
+def build_stream_from_forge_event_npy(
+	event_dir: str | Path,
+	*,
+	channel_code: str = 'DASZ',
+) -> Stream:
+	"""Forge (DAS) のイベントdirから waveform.npy を読み、ObsPy Stream に変換する。
+
+	期待するファイル:
+	- waveform.npy: shape (C, T)
+	- meta.json: fs_hz, window_start_utc を含む
+	- stations.csv: station_id, index を含む（index昇順がC方向の並び）
+
+	注意:
+	- comp=('Z',) を前提とし、Trace.stats.channel の末尾が 'Z' になるようにする。
+	"""
+	event_dir = Path(event_dir)
+	if not event_dir.is_dir():
+		raise FileNotFoundError(f'event_dir not found: {event_dir}')
+
+	npy_path = event_dir / 'waveform.npy'
+	meta_path = event_dir / 'meta.json'
+	stations_path = event_dir / 'stations.csv'
+
+	if not npy_path.is_file():
+		raise FileNotFoundError(f'waveform.npy not found: {npy_path}')
+	if not meta_path.is_file():
+		raise FileNotFoundError(f'meta.json not found: {meta_path}')
+	if not stations_path.is_file():
+		raise FileNotFoundError(f'stations.csv not found: {stations_path}')
+
+	meta = json.loads(meta_path.read_text(encoding='utf-8'))
+	fs_hz = float(meta['fs_hz'])
+	if fs_hz <= 0.0:
+		raise ValueError(f'fs_hz must be > 0. got {fs_hz}')
+
+	t0 = pd.to_datetime(meta['window_start_utc'], utc=True)
+	if pd.isna(t0):
+		raise ValueError(
+			f'failed to parse window_start_utc: {meta.get("window_start_utc")}'
+		)
+	starttime_utc = UTCDateTime(t0.to_pydatetime())
+	delta = 1.0 / float(fs_hz)
+
+	sta = pd.read_csv(stations_path)
+	required = ['station_id', 'index']
+	missing = [c for c in required if c not in sta.columns]
+	if missing:
+		raise ValueError(
+			f'stations.csv missing columns: {missing}. cols={list(sta.columns)}'
+		)
+
+	sta['station_id'] = sta['station_id'].astype(str)
+	sta['index'] = sta['index'].astype(int)
+	sta = sta.sort_values('index').reset_index(drop=True)
+	_validate_index_0_to_n_minus_1(sta['index'], label='stations.csv')
+
+	x = np.load(npy_path, allow_pickle=False)
+	if x.ndim != 2:
+		raise ValueError(f'waveform.npy must be 2D (C,T). got shape={x.shape}')
+	c, t = int(x.shape[0]), int(x.shape[1])
+	if c != len(sta):
+		raise ValueError(
+			f'channel count mismatch: waveform C={c} vs stations rows={len(sta)}'
+		)
+	if t <= 0:
+		raise ValueError(f'waveform T must be > 0. got T={t}')
+
+	if str(channel_code)[-1] != 'Z':
+		raise ValueError(
+			f"channel_code must end with 'Z' for comp=('Z',). got: {channel_code}"
+		)
+
+	st = Stream()
+	for i, station_id in enumerate(sta['station_id'].tolist()):
+		tr = Trace(data=np.asarray(x[i], dtype=np.float32))
+		tr.stats.starttime = starttime_utc
+		tr.stats.delta = delta
+		tr.stats.station = station_id
+		tr.stats.channel = str(channel_code)
+		st += tr
 
 	return st

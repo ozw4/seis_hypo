@@ -14,7 +14,7 @@ from gamma.utils import association, estimate_eps
 # 設定（ここだけ触ればOK）
 # =========================
 PICKS_CSV = Path('/workspace/proc/prepare_data/forge/forge_gamma_picks.csv')
-STATIONS_CSV = Path('/workspace/proc/prepare_data/forge/forge_das_station_metadata.csv')
+STATIONS_CSV = Path('/workspace/data/station/forge/forge_das_station_metadata.csv')
 VEL_MODEL_JSON = Path('/workspace/proc/prepare_data/forge/gamma_vel_model44.json')
 OUT_DIR = Path('results/gamma_forge')
 

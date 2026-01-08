@@ -163,7 +163,7 @@ def plot_loki_results_quickcheck(
 
 
 if __name__ == '__main__':
-	loki_output_dir = '/workspace/proc/loki_hypo/loki_output_mobara'
+	loki_output_dir = '/workspace/proc/loki_hypo/loki_output_mobara/mobara'
 	plot_loki_results_quickcheck(
 		loki_output_dir=loki_output_dir,
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
