@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 
@@ -555,3 +556,54 @@ def parse_phs_absolute_times(phs_path: Path, *, tz: str = 'utc') -> pd.DataFrame
 		raise ValueError(f'no valid rows in phs: {phs_path}')
 
 	return pd.DataFrame(rows)
+
+
+Phase = Literal['P', 'S']
+
+
+def read_phs_token_by_station(phs_path: str | Path, *, phase: Phase) -> dict[str, str]:
+	"""P-run/S-run両対応の .phs トークン読み取り（2列/3列以上を許容）。トークンは生文字列で返す。
+
+	2列: station token
+	3列+: station Ptoken Stoken ...
+
+	規約:
+	- phase='P' -> cols[1]
+	- phase='S' -> cols[2] if exists else cols[1]
+	"""
+	phs_path = Path(phs_path)
+	out: dict[str, str] = {}
+
+	phase_s = str(phase)
+	if phase_s not in ('P', 'S'):
+		raise ValueError(f"phase must be 'P' or 'S', got: {phase!r}")
+
+	for ln in _read_text_lines(phs_path):
+		if ln.startswith('#'):
+			continue
+
+		cols = ln.split()
+		if not cols:
+			continue
+		if cols[0].lower() == 'station':
+			continue
+		if len(cols) < 2:
+			raise ValueError(
+				f"invalid .phs line (need >=2 cols): {phs_path} line='{ln}'"
+			)
+
+		sta = str(cols[0])
+
+		if phase_s == 'P':
+			tok = str(cols[1])
+		else:
+			tok = str(cols[2]) if len(cols) >= 3 else str(cols[1])
+
+		if sta in out:
+			raise ValueError(f'duplicate station in phs: station={sta} file={phs_path}')
+		out[sta] = tok
+
+	if not out:
+		raise ValueError(f'no phs rows parsed: {phs_path}')
+
+	return out

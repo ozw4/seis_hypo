@@ -106,7 +106,7 @@ class StaltaProbSpec:
 	lta_sec: float = 2.0
 	smooth_sec: float | None = None  # 入力（transform後）を平滑化してからSTALTA
 	clip_p: float | None = 99.5  # STALTA出力を上側クリップ
-	log1p: bool = True  # STALTA出力（非負）に log1p
+	log1p: bool = False  # STALTA出力（非負）に log1p
 	eps: float = 1e-12
 
 

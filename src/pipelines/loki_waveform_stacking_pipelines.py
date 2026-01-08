@@ -1,6 +1,8 @@
 # file: src/pipelines/loki_waveform_stacking_pipelines.py
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -322,3 +324,94 @@ def pipeline_loki_waveform_stacking_eqt(
 		streams_by_event=streams_by_event,
 		**loki_kwargs,
 	)
+
+
+_DAS_EVENTNUM_RE = re.compile(r'(\d+)$')
+
+
+def _das_event_time_utc_from_meta(meta: dict, *, meta_path: Path) -> pd.Timestamp:
+	raw = meta.get('file_time_utc')
+	if raw is None:
+		raw = meta.get('window_start_utc')
+	if raw is None:
+		raise ValueError(
+			f'meta.json missing file_time_utc/window_start_utc: {meta_path}'
+		)
+
+	ts = pd.to_datetime(raw)
+	if pd.isna(ts):
+		raise ValueError(f'failed to parse event time in {meta_path}: {raw!r}')
+
+	# metaはUTCのはず。もしnaiveでもUTCとして扱う。
+	return to_utc(pd.Timestamp(ts), naive_tz='UTC')
+
+
+def _das_event_sort_key(ev_dir: Path) -> tuple[int, str]:
+	m = _DAS_EVENTNUM_RE.search(ev_dir.name)
+	if m is None:
+		return (10**18, ev_dir.name)
+	return (int(m.group(1)), ev_dir.name)
+
+
+def list_event_dirs_filtered_forge_das(
+	cfg: LokiWaveformStackingPipelineConfig,
+) -> list[Path]:
+	"""cut_events_fromzarr_for_loki.py の生成物(event_XXXXXX/meta.json等)を列挙してフィルタする。"""
+	base = Path(cfg.base_input_dir)
+	if not base.is_dir():
+		raise FileNotFoundError(f'base_input_dir not found: {base}')
+
+	# 既存のJST-naive解釈ロジックに合わせて、ここも同じ関数を使う
+	t_start = _parse_cfg_time_utc(cfg.origin_time_start)
+	t_end = _parse_cfg_time_utc(cfg.origin_time_end)
+	if t_start is not None and t_end is not None and t_end < t_start:
+		raise ValueError(
+			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
+		)
+
+	# DASにはmagが無いので、magフィルタ指定は事故源。明示的に止める。
+	if cfg.mag_min is not None or cfg.mag_max is not None:
+		raise ValueError(
+			'ForgeDAS events (meta.json) do not contain magnitude; mag_min/mag_max is unsupported.'
+		)
+
+	candidates = sorted(
+		[p for p in base.glob(cfg.event_glob) if p.is_dir()], key=_das_event_sort_key
+	)
+
+	dirs: list[Path] = []
+	dropped = 0
+
+	for p in candidates:
+		waveform_path = p / 'waveform.npy'
+		meta_path = p / 'meta.json'
+		stations_path = p / 'stations.csv'
+		if not (
+			waveform_path.is_file() and meta_path.is_file() and stations_path.is_file()
+		):
+			continue
+
+		meta = json.loads(meta_path.read_text(encoding='utf-8', errors='strict'))
+		t0 = _das_event_time_utc_from_meta(meta, meta_path=meta_path)
+
+		if t_start is not None and t0 < t_start:
+			dropped += 1
+			continue
+		if t_end is not None and t0 > t_end:
+			dropped += 1
+			continue
+
+		dirs.append(p)
+
+	if cfg.max_events is not None and cfg.max_events > 0:
+		dirs = dirs[: int(cfg.max_events)]
+
+	if not dirs:
+		raise ValueError(
+			f'No DAS event dirs found under: {base} (glob={cfg.event_glob})'
+		)
+
+	print(
+		f'das event filter: total={len(candidates)} kept={len(dirs)} dropped={dropped}'
+	)
+	return dirs

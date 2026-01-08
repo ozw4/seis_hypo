@@ -254,11 +254,11 @@ def main() -> ForgePipelineResult:
 		output_dir=Path(
 			'/workspace/data/velocity/forge/forge_tt_table/forge44_vpvs1p75'
 		),
-		dx_km=0.10,
-		dy_km=0.10,
-		dz_km=0.10,
-		pad_km=0.50,
-		z0_km=-0.50,
+		dx_km=0.2,
+		dy_km=0.2,
+		dz_km=0.2,
+		pad_km=5.0,
+		z0_km=0.0,
 		zmax_km=3.00,
 		center_mode='median',
 		xy_half_width_km=None,
