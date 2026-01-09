@@ -9,6 +9,7 @@ import numpy as np
 import zarr
 
 from common.core import as_int_rate
+from common.time_util import utc_ms_to_iso
 from pick.ept_runner import EqTWindowRunner
 from waveform.preprocess import (
 	bandpass_window,
@@ -53,10 +54,6 @@ S_CONTOUR_LEVELS = (0.3, 0.5, 0.7)
 
 TMP_PARENT_DIR = Path('/tmp')
 # =========================
-
-
-def _iso_utc(ms: int) -> str:
-	return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).isoformat()
 
 
 def _load_slices(root: zarr.hierarchy.Group) -> dict[str, tuple[int, int]]:
@@ -263,7 +260,9 @@ def _make_temp_zarr_60s_from_tdms_start(
 	print(
 		f'window    : start_off={start_off} samples, n_zarr={n_zarr} samples -> {seconds:.3f}s'
 	)
-	print(f'start_ms  : {first_window_start_ms} ({_iso_utc(first_window_start_ms)})')
+	print(
+		f'start_ms  : {first_window_start_ms} ({utc_ms_to_iso(first_window_start_ms)})'
+	)
 	print(f'temp_zarr : {out_dir}')
 
 	return out_dir, first_window_start_ms, n_zarr, float(fs_zarr)
@@ -344,7 +343,7 @@ T, Y = np.meshgrid(t, channel_ids)
 absmax = 1
 
 title = (
-	f'Amplitude + P(solid)/S(dashed) | start={_iso_utc(first_window_start_ms)} | '
+	f'Amplitude + P(solid)/S(dashed) | start={utc_ms_to_iso(first_window_start_ms)} | '
 	f'{TDMS_FILE_NAME} (+60s window)'
 )
 

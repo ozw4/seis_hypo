@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import numpy as np
 import zarr
 
 from common.core import as_int_rate
+from common.time_util import utc_ms_to_iso
 from io_util.zarr_block import ZarrBlockWindowIterator
 from pick.ept_runner import EqTWindowRunner
 from pick.picks_from_probs import _detect_local_peaks_2d
@@ -32,10 +32,6 @@ class DasEqtPickStats:
 
 def _ensure_parent(p: Path) -> None:
 	p.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _to_iso_utc(ms: int) -> str:
-	return datetime.fromtimestamp(float(ms) / 1000.0, tz=timezone.utc).isoformat()
 
 
 def _load_zarr_slices_0based(root: zarr.hierarchy.Group) -> dict[str, tuple[int, int]]:
@@ -251,7 +247,7 @@ def pipeline_das_eqt_pick_to_csv(
 						_chan_id(c),
 						'P',
 						tp,
-						_to_iso_utc(tp),
+						utc_ms_to_iso(tp),
 						float(last_p_prob[c]),
 					]
 				)
@@ -266,7 +262,7 @@ def pipeline_das_eqt_pick_to_csv(
 						_chan_id(c),
 						'S',
 						ts,
-						_to_iso_utc(ts),
+						utc_ms_to_iso(ts),
 						float(last_s_prob[c]),
 					]
 				)
@@ -336,7 +332,7 @@ def pipeline_das_eqt_pick_to_csv(
 					_chan_id(int(c_idx)),
 					'P',
 					int(prev_t),
-					_to_iso_utc(int(prev_t)),
+					utc_ms_to_iso(int(prev_t)),
 					float(prev_v),
 				]
 			)
@@ -364,7 +360,7 @@ def pipeline_das_eqt_pick_to_csv(
 					_chan_id(int(c_idx)),
 					'S',
 					int(prev_t),
-					_to_iso_utc(int(prev_t)),
+					utc_ms_to_iso(int(prev_t)),
 					float(prev_v),
 				]
 			)

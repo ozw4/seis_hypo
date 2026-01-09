@@ -35,6 +35,10 @@ def to_utc(ts: pd.Timestamp, *, naive_tz: str = 'Asia/Tokyo') -> pd.Timestamp:
 	return ts.tz_convert('UTC')
 
 
+def utc_ms_to_iso(ms: int) -> str:
+	return dt.datetime.fromtimestamp(float(ms) / 1000.0, tz=timezone.utc).isoformat()
+
+
 def as_utc_aware(d: dt.datetime) -> dt.datetime:
 	if d.tzinfo is None:
 		return d.replace(tzinfo=timezone.utc)
