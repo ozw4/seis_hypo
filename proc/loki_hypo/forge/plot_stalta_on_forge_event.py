@@ -21,6 +21,7 @@ EVENT_DIR = Path(
 # DAS設定
 DAS_CHANNEL_CODE = 'DASZ'  # build_stream_from_forge_event_npy が要求（末尾Z）
 COMPONENT = 'Z'  # STALTA対象成分（channel末尾と一致）
+CHANNEL_STRIDE: int | None = None  # 2以上で間引き。None/<=1で無効。
 
 # 前処理（任意）
 USE_PREPROCESS = True
@@ -64,6 +65,17 @@ def _select_indices_evenly(n_total: int, n_pick: int) -> np.ndarray:
 	return np.asarray(out, dtype=int)
 
 
+def _normalize_channel_stride(channel_stride: int | None) -> int | None:
+	if channel_stride is None:
+		return None
+	stride = int(channel_stride)
+	if stride <= 0:
+		raise ValueError(f'channel_stride must be >= 1 when set, got {stride}')
+	if stride <= 1:
+		return None
+	return stride
+
+
 def _decimate_for_plot(x: np.ndarray, *, max_len: int) -> tuple[np.ndarray, int]:
 	if x.ndim != 2:
 		raise ValueError(f'x must be 2D, got shape={x.shape}')
@@ -96,6 +108,17 @@ if not event_dir.is_dir():
 st = build_stream_from_forge_event_npy(event_dir, channel_code=str(DAS_CHANNEL_CODE))
 if len(st) == 0:
 	raise ValueError(f'empty stream: {event_dir}')
+stride = _normalize_channel_stride(CHANNEL_STRIDE)
+if stride is not None:
+	orig_n_channels = len(st)
+	kept_indices = list(range(0, orig_n_channels, stride))
+	st = st.__class__([st[i] for i in kept_indices])
+	print(
+		f'[STALTA-PLOT-DAS] channel stride enabled: stride={stride} '
+		f'kept={len(st)} original={orig_n_channels} '
+		f'indices={kept_indices[:10]}'
+		f'{"..." if len(kept_indices) > 10 else ""}'
+	)
 
 fs = float(st[0].stats.sampling_rate)
 npts = int(st[0].stats.npts)
