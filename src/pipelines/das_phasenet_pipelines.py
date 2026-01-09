@@ -9,15 +9,14 @@ import numpy as np
 import zarr
 
 from common.core import as_int_rate
-from common.time_util import utc_ms_to_iso
 from io_util.zarr_block import ZarrBlockWindowIterator
 from pick.phasenet_runner import PhaseNetWindowRunner
-from pick.picks_from_probs import _detect_local_peaks_2d
 from pipelines.das_eqt_pipelines import (
 	DasEqtPickStats,
 	_ab_keep_indices_and_channel_ids,
 	_ensure_parent,
 )
+from pipelines.das_pick_csv_accumulator import PickAccumulator
 from waveform.preprocess import (
 	bandpass_window,
 	resample_window_poly,
@@ -135,155 +134,15 @@ def pipeline_das_phasenet_pick_to_csv(
 	pending_seg_id: int | None = None
 	pending_block_start: int | None = None
 
-	last_p_time_ms: np.ndarray | None = None
-	last_p_prob: np.ndarray | None = None
-	last_s_time_ms: np.ndarray | None = None
-	last_s_prob: np.ndarray | None = None
-
-	def _reset_last(C: int) -> None:
-		nonlocal last_p_time_ms, last_p_prob, last_s_time_ms, last_s_prob
-		last_p_time_ms = np.full(int(C), -1, dtype=np.int64)
-		last_p_prob = np.zeros(int(C), dtype=np.float32)
-		last_s_time_ms = np.full(int(C), -1, dtype=np.int64)
-		last_s_prob = np.zeros(int(C), dtype=np.float32)
-
-	def _chan_id(c: int) -> int:
-		if channel_ids is None:
-			base = 0 if channel_range is None else int(channel_range[0])
-			return int(base + c)
-		return int(channel_ids[c])
-
-	def _flush_last(wcsv: csv.writer, seg_id: int, block_start: int) -> None:
-		nonlocal picks_written
-		if last_p_time_ms is None:
-			return
-		C = int(last_p_time_ms.shape[0])
-		for c in range(C):
-			tp = int(last_p_time_ms[c])
-			if tp >= 0:
-				wcsv.writerow(
-					[
-						int(seg_id),
-						int(block_start),
-						_chan_id(c),
-						'P',
-						tp,
-						utc_ms_to_iso(tp),
-						float(last_p_prob[c]),
-					]
-				)
-				picks_written += 1
-
-			ts = int(last_s_time_ms[c])
-			if ts >= 0:
-				wcsv.writerow(
-					[
-						int(seg_id),
-						int(block_start),
-						_chan_id(c),
-						'S',
-						ts,
-						utc_ms_to_iso(ts),
-						float(last_s_prob[c]),
-					]
-				)
-				picks_written += 1
-
-		last_p_time_ms.fill(-1)
-		last_p_prob.fill(0.0)
-		last_s_time_ms.fill(-1)
-		last_s_prob.fill(0.0)
-
-	def _accumulate_chunk_picks(
-		wcsv: csv.writer,
-		*,
-		seg_id: int,
-		block_start: int,
-		chunk_p: np.ndarray,
-		chunk_s: np.ndarray,
-		chunk_start_ms: int,
-		chunk_fs_hz: float,
-	) -> None:
-		nonlocal last_p_time_ms, last_p_prob, last_s_time_ms, last_s_prob, picks_written
-
-		C, _N = chunk_p.shape
-		if last_p_time_ms is None:
-			_reset_last(int(C))
-
-		dt_ms = 1000.0 / float(chunk_fs_hz)
-		tol_ms = int(round(float(min_pick_sep_samples) * float(dt_ms)))
-
-		p_peaks = _detect_local_peaks_2d(
-			prob=chunk_p,
-			thr=float(p_threshold),
-			min_sep=int(min_pick_sep_samples),
-			gate=None,
-		)
-		s_peaks = _detect_local_peaks_2d(
-			prob=chunk_s,
-			thr=float(s_threshold),
-			min_sep=int(min_pick_sep_samples),
-			gate=None,
-		)
-
-		def _tidx_to_ms(t_idx: int) -> int:
-			return int(round(int(chunk_start_ms) + (float(t_idx) * float(dt_ms))))
-
-		for c_idx, t_idx, val in p_peaks:
-			t_ms = _tidx_to_ms(int(t_idx))
-			prev_t = int(last_p_time_ms[c_idx])
-			prev_v = float(last_p_prob[c_idx])
-			if prev_t < 0:
-				last_p_time_ms[c_idx] = int(t_ms)
-				last_p_prob[c_idx] = float(val)
-				continue
-			if int(t_ms) - int(prev_t) <= int(tol_ms):
-				if float(val) > float(prev_v):
-					last_p_time_ms[c_idx] = int(t_ms)
-					last_p_prob[c_idx] = float(val)
-				continue
-			wcsv.writerow(
-				[
-					int(seg_id),
-					int(block_start),
-					_chan_id(int(c_idx)),
-					'P',
-					int(prev_t),
-					utc_ms_to_iso(int(prev_t)),
-					float(prev_v),
-				]
-			)
-			picks_written += 1
-			last_p_time_ms[c_idx] = int(t_ms)
-			last_p_prob[c_idx] = float(val)
-
-		for c_idx, t_idx, val in s_peaks:
-			t_ms = _tidx_to_ms(int(t_idx))
-			prev_t = int(last_s_time_ms[c_idx])
-			prev_v = float(last_s_prob[c_idx])
-			if prev_t < 0:
-				last_s_time_ms[c_idx] = int(t_ms)
-				last_s_prob[c_idx] = float(val)
-				continue
-			if int(t_ms) - int(prev_t) <= int(tol_ms):
-				if float(val) > float(prev_v):
-					last_s_time_ms[c_idx] = int(t_ms)
-					last_s_prob[c_idx] = float(val)
-				continue
-			wcsv.writerow(
-				[
-					int(seg_id),
-					int(block_start),
-					_chan_id(int(c_idx)),
-					'S',
-					int(prev_t),
-					utc_ms_to_iso(int(prev_t)),
-					float(prev_v),
-				]
-			)
-			picks_written += 1
-			last_s_time_ms[c_idx] = int(t_ms)
-			last_s_prob[c_idx] = float(val)
+	accumulator = PickAccumulator(
+		channel_range=channel_range,
+		channel_ids=channel_ids,
+		min_pick_sep_samples=int(min_pick_sep_samples),
+		p_threshold=float(p_threshold),
+		s_threshold=float(s_threshold),
+		det_gate_enable=False,
+		det_threshold=0.0,
+	)
 
 	with Path(out_csv).open('w', newline='', encoding='utf-8') as f:
 		wcsv = csv.writer(f)
@@ -314,7 +173,7 @@ def pipeline_das_phasenet_pick_to_csv(
 
 			if int(meta.segment_id) != int(prev_seg):
 				if pending_p is not None:
-					_accumulate_chunk_picks(
+					picks_written += accumulator.accumulate_chunk(
 						wcsv,
 						seg_id=int(pending_seg_id),
 						block_start=int(pending_block_start),
@@ -325,7 +184,9 @@ def pipeline_das_phasenet_pick_to_csv(
 						chunk_start_ms=int(pending_start_ms),
 						chunk_fs_hz=float(fs_used),
 					)
-					_flush_last(wcsv, int(pending_seg_id), int(pending_block_start))
+					picks_written += accumulator.flush(
+						wcsv, int(pending_seg_id), int(pending_block_start)
+					)
 
 				pending_p = None
 				pending_s = None
@@ -333,10 +194,7 @@ def pipeline_das_phasenet_pick_to_csv(
 				pending_seg_id = None
 				pending_block_start = None
 
-				last_p_time_ms = None
-				last_p_prob = None
-				last_s_time_ms = None
-				last_s_prob = None
+				accumulator.reset()
 
 				prev_seg = int(meta.segment_id)
 
@@ -388,7 +246,7 @@ def pipeline_das_phasenet_pick_to_csv(
 					pending_p[:, H:L] = (pending_p[:, H:L] + p_w[:, 0:O]) * 0.5
 					pending_s[:, H:L] = (pending_s[:, H:L] + s_w[:, 0:O]) * 0.5
 
-				_accumulate_chunk_picks(
+				picks_written += accumulator.accumulate_chunk(
 					wcsv,
 					seg_id=int(pending_seg_id),
 					block_start=int(pending_block_start),
@@ -414,7 +272,7 @@ def pipeline_das_phasenet_pick_to_csv(
 				break
 
 		if pending_p is not None:
-			_accumulate_chunk_picks(
+			picks_written += accumulator.accumulate_chunk(
 				wcsv,
 				seg_id=int(pending_seg_id),
 				block_start=int(pending_block_start),
@@ -425,7 +283,9 @@ def pipeline_das_phasenet_pick_to_csv(
 				chunk_start_ms=int(pending_start_ms),
 				chunk_fs_hz=float(fs_used),
 			)
-			_flush_last(wcsv, int(pending_seg_id), int(pending_block_start))
+			picks_written += accumulator.flush(
+				wcsv, int(pending_seg_id), int(pending_block_start)
+			)
 
 	print(
 		f'[DONE] wrote CSV: {out_csv} windows={windows_processed} picks={picks_written}'
