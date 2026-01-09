@@ -9,6 +9,7 @@ import numpy as np
 import zarr
 
 from common.core import as_int_rate
+from common.time_util import utc_ms_to_iso
 from io_util.zarr_block import ZarrBlockWindowIterator
 from pick.phasenet_runner import PhaseNetWindowRunner
 from pick.picks_from_probs import _detect_local_peaks_2d
@@ -16,7 +17,6 @@ from pipelines.das_eqt_pipelines import (
 	DasEqtPickStats,
 	_ab_keep_indices_and_channel_ids,
 	_ensure_parent,
-	_to_iso_utc,
 )
 from waveform.preprocess import (
 	bandpass_window,
@@ -168,7 +168,7 @@ def pipeline_das_phasenet_pick_to_csv(
 						_chan_id(c),
 						'P',
 						tp,
-						_to_iso_utc(tp),
+						utc_ms_to_iso(tp),
 						float(last_p_prob[c]),
 					]
 				)
@@ -183,7 +183,7 @@ def pipeline_das_phasenet_pick_to_csv(
 						_chan_id(c),
 						'S',
 						ts,
-						_to_iso_utc(ts),
+						utc_ms_to_iso(ts),
 						float(last_s_prob[c]),
 					]
 				)
@@ -249,7 +249,7 @@ def pipeline_das_phasenet_pick_to_csv(
 					_chan_id(int(c_idx)),
 					'P',
 					int(prev_t),
-					_to_iso_utc(int(prev_t)),
+					utc_ms_to_iso(int(prev_t)),
 					float(prev_v),
 				]
 			)
@@ -277,7 +277,7 @@ def pipeline_das_phasenet_pick_to_csv(
 					_chan_id(int(c_idx)),
 					'S',
 					int(prev_t),
-					_to_iso_utc(int(prev_t)),
+					utc_ms_to_iso(int(prev_t)),
 					float(prev_v),
 				]
 			)

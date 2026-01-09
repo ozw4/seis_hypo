@@ -1,10 +1,11 @@
 # %%
-from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import zarr
+
+from common.time_util import utc_ms_to_iso
 
 # ====== EDIT HERE ======
 zarr_path = Path(
@@ -34,10 +35,6 @@ def as_str(x) -> str:
 	if isinstance(x, (bytes, np.bytes_)):
 		return x.decode('utf-8')
 	return str(x)
-
-
-def ms_to_utc_iso(ms: int) -> str:
-	return datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).isoformat()
 
 
 def auto_v_by_percentile(x: np.ndarray, pct: tuple[float, float]) -> float:
@@ -186,10 +183,10 @@ last_i = int(done_idx[-1])
 print('=== First / Last (append order among done==True) ===')
 print('FIRST index:', first_i)
 print('FIRST file :', as_str(root['file_name'][first_i]))
-print('FIRST utc  :', ms_to_utc_iso(int(start_ms[first_i])))
+print('FIRST utc  :', utc_ms_to_iso(int(start_ms[first_i])))
 print('LAST index :', last_i)
 print('LAST file  :', as_str(root['file_name'][last_i]))
-print('LAST utc   :', ms_to_utc_iso(int(start_ms[last_i])))
+print('LAST utc   :', utc_ms_to_iso(int(start_ms[last_i])))
 print()
 
 start_done = start_ms[done]
@@ -199,10 +196,10 @@ i_latest = int(done_idx[int(np.argmax(start_done))])
 print('=== Earliest / Latest (starttime_utc_ms among done==True) ===')
 print('EARLIEST index:', i_earliest)
 print('EARLIEST file :', as_str(root['file_name'][i_earliest]))
-print('EARLIEST utc  :', ms_to_utc_iso(int(start_ms[i_earliest])))
+print('EARLIEST utc  :', utc_ms_to_iso(int(start_ms[i_earliest])))
 print('LATEST index  :', i_latest)
 print('LATEST file   :', as_str(root['file_name'][i_latest]))
-print('LATEST utc    :', ms_to_utc_iso(int(start_ms[i_latest])))
+print('LATEST utc    :', utc_ms_to_iso(int(start_ms[i_latest])))
 print()
 
 # ---- Resolve A/B boundary if available ----
@@ -240,7 +237,7 @@ print('=== Selected block ===')
 print('index       :', i)
 print('file        :', file_name)
 print('done        :', done_i)
-print('utc         :', ms_to_utc_iso(int(start_ms[i])))
+print('utc         :', utc_ms_to_iso(int(start_ms[i])))
 if segid is not None:
 	print('segment_id  :', segid)
 if vin is not None and vout is not None:
