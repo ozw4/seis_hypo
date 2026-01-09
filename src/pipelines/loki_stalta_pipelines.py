@@ -158,7 +158,14 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 	fs_expected = float(inputs.base_sampling_rate_hz)
 
 	if p_spec is None:
-		p_spec = StaltaProbSpec(transform='raw', sta_sec=0.2, lta_sec=2.0)
+		p_spec = StaltaProbSpec(
+			transform='raw',
+			sta_sec=0.1,
+			lta_sec=0.5,
+			smooth_sec=None,
+			clip_p=99.5,
+			log1p=False,
+		)
 
 	loki_kwargs: dict[str, object] = {
 		'npr': int(getattr(inputs, 'npr', 2)),

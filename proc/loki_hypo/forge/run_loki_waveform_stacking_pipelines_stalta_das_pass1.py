@@ -6,6 +6,7 @@ from pathlib import Path
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
 from common.load_config import load_config
+from pick.stalta_probs import StaltaProbSpec
 from pipelines.loki_stalta_pipelines import (
 	pipeline_loki_waveform_stacking_stalta_pass1,
 )
@@ -22,7 +23,7 @@ PIPELINE_PRESET = 'forge_das'
 # が並ぶ前提。
 # cfg.base_input_dir と cfg.event_glob(推奨: "event_*") は YAML 側で設定してね。
 
-PASS1_OUT = 'pass1_stalta_p_das'
+PASS1_OUT = 'pass1_stalta_p_das_deci10'
 TRIAL = 0
 PICK_JSON_NAME = 'pass1_picks_trial0.json'
 
@@ -30,7 +31,15 @@ PICK_JSON_NAME = 'pass1_picks_trial0.json'
 COMPONENT = 'Z'
 DAS_CHANNEL_CODE = 'DASZ'  # build_stream_from_forge_event_npy の channel_code
 CHANNEL_PREFIX = 'HH'  # LOKI direct_input用 (例: HHP)
-CHANNEL_STRIDE: int | None = None  # 2以上で間引き。None/<=1で無効。
+CHANNEL_STRIDE: int | None = 10  # 2以上で間引き。None/<=1で無効。
+P_SPEC = StaltaProbSpec(
+	transform='raw',
+	sta_sec=0.02,
+	lta_sec=0.1,
+	smooth_sec=None,
+	clip_p=99.5,
+	log1p=False,
+)
 # =================================
 
 
@@ -50,6 +59,7 @@ def main() -> None:
 		trial=int(TRIAL),
 		pick_json_name=str(PICK_JSON_NAME),
 		channel_stride=CHANNEL_STRIDE,
+		p_spec=P_SPEC,
 	)
 
 	out_dir = Path(cfg.loki_output_path) / str(PASS1_OUT)
