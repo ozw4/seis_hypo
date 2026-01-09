@@ -150,10 +150,10 @@ MEAS_FIELD_NAMES = [
 ]
 
 
-def split_measure_fixed(line: str):
-	fields = []
+def split_fixed_width(line: str, widths: list[int]) -> list[str]:
+	fields: list[str] = []
 	pos = 0
-	for w in FIELD_WIDTHS_MEAS:
+	for w in widths:
 		fields.append(line[pos : pos + w])
 		pos += w
 	return fields
@@ -174,16 +174,7 @@ def parse_measure_line(line: str):
 	if header != '_':
 		return None
 
-	return split_measure_fixed(line)
-
-
-def split_fixed(line: str):
-	fields = []
-	pos = 0
-	for w in FIELD_WIDTHS:
-		fields.append(line[pos : pos + w])
-		pos += w
-	return fields
+	return split_fixed_width(line, FIELD_WIDTHS_MEAS)
 
 
 def parse_int_field(s: str):
@@ -223,9 +214,9 @@ def parse_depth_field(s: str):
 	"""深さ F5.2 フィールド用。
 	5 文字を前半 3 桁（整数部）、後半 2 桁（小数部）として解釈する。
 	例:
-	    " 50  " -> " 50" + "  " -> 50.0
-	    "03000" -> "030" + "00" -> 30.00
-	    "00525" -> "005" + "25" -> 5.25
+	" 50  " -> " 50" + "  " -> 50.0
+	"03000" -> "030" + "00" -> 30.00
+	"00525" -> "005" + "25" -> 5.25
 	空白だけの場合は None。
 	"""
 	if s is None:
@@ -265,10 +256,10 @@ def parse_mag_field(s: str):
 	"""F2.1 マグニチュード用フィールドを float に変換する。
 	正値  : '43' -> 4.3
 	負値は気象庁ルールでエンコードされている:
-	    -0.1 ～ -0.9 : '-1' ～ '-9'
-	    -1.0 ～ -1.9 : 'A0' ～ 'A9'
-	    -2.0         : 'B0'
-	    -3.0         : 'C0'
+	-0.1 ～ -0.9 : '-1' ～ '-9'
+	-1.0 ～ -1.9 : 'A0' ～ 'A9'
+	-2.0         : 'B0'
+	-3.0         : 'C0'
 	1 桁の整数のみの場合は、その整数をそのまま M.x0 として扱う（例: '5' -> 5.0）。
 	空白は None を返す。
 	"""
@@ -368,7 +359,7 @@ def parse_epicenter_line(line: str, verbose: bool = False):
 	if header not in EPICENTER_HEADERS:
 		return None
 
-	f = split_fixed(line)
+	f = split_fixed_width(line, FIELD_WIDTHS)
 
 	year = parse_int_field(f[1])
 	month = parse_int_field(f[2])
