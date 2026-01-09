@@ -6,25 +6,18 @@ from typing import Literal
 import numpy as np
 import scipy.signal as sp_signal
 
-
-def _as_1d_float(x: np.ndarray, *, name: str = 'x') -> np.ndarray:
-	a = np.asarray(x, dtype=float)
-	if a.ndim != 1:
-		raise ValueError(f'{name} must be 1D, got shape={a.shape}')
-	if a.size == 0:
-		raise ValueError(f'{name} must be non-empty')
-	return a
+from common.array_util import as_1d_float
 
 
 def abs_1d(x: np.ndarray) -> np.ndarray:
 	"""|x|（1D）"""
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	return np.abs(a)
 
 
 def square_1d(x: np.ndarray) -> np.ndarray:
 	"""x^2（1D）"""
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	return a * a
 
 
@@ -32,7 +25,7 @@ def energy_1d(
 	x: np.ndarray, *, kind: Literal['square', 'abs'] = 'square'
 ) -> np.ndarray:
 	"""エネルギー系変換（1D）。kind='square' は x^2、kind='abs' は |x|。"""
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	if kind == 'square':
 		return a * a
 	if kind == 'abs':
@@ -42,7 +35,7 @@ def energy_1d(
 
 def analytic_signal_1d(x: np.ndarray) -> np.ndarray:
 	"""解析信号 z = x + iH{x}（1D）"""
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	return sp_signal.hilbert(a)
 
 

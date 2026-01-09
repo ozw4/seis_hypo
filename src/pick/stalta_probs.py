@@ -8,20 +8,12 @@ import numpy as np
 from obspy import Stream, Trace
 from seisai_pick import stalta as seisai_stalta
 
+from common.array_util import as_1d_float
 from waveform.filters import percentile_clip, smooth_ma_same
 from waveform.transforms import abs_1d, envelope_1d
 
 Phase = Literal['P', 'S']
 TransformName = Literal['raw', 'abs', 'envelope']
-
-
-def _as_1d_float(x: np.ndarray, *, name: str = 'x') -> np.ndarray:
-	a = np.asarray(x, dtype=float)
-	if a.ndim != 1:
-		raise ValueError(f'{name} must be 1D, got shape={a.shape}')
-	if a.size == 0:
-		raise ValueError(f'{name} must be non-empty')
-	return a
 
 
 def _sec_to_samples(fs: float, sec: float) -> int:
@@ -42,7 +34,7 @@ def _sec_to_odd_samples(fs: float, sec: float) -> int:
 
 
 def _apply_transform(x: np.ndarray, *, name: TransformName) -> np.ndarray:
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	if name == 'raw':
 		return a
 	if name == 'abs':
@@ -83,7 +75,7 @@ def _select_one_trace_per_station(st: Stream, *, component: str) -> dict[str, Tr
 
 
 def _scale_0_1_strict(x: np.ndarray, *, eps: float = 1e-12) -> np.ndarray:
-	a = _as_1d_float(x)
+	a = as_1d_float(x)
 	mn = float(np.min(a))
 	mx = float(np.max(a))
 	den = mx - mn
@@ -163,7 +155,7 @@ def build_probs_by_station_stalta(
 	out: dict[str, dict[str, np.ndarray]] = {}
 
 	for sta, tr in tr_by_sta.items():
-		x = _as_1d_float(np.asarray(tr.data), name=f'{sta}.data')
+		x = as_1d_float(np.asarray(tr.data), name=f'{sta}.data')
 		y = _apply_transform(x, name=spec.transform)
 
 		if spec.smooth_sec is not None:
