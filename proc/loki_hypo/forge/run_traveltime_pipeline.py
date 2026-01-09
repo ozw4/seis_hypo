@@ -10,6 +10,7 @@ import pandas as pd
 
 from loki_tools.grid import GridSpec, propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
+from nonlinloc.vel1d import nll_layers_text_from_1d_model
 
 
 @dataclass(frozen=True)
@@ -97,24 +98,6 @@ def _read_vs_model_44mod(path: Path) -> pd.DataFrame:
 	return df[['depth_m', 'vs_mps']].copy()
 
 
-def _layers_text_from_vs(df_vs: pd.DataFrame, *, vp_vs: float) -> str:
-	if vp_vs <= 0:
-		raise ValueError(f'vp_vs must be positive. got {vp_vs}')
-
-	depth_km = (df_vs['depth_m'].astype(float) / 1000.0).to_numpy()
-	vs_km_s = (df_vs['vs_mps'].astype(float) / 1000.0).to_numpy()
-	vp_km_s = vs_km_s * float(vp_vs)
-
-	lines: list[str] = []
-	for d, vp, vs in zip(depth_km.tolist(), vp_km_s.tolist(), vs_km_s.tolist()):
-		lines.append(f'LAYER {d:.3f} {vp:.3f} 0.0 {vs:.3f} 0.0 0.0 0.0')
-
-	text = '\n'.join(lines) + '\n'
-	if not text.startswith('LAYER '):
-		raise ValueError('layers text must start with LAYER')
-	return text
-
-
 def _read_forge_stations_portal_depth(path: Path) -> pd.DataFrame:
 	if not path.is_file():
 		raise FileNotFoundError(f'stations csv not found: {path}')
@@ -174,7 +157,11 @@ def run_forge44_traveltime_pipeline(cfg: ForgePipelineConfig) -> ForgePipelineRe
 	stations_csv_path = Path(cfg.stations_csv_path).expanduser().resolve()
 
 	df_vs = _read_vs_model_44mod(vs_model_path)
-	layers_text = _layers_text_from_vs(df_vs, vp_vs=cfg.vp_vs)
+	layers_text = nll_layers_text_from_1d_model(
+		z_m=df_vs['depth_m'].to_numpy(),
+		vs_mps=df_vs['vs_mps'].to_numpy(),
+		vp_over_vs=cfg.vp_vs,
+	)
 
 	layers_path = (vel_dir / f'{cfg.model_label}.layers').resolve()
 	layers_path.write_text(layers_text, encoding='utf-8')

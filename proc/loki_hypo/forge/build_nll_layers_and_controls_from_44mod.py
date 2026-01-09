@@ -8,6 +8,7 @@ import pandas as pd
 
 from loki_tools.grid import propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
+from nonlinloc.vel1d import nll_layers_text_from_1d_model
 
 # =========================
 # User parameters (edit here)
@@ -91,24 +92,6 @@ def _read_vs_model(path: Path) -> pd.DataFrame:
 	return df[['depth_m', 'vs_mps', 'sigma_mps']]
 
 
-def _to_nll_layers_text(df_vs: pd.DataFrame, *, vp_vs: float) -> str:
-	if vp_vs <= 0:
-		raise ValueError(f'vp_vs must be positive. got {vp_vs}')
-
-	depth_km = (df_vs['depth_m'].astype(float) / 1000.0).to_numpy()
-	vs_km_s = (df_vs['vs_mps'].astype(float) / 1000.0).to_numpy()
-	vp_km_s = vs_km_s * float(vp_vs)
-
-	lines: list[str] = []
-	for d, vp, vs in zip(depth_km.tolist(), vp_km_s.tolist(), vs_km_s.tolist()):
-		lines.append(f'LAYER {d:.3f} {vp:.3f} 0.0 {vs:.3f} 0.0 0.0 0.0')
-
-	text = '\n'.join(lines) + '\n'
-	if not text.startswith('LAYER '):
-		raise ValueError('layers text must start with LAYER')
-	return text
-
-
 def _read_stations(path: Path) -> pd.DataFrame:
 	if not path.is_file():
 		raise FileNotFoundError(f'stations csv not found: {path}')
@@ -156,7 +139,11 @@ def _read_stations(path: Path) -> pd.DataFrame:
 
 def main() -> tuple[Path, Path, Path]:
 	df_vs = _read_vs_model(VS_MODEL_PATH)
-	layers_text = _to_nll_layers_text(df_vs, vp_vs=VP_VS)
+	layers_text = nll_layers_text_from_1d_model(
+		z_m=df_vs['depth_m'].to_numpy(),
+		vs_mps=df_vs['vs_mps'].to_numpy(),
+		vp_over_vs=VP_VS,
+	)
 
 	OUT_PATH.mkdir(parents=True, exist_ok=True)
 	LAYER_PATH.write_text(layers_text, encoding='utf-8')
