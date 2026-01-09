@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from gamma.utils import association, estimate_eps
 
+from common.core import validate_columns
 # =========================
 # 設定（ここだけ触ればOK）
 # =========================
@@ -67,14 +68,6 @@ MAX_SIGMA12_COV = 1.0
 NCPU = max(1, (os.cpu_count() or 1) - 1)
 
 
-def _require_columns(df: pd.DataFrame, required: list[str], name: str) -> None:
-	missing = [c for c in required if c not in df.columns]
-	if missing:
-		raise ValueError(
-			f'{name} is missing columns: {missing}. columns={list(df.columns)}'
-		)
-
-
 def _normalize_picks(picks_raw: pd.DataFrame) -> pd.DataFrame:
 	picks = picks_raw.copy()
 
@@ -93,7 +86,7 @@ def _normalize_picks(picks_raw: pd.DataFrame) -> pd.DataFrame:
 			if k in picks.columns:
 				picks.rename(columns={k: v}, inplace=True)
 
-	_require_columns(picks, ['id', 'timestamp', 'type'], 'picks')
+	validate_columns(picks, ['id', 'timestamp', 'type'], 'picks')
 
 	if 'prob' not in picks.columns:
 		picks['prob'] = 1.0
@@ -128,7 +121,7 @@ def _normalize_stations(sta_raw: pd.DataFrame) -> tuple[pd.DataFrame, float, flo
 		else:
 			raise ValueError('stations needs z(km) or z_depth_km')
 
-	_require_columns(sta, ['id', 'x(km)', 'y(km)', 'z(km)'], 'stations')
+	validate_columns(sta, ['id', 'x(km)', 'y(km)', 'z(km)'], 'stations')
 
 	if 'E_m' in sta.columns and 'N_m' in sta.columns:
 		origin_E_m = float(
