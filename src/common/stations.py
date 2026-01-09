@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Literal
-
 import pandas as pd
 
+from common.core import validate_columns
+
 ELEVATION_COLUMN_CANDIDATES: tuple[str, ...] = ('elevation_m', 'elev_m', 'elevation')
-
-
-def _require_columns(df: pd.DataFrame, cols: Iterable[str], label: str) -> None:
-	missing = [c for c in cols if c not in df.columns]
-	if missing:
-		raise ValueError(f'{label} に必要な列がありません: {missing}')
 
 
 def normalize_station_rows(
@@ -23,7 +16,7 @@ def normalize_station_rows(
 	if stations_df.empty:
 		raise ValueError('stations_df is empty')
 
-	_require_columns(stations_df, ['station', 'lat', 'lon'], 'stations_df')
+	validate_columns(stations_df, ['station', 'lat', 'lon'], 'stations_df')
 
 	df = stations_df.copy()
 

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.core import validate_columns
 # =========================
 # Parameters (edit here)
 # =========================
@@ -49,17 +50,9 @@ PHASE_MAP = {'P': 'P', 'S': 'S'}
 PHASE_TIME_FMT = '%Y-%m-%dT%H:%M:%S.%fZ'
 
 
-def _require_columns(df: pd.DataFrame, required: list[str], name: str) -> None:
-	missing = [c for c in required if c not in df.columns]
-	if missing:
-		raise ValueError(f'{name} is missing required columns: {missing}')
-
-
 def _load_station_channel_map(station_csv: Path) -> pd.DataFrame:
 	st = pd.read_csv(station_csv)
-	_require_columns(
-		st, ['channel', 'station_id'], name=f'station meta CSV: {station_csv}'
-	)
+	validate_columns(st, ['channel', 'station_id'], f'station meta CSV: {station_csv}')
 
 	st = st[['channel', 'station_id']].copy()
 	st['channel'] = st['channel'].astype('int64')
@@ -80,7 +73,7 @@ def _load_station_channel_map(station_csv: Path) -> pd.DataFrame:
 
 def build_gamma_picks(pick_csv: Path, station_csv: Path) -> pd.DataFrame:
 	picks = pd.read_csv(pick_csv)
-	_require_columns(
+	validate_columns(
 		picks,
 		[
 			'segment_id',
@@ -90,7 +83,7 @@ def build_gamma_picks(pick_csv: Path, station_csv: Path) -> pd.DataFrame:
 			'pick_time_utc_ms',
 			'prob',
 		],
-		name=f'pick CSV: {pick_csv}',
+		f'pick CSV: {pick_csv}',
 	)
 
 	picks = picks.copy()
@@ -156,7 +149,7 @@ def main() -> None:
 	out = build_gamma_picks(IN_PICK_CSV, IN_STATION_META_CSV)
 
 	# Final sanity check: ensure core columns exist
-	_require_columns(out, OUT_COLUMNS, name='output GaMMA picks DF')
+	validate_columns(out, OUT_COLUMNS, 'output GaMMA picks DF')
 
 	out.to_csv(OUT_GAMMA_PICKS_CSV, index=False)
 
