@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from loki.loki import Loki
+from obspy import Stream
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
 from io_util.stream import build_stream_from_forge_event_npy
@@ -19,6 +20,23 @@ from pipelines.loki_waveform_stacking_pipelines import (
 	list_event_dirs_filtered_forge_das,
 )
 from waveform.preprocess import preprocess_stream_detrend_bandpass, spec_from_inputs
+
+
+def _normalize_channel_stride(channel_stride: int | None) -> int | None:
+	if channel_stride is None:
+		return None
+	stride = int(channel_stride)
+	if stride <= 0:
+		raise ValueError(f'channel_stride must be >= 1 when set, got {stride}')
+	if stride <= 1:
+		return None
+	return stride
+
+
+def _subsample_stream_by_stride(st: Stream, *, stride: int) -> tuple[Stream, list[int]]:
+	kept_indices = list(range(0, len(st), stride))
+	st_sub = Stream(traces=[st[i] for i in kept_indices])
+	return st_sub, kept_indices
 
 
 def _require_one_trial_phs(event_out_dir: Path, *, trial: int) -> Path:
@@ -117,6 +135,7 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 	trial: int = 0,
 	pick_json_name: str = 'pass1_picks_trial0.json',
 	p_spec: object | None = None,
+	channel_stride: int | None = None,
 ) -> dict[str, Path]:
 	"""ForgeDAS入力で STALTA direct_input の Pass1(P重視run) を逐次実行し、trialの .phs を JSON に保存する。
 
@@ -145,6 +164,7 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 		'npr': int(getattr(inputs, 'npr', 2)),
 		'model': str(getattr(inputs, 'model', 'jma2001')),
 	}
+	stride = _normalize_channel_stride(channel_stride)
 
 	# 逐次専用の隔離 data_path（ここに「今処理中の1イベント」だけ置く）
 	stream_data_root = Path(cfg.loki_data_path) / '_streaming_direct_input'
@@ -174,6 +194,17 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 			event_dir,
 			channel_code=str(das_channel_code),
 		)
+		orig_n_channels = len(st)
+		kept_n_channels = orig_n_channels
+		if stride is not None:
+			st, kept_indices = _subsample_stream_by_stride(st, stride=stride)
+			kept_n_channels = len(st)
+			print(
+				f'[STALTA-PASS1-DAS] channel stride enabled: event={event_name} '
+				f'stride={stride} kept={kept_n_channels} original={orig_n_channels} '
+				f'indices={kept_indices[:10]}'
+				f'{"..." if len(kept_indices) > 10 else ""}'
+			)
 
 		if pre_enable:
 			preprocess_stream_detrend_bandpass(
@@ -261,6 +292,10 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 			'p_token_by_station': p_tok,
 			's_token_by_station': {},
 		}
+		if stride is not None:
+			obj['channel_stride'] = int(stride)
+			obj['channels_original'] = int(orig_n_channels)
+			obj['channels_kept'] = int(kept_n_channels)
 		_write_json(out_json, obj)
 		pick_json_by_event[str(event_name)] = out_json
 

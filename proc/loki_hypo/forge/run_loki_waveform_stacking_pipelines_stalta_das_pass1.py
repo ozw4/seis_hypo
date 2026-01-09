@@ -30,6 +30,7 @@ PICK_JSON_NAME = 'pass1_picks_trial0.json'
 COMPONENT = 'Z'
 DAS_CHANNEL_CODE = 'DASZ'  # build_stream_from_forge_event_npy の channel_code
 CHANNEL_PREFIX = 'HH'  # LOKI direct_input用 (例: HHP)
+CHANNEL_STRIDE: int | None = None  # 2以上で間引き。None/<=1で無効。
 # =================================
 
 
@@ -48,6 +49,7 @@ def main() -> None:
 		output_subdir=str(PASS1_OUT),
 		trial=int(TRIAL),
 		pick_json_name=str(PICK_JSON_NAME),
+		channel_stride=CHANNEL_STRIDE,
 	)
 
 	out_dir = Path(cfg.loki_output_path) / str(PASS1_OUT)
