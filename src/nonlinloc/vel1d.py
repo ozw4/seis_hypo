@@ -5,6 +5,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 # ---- Hard-coded paths for your workflow ----
 DEFAULT_1DVEL_SRC = Path('/workspace/data/velocity/jma/vjma2001')
 DEFAULT_NLL_LAYERS_OUT = Path('/workspace/data/velocity/jma_tt_table/jma2001.layers')
@@ -106,6 +108,49 @@ def to_nll_layer_lines(
 			f'{rho_top:.1f} {rho_grad:.1f}'
 		)
 	return out
+
+
+def nll_layers_text_from_1d_model(
+	*,
+	z_m: np.ndarray,
+	vs_mps: np.ndarray,
+	vp_over_vs: float,
+	rho_gcc: float | None = None,
+) -> str:
+	if vp_over_vs <= 0:
+		raise ValueError(f'vp_over_vs must be positive. got {vp_over_vs}')
+
+	depth_m = np.asarray(z_m, dtype=float)
+	vs_mps = np.asarray(vs_mps, dtype=float)
+
+	if depth_m.ndim != 1 or vs_mps.ndim != 1:
+		raise ValueError('z_m and vs_mps must be 1D arrays')
+	if depth_m.size == 0:
+		raise ValueError('z_m and vs_mps must be non-empty')
+	if depth_m.size != vs_mps.size:
+		raise ValueError('z_m and vs_mps must have the same length')
+	if np.any(np.diff(depth_m) < 0):
+		raise ValueError('z_m must be monotonically non-decreasing')
+
+	depth_km = depth_m / 1000.0
+	vs_km_s = vs_mps / 1000.0
+	vp_km_s = vs_km_s * float(vp_over_vs)
+	rho_top = 0.0 if rho_gcc is None else float(rho_gcc)
+
+	lines: list[str] = []
+	for d, vp, vs in zip(
+		depth_km.tolist(),
+		vp_km_s.tolist(),
+		vs_km_s.tolist(),
+	):
+		lines.append(
+			f'LAYER {d:.3f} {vp:.3f} 0.0 {vs:.3f} 0.0 {rho_top:.1f} 0.0'
+		)
+
+	text = '\n'.join(lines) + '\n'
+	if not text.startswith('LAYER '):
+		raise ValueError('layers text must start with LAYER')
+	return text
 
 
 def write_layers(
