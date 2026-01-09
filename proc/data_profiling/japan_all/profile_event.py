@@ -12,26 +12,6 @@ def load_events(csv_path: str | Path) -> pd.DataFrame:
 	return df
 
 
-def plot_monthly_event_hist(df: pd.DataFrame) -> plt.Figure:
-	"""各「月(1〜12)」に発生した地震数のヒストグラム
-	※複数年あっても全期間をまとめて月ごと(季節性を見るイメージ)
-	"""
-	months = df['origin_time'].dt.month
-	bins = np.arange(0.5, 12.5 + 1, 1)  # 1〜12の整数中心
-
-	fig, ax = plt.subplots()
-	ax.hist(months, bins=bins, rwidth=0.9)
-
-	ax.set_xlabel('Month')
-	ax.set_ylabel('Number of events')
-	ax.set_xticks(range(1, 13))
-	ax.set_xlim(0.5, 12.5)
-	ax.set_title('Number of earthquakes by month (aggregated over all years)')
-
-	fig.tight_layout()
-	return fig
-
-
 def plot_station_count_vs_hypocenter_flag(
 	df: pd.DataFrame,
 	max_y: float | None = None,
