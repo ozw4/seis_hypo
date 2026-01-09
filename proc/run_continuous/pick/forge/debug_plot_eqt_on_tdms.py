@@ -10,6 +10,12 @@ import zarr
 
 from common.core import as_int_rate
 from common.time_util import utc_ms_to_iso
+from io_util.forge_debug_plot_util import (
+	ab_keep_idx_and_ids,
+	all_channel_ids_from_slices,
+	concat_blocks,
+	match_hits,
+)
 from pick.ept_runner import EqTWindowRunner
 from waveform.preprocess import (
 	bandpass_window,
@@ -56,105 +62,6 @@ TMP_PARENT_DIR = Path('/tmp')
 # =========================
 
 
-def _load_slices(root: zarr.hierarchy.Group) -> dict[str, tuple[int, int]]:
-	d = root.attrs.get('slices', None)
-	if not isinstance(d, dict):
-		d = root.attrs.get('channel_slices_0based', None)
-	if not isinstance(d, dict):
-		raise ValueError(
-			"Zarr attrs must contain dict 'slices' (or 'channel_slices_0based')."
-		)
-
-	out: dict[str, tuple[int, int]] = {}
-	for k, v in d.items():
-		out[str(k)] = (int(v[0]), int(v[1]))  # [start, stop) in raw channel id space
-	return out
-
-
-def _ab_keep_idx_and_ids(root: zarr.hierarchy.Group) -> tuple[np.ndarray, np.ndarray]:
-	slices = _load_slices(root)
-	a0, a1 = slices['78A']
-	b0, b1 = slices['78B']
-
-	ka0, ka1 = int(WELL_A_KEEP_0BASED_INCL[0]), int(WELL_A_KEEP_0BASED_INCL[1])
-	kb0, kb1 = int(WELL_B_KEEP_0BASED_INCL[0]), int(WELL_B_KEEP_0BASED_INCL[1])
-
-	if not (a0 <= ka0 <= ka1 < a1):
-		raise ValueError(
-			f'A keep out of range: {WELL_A_KEEP_0BASED_INCL} not in [{a0},{a1})'
-		)
-	if not (b0 <= kb0 <= kb1 < b1):
-		raise ValueError(
-			f'B keep out of range: {WELL_B_KEEP_0BASED_INCL} not in [{b0},{b1})'
-		)
-
-	n_a = a1 - a0
-	off_a = 0
-	off_b = n_a
-
-	ia0 = off_a + (ka0 - a0)
-	ia1 = off_a + (ka1 - a0)
-	ib0 = off_b + (kb0 - b0)
-	ib1 = off_b + (kb1 - b0)
-
-	keep_idx = np.concatenate(
-		[
-			np.arange(ia0, ia1 + 1, dtype=np.int32),
-			np.arange(ib0, ib1 + 1, dtype=np.int32),
-		]
-	)
-	ch_ids = np.concatenate(
-		[
-			np.arange(ka0, ka1 + 1, dtype=np.int32),
-			np.arange(kb0, kb1 + 1, dtype=np.int32),
-		]
-	)
-	return keep_idx, ch_ids
-
-
-def _all_channel_ids_from_slices(root: zarr.hierarchy.Group) -> np.ndarray:
-	slices = _load_slices(root)
-	a0, a1 = slices['78A']
-	b0, b1 = slices['78B']
-	return np.concatenate(
-		[
-			np.arange(a0, a1, dtype=np.int32),
-			np.arange(b0, b1, dtype=np.int32),
-		]
-	)
-
-
-def _match_hits(names: np.ndarray, target: str, mode: str) -> np.ndarray:
-	if mode == 'exact':
-		return np.flatnonzero(names == target)
-	if mode == 'endswith':
-		return np.flatnonzero(
-			np.fromiter(
-				(str(x).endswith(target) for x in names), dtype=bool, count=names.size
-			)
-		)
-	raise ValueError(f'MATCH_MODE must be exact or endswith, got {mode}')
-
-
-def _concat_blocks(blocks: np.ndarray, valid: np.ndarray) -> np.ndarray:
-	# blocks: (B,C,Tb), valid: (B,)
-	B, C, Tb = int(blocks.shape[0]), int(blocks.shape[1]), int(blocks.shape[2])
-	v = valid.astype(np.int32, copy=False)
-	total = int(v.sum())
-	out = np.empty((C, total), dtype=np.float32)
-	pos = 0
-	for i in range(B):
-		n = int(v[i])
-		if n > 0:
-			out[:, pos : pos + n] = blocks[i, :, :n]
-			pos += n
-	if pos != total:
-		raise ValueError(
-			f'concat size mismatch: pos={pos} total={total} (Tb={Tb} B={B})'
-		)
-	return out
-
-
 def _make_temp_zarr_60s_from_tdms_start(
 	*,
 	root: zarr.hierarchy.Group,
@@ -177,7 +84,7 @@ def _make_temp_zarr_60s_from_tdms_start(
 	seconds = float(n_zarr) / float(fi)
 
 	names = np.asarray(root['file_name'][:], dtype=str)
-	hits = _match_hits(names, tdms_file_name, match_mode)
+	hits = match_hits(names, tdms_file_name, match_mode)
 	if hits.size == 0:
 		raise ValueError(f'TDMS not found: {tdms_file_name} (mode={match_mode})')
 	if not (0 <= int(tdms_occurrence) < int(hits.size)):
@@ -291,16 +198,20 @@ valid = np.asarray(root['valid_out_samples'][:], dtype=np.int32)
 blk = np.asarray(block[:, :, :], dtype=np.float32)
 
 if APPLY_WELL_AB_KEEP:
-	keep_idx, channel_ids = _ab_keep_idx_and_ids(root)
+	keep_idx, channel_ids = ab_keep_idx_and_ids(
+		root,
+		well_a_keep_0based_incl=WELL_A_KEEP_0BASED_INCL,
+		well_b_keep_0based_incl=WELL_B_KEEP_0BASED_INCL,
+	)
 	blk = blk[:, keep_idx, :]
 elif CHANNEL_RANGE is not None:
 	c0, c1 = int(CHANNEL_RANGE[0]), int(CHANNEL_RANGE[1])
 	blk = blk[:, c0:c1, :]
 	channel_ids = np.arange(c0, c1, dtype=np.int32)
 else:
-	channel_ids = _all_channel_ids_from_slices(root)
+	channel_ids = all_channel_ids_from_slices(root)
 
-wave_zarr = _concat_blocks(blk, valid)  # (C, n_zarr)
+wave_zarr = concat_blocks(blk, valid)  # (C, n_zarr)
 if wave_zarr.shape[1] != int(n_zarr):
 	raise ValueError(
 		f'wave_zarr length mismatch: got={wave_zarr.shape[1]} expected={n_zarr}'
