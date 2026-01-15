@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import mmap
 import warnings
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ from obspy import UTCDateTime
 from common.core import slice_with_pad
 from common.time_util import floor_minute
 from jma.station_reader import read_hinet_channel_table
+from waveform.preprocess import resample_window_poly
 
 
 @numba.jit(nopython=True, cache=True)
@@ -115,9 +117,6 @@ def _process_secondblock(mm, secondblock_BYTES, channel_array, base_sampling_rat
 	out = np.zeros((nch, base_sampling_rate_HZ), dtype=np.int32)
 
 	while offset < secondblock_BYTES:
-		sid = _number_BCD(mm[offset + 0 : offset + 1], 1)
-		mid = _number_BCD(mm[offset + 1 : offset + 2], 1)
-
 		channel_no = _channel_no(mm[offset + 2 : offset + 4])
 
 		sample_size_code = (mm[offset + 4] & 0xF0) >> 4
@@ -682,6 +681,191 @@ def get_evt_info(evt_path: str | Path, scan_rate_blocks: int = 1) -> EvtInfo:
 		sampling_rates_hz=sampling_rates,
 		base_sampling_rate_hz=base_rate,
 	)
+
+
+def _diff_samples_size_bytes(sample_size_code: int, sampling_rate_hz: int) -> int:
+	if sampling_rate_hz <= 0:
+		raise ValueError(f'invalid sampling_rate_hz={sampling_rate_hz}')
+
+	diff = sampling_rate_hz - 1
+	if sample_size_code == 0:
+		return diff // 2 + (1 if (diff % 2) else 0)
+	if sample_size_code == 1:
+		return diff
+	if sample_size_code == 2:
+		return diff * 2
+	if sample_size_code == 3:
+		return diff * 3
+	if sample_size_code == 4:
+		return diff * 4
+	raise ValueError(f'unknown sample_size_code={sample_size_code}')
+
+
+def _scan_secondblock_channel_rates(
+	payload: bytes, rates_by_ch: dict[int, set[int]]
+) -> None:
+	off = 0
+	n = len(payload)
+
+	while off < n:
+		if off + 10 > n:
+			raise ValueError(f'truncated subblock header: off={off}, n={n}')
+
+		ch_no = (payload[off + 2] << 8) | payload[off + 3]
+
+		b4 = payload[off + 4]
+		b5 = payload[off + 5]
+		sample_size_code = (b4 & 0xF0) >> 4
+		sampling_rate_hz = ((b4 & 0x0F) << 4) | b5
+
+		rates_by_ch[ch_no].add(int(sampling_rate_hz))
+
+		diff_bytes = _diff_samples_size_bytes(sample_size_code, int(sampling_rate_hz))
+		off += 10 + diff_bytes
+
+	if off != n:
+		raise ValueError(f'secondblock parse did not end on boundary: off={off}, n={n}')
+
+
+def scan_channel_sampling_rate_map_win32(
+	file_path: str | Path,
+	*,
+	max_second_blocks: int | None = None,
+) -> dict[int, int]:
+	"""WIN32(.evt/.cnt) を走査して channel_no -> sampling_rate_hz を確定する。
+
+	- 各サブブロックのヘッダに含まれる sampling_rate_hz を採用する（.ch には依存しない）
+	- 同一 channel_no に複数 sampling_rate_hz が出現した場合は ValueError（混在を許容しない）
+	- 返り値: {channel_no_int: fs_int}
+	"""
+	fp = Path(file_path)
+	if not fp.is_file():
+		raise FileNotFoundError(f'WIN32 file not found: {fp}')
+
+	rates_by_ch: dict[int, set[int]] = defaultdict(set)
+
+	with fp.open('rb') as f:
+		f.seek(4)  # win32_reader.py の実装に合わせて先頭4バイトをスキップ
+		n_blocks = 0
+
+		while True:
+			hdr = f.read(16)
+			if len(hdr) == 0:
+				break
+			if len(hdr) < 16:
+				raise ValueError(f'truncated 16B header in {fp.name}')
+
+			block_size = int.from_bytes(hdr[12:16], 'big')
+			if block_size == 0:
+				break
+
+			payload = f.read(block_size)
+			if len(payload) != block_size:
+				raise ValueError(
+					f'truncated secondblock payload in {fp.name}: '
+					f'expected={block_size}, got={len(payload)}'
+				)
+
+			_scan_secondblock_channel_rates(payload, rates_by_ch)
+
+			n_blocks += 1
+			if max_second_blocks is not None and n_blocks >= max_second_blocks:
+				break
+
+	mixed = {
+		ch: sorted(list(rates)) for ch, rates in rates_by_ch.items() if len(rates) != 1
+	}
+	if mixed:
+		lines = ['mixed sampling_rate_hz detected per channel_no:']
+		for ch in sorted(mixed.keys()):
+			rates = ','.join(str(x) for x in mixed[ch])
+			lines.append(f'  channel_no={ch} (0x{ch:04X}) rates=[{rates}]')
+		raise ValueError('\n'.join(lines))
+
+	return {ch: next(iter(rates)) for ch, rates in rates_by_ch.items()}
+
+
+def read_win32_resampled(
+	file_path: str | Path,
+	channel_table: pd.DataFrame | str | Path,
+	*,
+	target_sampling_rate_HZ: int,
+	duration_SECOND: int = 15 * 60,
+	channels_hex: list[str] | None = None,  # 例: ["0003","0004","0005"]
+	station: str | None = None,  # 例: "N.AGWH"
+	components: list[str] | None = None,  # 例: ["U","N","E"]
+) -> np.ndarray:
+	"""WIN32を読み、観測点ごとに埋め込まれたfsを使って復号し、target fsへ統一して返す。
+
+	前提:
+	- scan_channel_sampling_rate_map_win32() が channel_no ごとの fs を確定できること
+	  （同一channel_no内のfs混在は scan 側で ValueError にする設計）
+
+	返り値:
+	- shape=(n_ch, duration_SECOND * target_sampling_rate_HZ), dtype=float32
+	"""
+	if int(target_sampling_rate_HZ) <= 0:
+		raise ValueError('target_sampling_rate_HZ must be positive')
+	if int(duration_SECOND) <= 0:
+		raise ValueError('duration_SECOND must be positive')
+
+	file_path = Path(file_path)
+	if not file_path.is_file():
+		raise FileNotFoundError(f'WIN32 file not found: {file_path}')
+
+	# 出力行順の“正”をここで確定（read_win32の内部selectを再利用）
+	df = select_hinet_channels(
+		channel_table,
+		channels_hex=channels_hex,
+		station=station,
+		components=components,
+	)
+
+	# WIN32本体から channel_no(int) -> fs(int) を確定
+	fs_by_ch = scan_channel_sampling_rate_map_win32(file_path)
+
+	ch_ints = df['ch_int'].to_numpy(dtype=np.int32)
+	row_fs: list[int] = []
+	for ch in ch_ints.tolist():
+		if int(ch) not in fs_by_ch:
+			raise ValueError(
+				f'channel_no={int(ch)} not found in WIN32: {file_path.name}'
+			)
+		fs = int(fs_by_ch[int(ch)])
+		if fs <= 0:
+			raise ValueError(f'invalid fs in WIN32: channel_no={int(ch)} fs={fs}')
+		row_fs.append(fs)
+
+	# fsごとに行インデックスをまとめる（dfの行順を保持）
+	idx_by_fs: dict[int, list[int]] = {}
+	for i, fs in enumerate(row_fs):
+		idx_by_fs.setdefault(int(fs), []).append(int(i))
+
+	out_len = int(duration_SECOND) * int(target_sampling_rate_HZ)
+	out = np.zeros((len(df), out_len), dtype=np.float32)
+
+	for fs, idxs in sorted(idx_by_fs.items(), key=lambda x: x[0]):
+		sub_df = df.iloc[idxs].reset_index(drop=True)
+
+		# 同一fs群だけを read_win32(base=fs) で復号（既存をそのまま使う）
+		y = read_win32(
+			file_path,
+			sub_df,
+			base_sampling_rate_HZ=int(fs),
+			duration_SECOND=int(duration_SECOND),
+		)  # (len(idxs), duration_SECOND*fs)
+
+		# target fsへ統一（polyphase）
+		y2 = resample_window_poly(
+			y,
+			fs_in=float(fs),
+			fs_out=float(target_sampling_rate_HZ),
+			out_len=out_len,
+		)  # (len(idxs), out_len)
+
+		out[np.asarray(idxs, dtype=int), :] = y2
+
+	return out
 
 
 # --------------------
