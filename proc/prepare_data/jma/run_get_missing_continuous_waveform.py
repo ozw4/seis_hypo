@@ -5,7 +5,6 @@ import csv
 import json
 import math
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 from jma.download import (
@@ -13,6 +12,12 @@ from jma.download import (
 	_supports_station_selection,
 	create_hinet_client,
 	download_win_for_stations,
+)
+from jma.prepare.event_dirs import (
+	event_dir_date_jst_from_name,
+	in_date_range,
+	list_event_dirs,
+	parse_date_yyyy_mm_dd,
 )
 from jma.win32_reader import get_evt_info
 
@@ -58,18 +63,6 @@ class EventInputs:
 	missing_path: Path | None
 
 
-def _list_event_dirs() -> list[Path]:
-	if TARGET_EVENT_DIR_NAMES:
-		out: list[Path] = []
-		for name in TARGET_EVENT_DIR_NAMES:
-			p = (WIN_EVENT_DIR / name).resolve()
-			if not p.is_dir():
-				raise FileNotFoundError(f'event_dir not found: {p}')
-			out.append(p)
-		return out
-	return sorted([p for p in WIN_EVENT_DIR.glob('D20*') if p.is_dir()])
-
-
 def _resolve_event_inputs(event_dir: Path) -> EventInputs:
 	evt_files = sorted(event_dir.glob('*.evt'))
 	if len(evt_files) != 1:
@@ -96,39 +89,6 @@ def _ceil_minutes(delta_seconds: float) -> int:
 	if delta_seconds <= 0:
 		raise ValueError(f'invalid delta_seconds={delta_seconds}')
 	return int(math.ceil(delta_seconds / 60.0))
-
-
-def _parse_date_yyyy_mm_dd(s: str | None) -> date | None:
-	if s is None:
-		return None
-	ss = str(s).strip()
-	if not ss:
-		return None
-	y, m, d = ss.split('-')
-	return date(int(y), int(m), int(d))
-
-
-def _in_date_range(d: date, *, dmin: date | None, dmax: date | None) -> bool:
-	if dmin is not None and d < dmin:
-		return False
-	if dmax is not None and d > dmax:
-		return False
-	return True
-
-
-def _dir_date_jst(event_dir_name: str) -> date:
-	name = str(event_dir_name).strip()
-	if len(name) < 9 or not name.startswith('D'):
-		raise ValueError(
-			f'unexpected event dir name (need DYYYYMMDD...): {event_dir_name!r}'
-		)
-	ymd = name[1:9]
-	if not ymd.isdigit():
-		raise ValueError(f'unexpected event dir name (bad ymd): {event_dir_name!r}')
-	y = int(ymd[0:4])
-	m = int(ymd[4:6])
-	d = int(ymd[6:8])
-	return date(y, m, d)
 
 
 def _read_missing(missing_path: Path) -> dict[str, list[str]]:
@@ -244,8 +204,8 @@ def main() -> None:
 	if not run_tag2:
 		raise ValueError('RUN_TAG must be non-empty')
 
-	dmin = _parse_date_yyyy_mm_dd(DATE_MIN)
-	dmax = _parse_date_yyyy_mm_dd(DATE_MAX)
+	dmin = parse_date_yyyy_mm_dd(DATE_MIN)
+	dmax = parse_date_yyyy_mm_dd(DATE_MAX)
 	if dmin is not None and dmax is not None and dmax < dmin:
 		raise ValueError(f'DATE_MAX < DATE_MIN: {dmax} < {dmin}')
 
@@ -266,15 +226,15 @@ def main() -> None:
 
 	client = create_hinet_client()
 
-	event_dirs = _list_event_dirs()
+	event_dirs = list_event_dirs(WIN_EVENT_DIR, target_names=TARGET_EVENT_DIR_NAMES)
 	if not event_dirs:
 		raise RuntimeError(f'no event dirs under: {WIN_EVENT_DIR}')
 
 	for event_dir in event_dirs:
 		# ---- 期間フィルタ（ディレクトリ名の日付）----
 		if dmin is not None or dmax is not None:
-			dd = _dir_date_jst(event_dir.name)
-			if not _in_date_range(dd, dmin=dmin, dmax=dmax):
+			dd = event_dir_date_jst_from_name(event_dir.name)
+			if not in_date_range(dd, date_min=dmin, date_max=dmax):
 				continue
 
 		try:

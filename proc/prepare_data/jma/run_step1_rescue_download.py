@@ -14,6 +14,7 @@ import pandas as pd
 
 from jma.download import create_hinet_client
 from jma.picks import read_origin_iso_from_txt
+from jma.prepare.event_dirs import in_date_range, list_event_dirs, parse_date_yyyy_mm_dd
 
 # =========================
 # 設定（直書き）
@@ -51,29 +52,11 @@ OUT_RESCUE_RUN_CSV = Path(
 ).resolve()
 
 SKIP_IF_ALREADY_OK = True
-DOWNLOAD_RUN = False
+DOWNLOAD_RUN = True
 
 # =========================
 # 実装
 # =========================
-
-
-def _parse_date_yyyy_mm_dd(s: str | None) -> date | None:
-	if s is None:
-		return None
-	ss = str(s).strip()
-	if not ss:
-		return None
-	y, m, d = ss.split('-')
-	return date(int(y), int(m), int(d))
-
-
-def _in_date_range(d: date, *, dmin: date | None, dmax: date | None) -> bool:
-	if dmin is not None and d < dmin:
-		return False
-	if dmax is not None and d > dmax:
-		return False
-	return True
 
 
 def _pick_col(cols: list[str], candidates: list[str]) -> str:
@@ -115,7 +98,6 @@ def _load_epicenters_filtered(
 	lon_col = _pick_col(df.columns.tolist(), ['longitude_deg'])
 	mag_col = _pick_col(df.columns.tolist(), ['mag1'])
 
-	# record_type は無い/型が様々なので optional（文字列で保持）
 	rec_col = _pick_col_optional(df.columns.tolist(), ['record_type'])
 
 	origin_ts = pd.to_datetime(df[origin_col], format='ISO8601', errors='raise')
@@ -135,7 +117,7 @@ def _load_epicenters_filtered(
 
 	if dmin is not None or dmax is not None:
 		dd = out['origin_ts'].dt.date
-		mask = dd.map(lambda x: _in_date_range(x, dmin=dmin, dmax=dmax))
+		mask = dd.map(lambda x: in_date_range(x, date_min=dmin, date_max=dmax))
 		out = out[mask].copy()
 
 	if min_mag is not None:
@@ -149,23 +131,6 @@ def _load_epicenters_filtered(
 	return out
 
 
-def _list_event_dirs_in_range(*, dmin: date | None, dmax: date | None) -> list[Path]:
-	out: list[Path] = []
-	for p in sorted([x for x in WIN_EVENT_DIR.glob('D20*') if x.is_dir()]):
-		name = p.name
-		if len(name) < 9 or not name.startswith('D'):
-			continue
-		ymd = name[1:9]
-		if not ymd.isdigit():
-			continue
-		dd = date(int(ymd[0:4]), int(ymd[4:6]), int(ymd[6:8]))
-		if dmin is not None or dmax is not None:
-			if not _in_date_range(dd, dmin=dmin, dmax=dmax):
-				continue
-		out.append(p)
-	return out
-
-
 def _minute0_from_event_dir_name(dir_name: str) -> str | None:
 	# expected like: DYYYYMMDDHHMMSS_XX (at least D + 14 digits)
 	name = str(dir_name).strip()
@@ -176,7 +141,6 @@ def _minute0_from_event_dir_name(dir_name: str) -> str | None:
 	ts14 = name[1:15]
 	if not ts14.isdigit():
 		return None
-	# minute: YYYYMMDDHHMM
 	return ts14[0:12]
 
 
@@ -195,7 +159,7 @@ def _step1_paths(event_dir: Path) -> Step1Files:
 		stem=stem,
 		evt_path=event_dir / f'{stem}.evt',
 		ch_path=event_dir / f'{stem}.ch',
-		txt_path=event_dir / f'{stem}.txt',  # ★ここだけを見る
+		txt_path=event_dir / f'{stem}.txt',  # ★この1ファイルだけを見る
 		active_ch_path=event_dir / f'{stem}_active.ch',
 	)
 
@@ -230,12 +194,10 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
 			w.writerow(['(empty)'])
 			return
 
-		# 全行のキーを集めて列を決める（行ごとに列が違っても落とさない）
 		all_keys: set[str] = set()
 		for r in rows:
 			all_keys.update([str(k) for k in r.keys()])
 
-		# 主要列は見やすい順に先頭へ（存在するものだけ）
 		preferred = [
 			'event_id',
 			'record_type',
@@ -247,6 +209,15 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
 			'action',
 			'event_dir',
 			'missing',
+			'minute0_from_dir',
+			'origin_iso_from_dir_txt',
+			'origin_ns_from_dir_txt',
+			'minute0',
+			'minute1',
+			'status',
+			'message',
+			'n_dirs_downloaded',
+			'n_dirs_applied',
 		]
 
 		fields: list[str] = []
@@ -255,11 +226,9 @@ def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
 			if k in rest:
 				fields.append(k)
 				rest.remove(k)
-
-		# その他の列は末尾に安定ソートで追加
 		fields.extend(sorted(rest))
 
-		w = csv.DictWriter(f, fieldnames=fields)
+		w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
 		w.writeheader()
 		for r in rows:
 			w.writerow(r)
@@ -285,7 +254,9 @@ def _scan_orphan_dirs(
 	*, dmin: date | None, dmax: date | None
 ) -> list[dict[str, object]]:
 	rows: list[dict[str, object]] = []
-	for d in _list_event_dirs_in_range(dmin=dmin, dmax=dmax):
+	for d in list_event_dirs(
+		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
+	):
 		p = _step1_paths(d)
 		missing = []
 		if not p.txt_path.is_file():
@@ -326,7 +297,9 @@ def _build_origin_ns_to_dir_map(
 	*, dmin: date | None, dmax: date | None
 ) -> dict[int, Path]:
 	out: dict[int, Path] = {}
-	for d in _list_event_dirs_in_range(dmin=dmin, dmax=dmax):
+	for d in list_event_dirs(
+		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
+	):
 		p = _step1_paths(d)
 		if not p.txt_path.is_file():
 			continue
@@ -339,12 +312,36 @@ def _build_origin_ns_to_dir_map(
 	return out
 
 
+def _count_useful_downloaded_dirs(
+	downloaded_dirs: list[Path],
+	*,
+	target_origin_ns_set: set[int],
+	orphan_dirname_set: set[str],
+) -> int:
+	n = 0
+	for d in downloaded_dirs:
+		if d.name in orphan_dirname_set:
+			n += 1
+			continue
+
+		txt_path = d / f'{d.name}.txt'
+		if not txt_path.is_file():
+			continue
+		try:
+			ns = int(_origin_ns_from_event_txt(txt_path))
+		except Exception:
+			continue
+		if ns in target_origin_ns_set:
+			n += 1
+	return n
+
+
 def main() -> None:
 	if not WIN_EVENT_DIR.is_dir():
 		raise FileNotFoundError(WIN_EVENT_DIR)
 
-	dmin = _parse_date_yyyy_mm_dd(DATE_MIN)
-	dmax = _parse_date_yyyy_mm_dd(DATE_MAX)
+	dmin = parse_date_yyyy_mm_dd(DATE_MIN)
+	dmax = parse_date_yyyy_mm_dd(DATE_MAX)
 	if dmin is not None and dmax is not None and dmax < dmin:
 		raise ValueError(f'DATE_MAX < DATE_MIN: {dmax} < {dmin}')
 
@@ -465,7 +462,7 @@ def main() -> None:
 		epi_need['minute0'] = epi_need['origin_ts'].map(lambda x: _origin_minute_str(x))
 		epi_minute_set = set(epi_need['minute0'].astype(str).tolist())
 
-	# ★ここが重要：epi起点 + orphan(dir名)起点 を union
+	# epi起点 + orphan(dir名)起点 を union
 	minute_list = sorted(set(epi_minute_set) | set(orphan_minute_set))
 
 	print(
@@ -479,10 +476,6 @@ def main() -> None:
 		print('[done] no minutes to request', flush=True)
 		return
 
-	if not DOWNLOAD_RUN:
-		print('[done] download run skipped by config', flush=True)
-		return
-
 	client = create_hinet_client()
 	run_rows: list[dict[str, object]] = []
 
@@ -492,12 +485,17 @@ def main() -> None:
 			f'\n[req {i}/{len(minute_list)}] get_event_waveform {m0}..{m1}', flush=True
 		)
 
-		_clear_tmp_dir(TMP_DOWNLOAD_DIR)
-
 		ok_req = False
 		last_err = ''
+		downloaded_dirs: list[Path] = []
+		useful = 0
 
 		for k in range(1, int(MAX_RETRY_GET_EVENT_WAVEFORM) + 1):
+			print(f'[try] {k}/{MAX_RETRY_GET_EVENT_WAVEFORM}', flush=True)
+
+			# retryごとに必ず掃除（残骸で成功扱いにならないようにする）
+			_clear_tmp_dir(TMP_DOWNLOAD_DIR)
+
 			try:
 				cwd0 = os.getcwd()
 				os.chdir(str(TMP_DOWNLOAD_DIR))
@@ -510,9 +508,7 @@ def main() -> None:
 					client.get_event_waveform(m0, m1, **kwargs)
 				finally:
 					os.chdir(cwd0)
-				ok_req = True
-				last_err = ''
-				break
+
 			except Exception as e:
 				last_err = repr(e)
 				print(
@@ -520,6 +516,35 @@ def main() -> None:
 					flush=True,
 				)
 				time.sleep(float(RETRY_SLEEP_SEC) * float(k))
+				continue
+
+			downloaded_dirs = sorted(
+				[p for p in TMP_DOWNLOAD_DIR.glob('D20*') if p.is_dir()]
+			)
+			useful = _count_useful_downloaded_dirs(
+				downloaded_dirs,
+				target_origin_ns_set=target_origin_ns_set,
+				orphan_dirname_set=orphan_dirname_set,
+			)
+
+			print(
+				f'[tmp] downloaded event dirs={len(downloaded_dirs)} useful={useful}',
+				flush=True,
+			)
+
+			# 例外が無くても「欲しいものゼロ」なら retry 扱いにする
+			if useful <= 0:
+				last_err = 'no_useful_dirs_downloaded'
+				print(
+					f'[warn] no useful dirs -> retry {k}/{MAX_RETRY_GET_EVENT_WAVEFORM}',
+					flush=True,
+				)
+				time.sleep(float(RETRY_SLEEP_SEC) * float(k))
+				continue
+
+			ok_req = True
+			last_err = ''
+			break
 
 		if not ok_req:
 			run_rows.append(
@@ -533,11 +558,6 @@ def main() -> None:
 				}
 			)
 			continue
-
-		downloaded_dirs = sorted(
-			[p for p in TMP_DOWNLOAD_DIR.glob('D20*') if p.is_dir()]
-		)
-		print(f'[tmp] downloaded event dirs={len(downloaded_dirs)}', flush=True)
 
 		n_applied = 0
 		for d in downloaded_dirs:
@@ -588,6 +608,7 @@ def main() -> None:
 				'message': '',
 				'n_dirs_downloaded': len(downloaded_dirs),
 				'n_dirs_applied': n_applied,
+				'useful': useful,
 			}
 		)
 

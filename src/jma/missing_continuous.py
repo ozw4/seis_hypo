@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from jma.prepare.event_dirs import (
+	in_date_range,
+	list_event_dirs,
+	parse_date_yyyy_mm_dd,
+)
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, pick_one_network_code
 from jma.stationcode_mappingdb import load_mapping_db
@@ -15,7 +20,6 @@ from jma.stationcode_resolve import decide_mea_to_ch_for_month
 _ORIGIN_RE = re.compile(
 	r'^\s*ORIGIN_JST\s*:\s*(\d{4})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\.(\d+)\s*$'
 )
-_EVENTDIR_DATE_RE = re.compile(r'^D(\d{4})(\d{2})(\d{2})')
 P_PHASES = {'P', 'EP', 'IP'}
 S_PHASES = {'S', 'ES', 'IS'}
 
@@ -52,39 +56,6 @@ def find_event_id_by_origin(epi_df: pd.DataFrame, origin_iso: str) -> int:
 			f'no close event_id for origin_time={origin_iso} (closest={float(dt_s.iloc[i]):.3f}s)'
 		)
 	return int(epi_df.loc[i, 'event_id'])
-
-
-def _parse_date_yyyy_mm_dd(s: str | None) -> pd.Timestamp | None:
-	if s is None:
-		return None
-	ss = str(s).strip()
-	if not ss:
-		return None
-	return pd.Timestamp(ss)
-
-
-def _dir_date_jst(event_dir_name: str) -> pd.Timestamp | None:
-	m = _EVENTDIR_DATE_RE.match(event_dir_name)
-	if m is None:
-		return None
-	y, mo, d = m.groups()
-	return pd.Timestamp(f'{y}-{mo}-{d}')
-
-
-def _in_date_range(
-	t: pd.Timestamp,
-	*,
-	date_min: pd.Timestamp | None,
-	date_max: pd.Timestamp | None,
-) -> bool:
-	# date_min/date_max は YYYY-MM-DD を想定（JSTローカル日付基準）
-	if date_min is not None and t < date_min:
-		return False
-	if date_max is not None:
-		end_excl = date_max + pd.Timedelta(days=1)
-		if t >= end_excl:
-			return False
-	return True
 
 
 def build_pick_table_for_event(
@@ -211,10 +182,10 @@ def run_make_missing_continuous(
 		if not p.exists():
 			raise FileNotFoundError(p)
 
-	dmin = _parse_date_yyyy_mm_dd(date_min)
-	dmax = _parse_date_yyyy_mm_dd(date_max)
+	dmin = parse_date_yyyy_mm_dd(date_min, allow_slash=True, allow_time=True)
+	dmax = parse_date_yyyy_mm_dd(date_max, allow_slash=True, allow_time=True)
 	if dmin is not None and dmax is not None and dmax < dmin:
-		raise ValueError(f'date_max < date_min: {dmax.date()} < {dmin.date()}')
+		raise ValueError(f'date_max < date_min: {dmax} < {dmin}')
 
 	meas_df = pd.read_csv(meas_csv, low_memory=False)
 	epi_df = pd.read_csv(epi_csv, low_memory=False)
@@ -228,15 +199,9 @@ def run_make_missing_continuous(
 	if not run_tag2:
 		raise ValueError('run_tag must be non-empty')
 
-	for event_dir in sorted(win_event_dir.glob('D20*')):
-		if not event_dir.is_dir():
-			continue
-
-		# 速い前段フィルタ（ディレクトリ名が DYYYYMMDD... なら日付で落とす）
-		if dmin is not None or dmax is not None:
-			dd = _dir_date_jst(event_dir.name)
-			if dd is not None and not _in_date_range(dd, date_min=dmin, date_max=dmax):
-				continue
+	for event_dir in list_event_dirs(
+		win_event_dir, date_min=dmin, date_max=dmax, invalid_name='keep'
+	):
 
 		for evt_path in sorted(event_dir.glob('*.evt')):
 			txt_path = evt_path.with_suffix('.txt')
@@ -265,7 +230,7 @@ def run_make_missing_continuous(
 
 			# 厳密フィルタ（ORIGIN_JST）
 			if dmin is not None or dmax is not None:
-				if not _in_date_range(origin_ts, date_min=dmin, date_max=dmax):
+				if not in_date_range(origin_ts, date_min=dmin, date_max=dmax):
 					continue
 
 			event_month = origin_iso[:7]

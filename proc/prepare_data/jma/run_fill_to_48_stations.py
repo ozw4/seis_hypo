@@ -6,13 +6,19 @@ import csv
 import json
 import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 from common.geo import haversine_distance_km
 from jma.download import _name_stem, create_hinet_client, download_win_for_stations
+from jma.prepare.event_dirs import (
+	event_dir_date_jst_from_name,
+	in_date_range,
+	list_event_dirs,
+	parse_date_yyyy_mm_dd,
+)
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
 from jma.stationcode_presence import PresenceDB, load_presence_db
@@ -89,52 +95,6 @@ class EventInputs:
 	active_ch_path: Path
 	event_txt_path: Path
 	missing_path: Path | None
-
-
-def _parse_date_yyyy_mm_dd(s: str | None) -> date | None:
-	if s is None:
-		return None
-	ss = str(s).strip()
-	if not ss:
-		return None
-	y, m, d = ss.split('-')
-	return date(int(y), int(m), int(d))
-
-
-def _in_date_range(d: date, *, dmin: date | None, dmax: date | None) -> bool:
-	if dmin is not None and d < dmin:
-		return False
-	if dmax is not None and d > dmax:
-		return False
-	return True
-
-
-def _dir_date_jst(event_dir_name: str) -> date:
-	# 期待: "DYYYYMMDD...."（YYYYMMDD は正しい前提）
-	name = str(event_dir_name).strip()
-	if len(name) < 9 or not name.startswith('D'):
-		raise ValueError(
-			f'unexpected event dir name (need DYYYYMMDD...): {event_dir_name!r}'
-		)
-	ymd = name[1:9]
-	if not ymd.isdigit():
-		raise ValueError(f'unexpected event dir name (bad ymd): {event_dir_name!r}')
-	y = int(ymd[0:4])
-	m = int(ymd[4:6])
-	d = int(ymd[6:8])
-	return date(y, m, d)
-
-
-def _list_event_dirs() -> list[Path]:
-	if TARGET_EVENT_DIR_NAMES:
-		out: list[Path] = []
-		for name in TARGET_EVENT_DIR_NAMES:
-			p = (WIN_EVENT_DIR / name).resolve()
-			if not p.is_dir():
-				raise FileNotFoundError(f'event_dir not found: {p}')
-			out.append(p)
-		return out
-	return sorted([p for p in WIN_EVENT_DIR.glob('D20*') if p.is_dir()])
 
 
 def _maybe_resolve_event_inputs(event_dir: Path) -> EventInputs | None:
@@ -593,8 +553,8 @@ def main() -> None:
 	if int(MAX_RETRY_DOWNLOAD) <= 0:
 		raise ValueError('MAX_RETRY_DOWNLOAD must be >= 1')
 
-	dmin = _parse_date_yyyy_mm_dd(DATE_MIN)
-	dmax = _parse_date_yyyy_mm_dd(DATE_MAX)
+	dmin = parse_date_yyyy_mm_dd(DATE_MIN)
+	dmax = parse_date_yyyy_mm_dd(DATE_MAX)
 	if dmin is not None and dmax is not None and dmax < dmin:
 		raise ValueError(f'DATE_MAX < DATE_MIN: {dmax} < {dmin}')
 
@@ -609,7 +569,7 @@ def main() -> None:
 	_p('[init] hinet client ...')
 	client = create_hinet_client()
 
-	event_dirs = _list_event_dirs()
+	event_dirs = list_event_dirs(WIN_EVENT_DIR, target_names=TARGET_EVENT_DIR_NAMES)
 	if not event_dirs:
 		raise RuntimeError(f'no event dirs under: {WIN_EVENT_DIR}')
 	_p(f'[plan] event dirs={len(event_dirs)}')
@@ -627,8 +587,8 @@ def main() -> None:
 	for i, event_dir in enumerate(event_dirs, 1):
 		# ---- 期間フィルタ（ディレクトリ名の日付）----
 		if dmin is not None or dmax is not None:
-			dd = _dir_date_jst(event_dir.name)
-			if not _in_date_range(dd, dmin=dmin, dmax=dmax):
+			dd = event_dir_date_jst_from_name(event_dir.name)
+			if not in_date_range(dd, date_min=dmin, date_max=dmax):
 				continue
 
 		_p(f'\n[event {i}/{len(event_dirs)}] {event_dir.name}')
