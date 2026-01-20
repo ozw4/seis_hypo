@@ -1,7 +1,10 @@
 # %%
 from __future__ import annotations
 
-from viz.stations_map import plot_stations_by_affiliation_from_station_csv
+from viz.stations_map import (
+	plot_stations_by_affiliation_from_station_csv,
+	plot_stations_by_original_affiliation_from_station_csv,
+)
 
 if __name__ == '__main__':
 	plot_stations_by_affiliation_from_station_csv(
@@ -50,4 +53,11 @@ if __name__ == '__main__':
 		affiliation_colors={'JMA': 'tab:blue'},
 		affiliation_filter=['JMA', 'JMA Intensity'],
 		show_station_labels=False,  # 全局描画時は False 推奨
+	)
+
+	plot_stations_by_original_affiliation_from_station_csv(
+		station_csv='/workspace/data/station/jma/station.csv',
+		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
+		out_dir='img',
+		exclude_jma=False,
 	)
