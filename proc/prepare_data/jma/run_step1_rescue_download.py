@@ -14,8 +14,8 @@ import pandas as pd
 
 from common.time_util import floor_minute
 from jma.download import create_hinet_client
-from jma.picks import read_origin_iso_from_txt
 from jma.prepare.event_dirs import in_date_range, list_event_dirs, parse_date_yyyy_mm_dd
+from jma.prepare.event_txt import read_origin_jst_iso
 
 # =========================
 # 設定（直書き）
@@ -171,7 +171,7 @@ def _event_step1_ok(event_dir: Path) -> bool:
 
 
 def _origin_ns_from_event_txt(txt_path: Path) -> int:
-	origin_iso = read_origin_iso_from_txt(txt_path)
+	origin_iso = read_origin_jst_iso(txt_path)
 	ts = pd.to_datetime(origin_iso, format='ISO8601', errors='raise')
 	return int(ts.value)
 
@@ -276,7 +276,7 @@ def _scan_orphan_dirs(
 		origin_iso = ''
 		if p.txt_path.is_file():
 			try:
-				origin_iso = read_origin_iso_from_txt(p.txt_path)
+				origin_iso = read_origin_jst_iso(p.txt_path)
 				origin_ns = int(_origin_ns_from_event_txt(p.txt_path))
 			except Exception:
 				origin_iso = ''

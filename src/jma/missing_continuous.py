@@ -1,7 +1,6 @@
 # src/jma/missing_continuous.py の run_make_missing_continuous に期間フィルタを追加
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -11,33 +10,15 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
+from jma.prepare.event_txt import read_origin_jst_iso
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, pick_one_network_code
 from jma.stationcode_mappingdb import load_mapping_db
 from jma.stationcode_presence import load_presence_db
 from jma.stationcode_resolve import decide_mea_to_ch_for_month
 
-_ORIGIN_RE = re.compile(
-	r'^\s*ORIGIN_JST\s*:\s*(\d{4})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\.(\d+)\s*$'
-)
 P_PHASES = {'P', 'EP', 'IP'}
 S_PHASES = {'S', 'ES', 'IS'}
-
-
-def read_origin_iso_from_txt(txt_path: str | Path) -> str:
-	p = Path(txt_path)
-	if not p.is_file():
-		raise FileNotFoundError(p)
-
-	for line in p.read_text(encoding='cp932', errors='strict').splitlines():
-		m = _ORIGIN_RE.match(line)
-		if m is None:
-			continue
-		y, mo, d, hh, mm, ss, frac = m.groups()
-		frac2 = (frac + '00')[:2]
-		return f'{y}-{mo}-{d}T{hh}:{mm}:{ss}.{frac2}'
-
-	raise ValueError(f'ORIGIN_JST not found in {p}')
 
 
 def find_event_id_by_origin(epi_df: pd.DataFrame, origin_iso: str) -> int:
@@ -225,7 +206,7 @@ def run_make_missing_continuous(
 				print(f'[skip] already done: {evt_path.name} -> {done_path.name}')
 				continue
 
-			origin_iso = read_origin_iso_from_txt(txt_path)
+			origin_iso = read_origin_jst_iso(txt_path)
 			origin_ts = pd.to_datetime(origin_iso, format='ISO8601')
 
 			# 厳密フィルタ（ORIGIN_JST）

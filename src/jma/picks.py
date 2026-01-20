@@ -1,7 +1,6 @@
 # src/jma/picks.py
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -13,9 +12,6 @@ from jma.stationcode_mappingdb import MappingDB
 from jma.stationcode_presence import PresenceDB
 from jma.stationcode_resolve import decide_mea_to_ch_for_month
 
-_ORIGIN_RE = re.compile(
-	r'^\s*ORIGIN_JST\s*:\s*(\d{4})/(\d{2})/(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\.(\d+)\s*$'
-)
 
 P_PHASES_DEFAULT = {'P', 'EP', 'IP'}
 S_PHASES_DEFAULT = {'S', 'ES', 'IS'}
@@ -61,26 +57,6 @@ def find_event_id_by_origin_exact(
 	if ns not in epi_origin_ns_to_event_id:
 		raise ValueError(f'event_id not found by exact origin_time: {origin_iso}')
 	return int(epi_origin_ns_to_event_id[ns])
-
-
-def read_origin_iso_from_txt(txt_path: str | Path) -> str:
-	"""HinetPyが出力する *.txt の ORIGIN_JST から ISO8601文字列を作る。
-
-	返り値例: "2023-01-18T02:21:35.35"（小数2桁）
-	"""
-	p = Path(txt_path)
-	if not p.is_file():
-		raise FileNotFoundError(p)
-
-	for line in p.read_text(encoding='cp932', errors='strict').splitlines():
-		m = _ORIGIN_RE.match(line)
-		if m is None:
-			continue
-		y, mo, d, hh, mm, ss, frac = m.groups()
-		frac2 = (frac + '00')[:2]
-		return f'{y}-{mo}-{d}T{hh}:{mm}:{ss}.{frac2}'
-
-	raise ValueError(f'ORIGIN_JST not found in {p}')
 
 
 def build_pick_table_for_event(
