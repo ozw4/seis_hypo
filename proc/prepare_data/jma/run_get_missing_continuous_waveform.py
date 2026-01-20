@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from common.time_util import ceil_minutes, floor_minute
 from jma.download import (
 	_name_stem,
 	_supports_station_selection,
@@ -62,16 +62,6 @@ class EventInputs:
 	event_dir: Path
 	evt_path: Path
 	missing_path: Path | None
-
-
-def _floor_to_minute(t) -> object:
-	return t.replace(second=0, microsecond=0)
-
-
-def _ceil_minutes(delta_seconds: float) -> int:
-	if delta_seconds <= 0:
-		raise ValueError(f'invalid delta_seconds={delta_seconds}')
-	return int(math.ceil(delta_seconds / 60.0))
 
 
 def _read_missing(missing_path: Path) -> dict[str, list[str]]:
@@ -244,9 +234,9 @@ def main() -> None:
 			evt_info = get_evt_info(inp.evt_path, scan_rate_blocks=1)
 			t_start = evt_info.start_time
 			t_end = evt_info.end_time_exclusive
-			t0 = _floor_to_minute(t_start)
+			t0 = floor_minute(t_start)
 			span_min = min(
-				_ceil_minutes((t_end - t0).total_seconds()), 3
+				ceil_minutes((t_end - t0).total_seconds()), 3
 			)  # max time 3 min
 
 			stations_by_network = _read_missing(inp.missing_path)

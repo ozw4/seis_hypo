@@ -13,7 +13,7 @@ import pandas as pd
 from HinetPy import Client
 
 from common.core import write_event_json, write_event_json_win32_groups
-from common.time_util import minute_range
+from common.time_util import floor_minute, minute_range
 from jma.win32_reader import compute_event_time_window
 
 
@@ -170,7 +170,7 @@ def download_win_for_stations(
 	ctable_name: str | None = None,
 ) -> tuple[Path, Path, bool]:
 	"""指定ステーション群・指定時刻（JST）の Win32 をダウンロード。select無しネットも対応。"""
-	t0 = when.replace(second=0, microsecond=0)
+	t0 = floor_minute(when)
 	outdir = Path(outdir)
 	outdir.mkdir(parents=True, exist_ok=True)
 

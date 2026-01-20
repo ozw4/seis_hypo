@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.time_util import floor_minute
 from jma.download import create_hinet_client
 from jma.picks import read_origin_iso_from_txt
 from jma.prepare.event_dirs import in_date_range, list_event_dirs, parse_date_yyyy_mm_dd
@@ -176,7 +177,7 @@ def _origin_ns_from_event_txt(txt_path: Path) -> int:
 
 
 def _origin_minute_str(ts: pd.Timestamp) -> str:
-	dt = ts.to_pydatetime().replace(second=0, microsecond=0)
+	dt = floor_minute(ts.to_pydatetime())
 	return dt.strftime('%Y%m%d%H%M')
 
 

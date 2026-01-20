@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from common.geo import haversine_distance_km
+from common.time_util import ceil_minutes, floor_minute
 from jma.download import _name_stem, create_hinet_client, download_win_for_stations
 from jma.prepare.event_dirs import (
 	event_dir_date_jst_from_name,
@@ -101,16 +101,6 @@ class EventInputs:
 	active_ch_path: Path
 	event_txt_path: Path
 	missing_path: Path | None
-
-
-def _floor_to_minute(t: datetime) -> datetime:
-	return t.replace(second=0, microsecond=0)
-
-
-def _ceil_minutes(delta_seconds: float) -> int:
-	if delta_seconds <= 0:
-		raise ValueError(f'invalid delta_seconds={delta_seconds}')
-	return int(math.ceil(delta_seconds / 60.0))
 
 
 def _parse_latlon_with_hemisphere(s: str) -> float:
@@ -607,8 +597,8 @@ def main() -> None:
 		evt_info = get_evt_info(inp.evt_path, scan_rate_blocks=1)
 		t_start = evt_info.start_time
 		t_end = evt_info.end_time_exclusive
-		t0 = _floor_to_minute(t_start)
-		span_min_raw = _ceil_minutes((t_end - t0).total_seconds())
+		t0 = floor_minute(t_start)
+		span_min_raw = ceil_minutes((t_end - t0).total_seconds())
 		span_min = int(min(int(MAX_SPAN_MIN), int(span_min_raw)))
 		_p(
 			f'  evt window start={t_start} end={t_end} -> t0={t0} span_min={span_min} (raw={span_min_raw})'

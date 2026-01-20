@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Iterator
 from datetime import timezone
 
@@ -10,6 +11,12 @@ import pandas as pd
 def floor_minute(t: dt.datetime) -> dt.datetime:
 	"""秒以下を切り捨てて分単位にそろえる。"""
 	return t.replace(second=0, microsecond=0)
+
+
+def ceil_minutes(delta_seconds: float) -> int:
+	if delta_seconds <= 0:
+		raise ValueError(f'invalid delta_seconds={delta_seconds}')
+	return int(math.ceil(delta_seconds / 60.0))
 
 
 def minute_range(start: dt.datetime, end: dt.datetime) -> Iterator[dt.datetime]:
