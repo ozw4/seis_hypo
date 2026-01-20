@@ -19,6 +19,12 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
+from jma.prepare.event_paths import (
+	resolve_active_ch,
+	resolve_missing_continuous,
+	resolve_single_evt,
+	resolve_txt_for_evt,
+)
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
 from jma.stationcode_presence import PresenceDB, load_presence_db
@@ -95,42 +101,6 @@ class EventInputs:
 	active_ch_path: Path
 	event_txt_path: Path
 	missing_path: Path | None
-
-
-def _maybe_resolve_event_inputs(event_dir: Path) -> EventInputs | None:
-	evt_files = sorted(event_dir.glob('*.evt'))
-	if len(evt_files) == 0:
-		return None
-	if len(evt_files) != 1:
-		raise ValueError(
-			f'.evt must be exactly 1 in {event_dir} (found {len(evt_files)}): '
-			+ ', '.join([p.name for p in evt_files])
-		)
-	evt_path = evt_files[0]
-
-	active_files = sorted(event_dir.glob('*_active.ch'))
-	if len(active_files) != 1:
-		raise ValueError(
-			f'*_active.ch must be exactly 1 in {event_dir} (found {len(active_files)}): '
-			+ ', '.join([p.name for p in active_files])
-		)
-	active_ch_path = active_files[0]
-
-	event_txt_path = event_dir / f'{evt_path.stem}.txt'
-	if not event_txt_path.is_file():
-		raise FileNotFoundError(f'event txt not found: {event_txt_path}')
-
-	missing_path = event_dir / f'{evt_path.stem}_missing_continuous.txt'
-	if not missing_path.is_file():
-		missing_path = None
-
-	return EventInputs(
-		event_dir=event_dir,
-		evt_path=evt_path,
-		active_ch_path=active_ch_path,
-		event_txt_path=event_txt_path,
-		missing_path=missing_path,
-	)
 
 
 def _floor_to_minute(t: datetime) -> datetime:
@@ -593,10 +563,20 @@ def main() -> None:
 
 		_p(f'\n[event {i}/{len(event_dirs)}] {event_dir.name}')
 
-		inp = _maybe_resolve_event_inputs(event_dir)
-		if inp is None:
+		evt_path = resolve_single_evt(event_dir, allow_none=True)
+		if evt_path is None:
 			_p(f'  [warn] skip (no .evt): {event_dir}')
 			continue
+		active_ch_path = resolve_active_ch(event_dir, mode='glob_single')
+		event_txt_path = resolve_txt_for_evt(evt_path)
+		missing_path = resolve_missing_continuous(event_dir, stem=evt_path.stem)
+		inp = EventInputs(
+			event_dir=event_dir,
+			evt_path=evt_path,
+			active_ch_path=active_ch_path,
+			event_txt_path=event_txt_path,
+			missing_path=missing_path,
+		)
 
 		if SKIP_IF_STEP2_NOT_DONE:
 			if not _step2_done_exists(

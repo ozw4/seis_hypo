@@ -19,6 +19,7 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
+from jma.prepare.event_paths import resolve_missing_continuous, resolve_single_evt
 from jma.win32_reader import get_evt_info
 
 # =========================
@@ -61,24 +62,6 @@ class EventInputs:
 	event_dir: Path
 	evt_path: Path
 	missing_path: Path | None
-
-
-def _resolve_event_inputs(event_dir: Path) -> EventInputs:
-	evt_files = sorted(event_dir.glob('*.evt'))
-	if len(evt_files) != 1:
-		raise ValueError(
-			f'.evt must be exactly 1 in {event_dir} (found {len(evt_files)}): '
-			+ ', '.join([p.name for p in evt_files])
-		)
-	evt_path = evt_files[0]
-
-	missing_path = event_dir / f'{evt_path.stem}_missing_continuous.txt'
-	if not missing_path.is_file():
-		missing_path = None
-
-	return EventInputs(
-		event_dir=event_dir, evt_path=evt_path, missing_path=missing_path
-	)
 
 
 def _floor_to_minute(t) -> object:
@@ -238,13 +221,17 @@ def main() -> None:
 				continue
 
 		try:
-			inp = _resolve_event_inputs(event_dir)
+			evt_path = resolve_single_evt(event_dir)
 		except ValueError as e:
 			msg = str(e)
 			if msg.startswith('.evt must be exactly 1 in ') and '(found 0)' in msg:
 				print(f'[warn] skip event (no .evt): {event_dir}', flush=True)
 				continue
 			raise
+		missing_path = resolve_missing_continuous(event_dir, stem=evt_path.stem)
+		inp = EventInputs(
+			event_dir=event_dir, evt_path=evt_path, missing_path=missing_path
+		)
 
 		# missing が無いイベントはネットワーク処理自体が無いので何もしない
 		if inp.missing_path is None:

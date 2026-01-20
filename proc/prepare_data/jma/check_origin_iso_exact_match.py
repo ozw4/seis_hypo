@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from jma.picks import read_origin_iso_from_txt
+from jma.prepare.event_paths import resolve_evt_and_txt
 
 # =========================
 # 設定（直書き）
@@ -23,20 +24,6 @@ OUT_CSV = Path(
 	'/workspace/proc/prepare_data/jma/_tmp/origin_time_strict_match_check.csv'
 ).resolve()
 MAX_PRINT_EXAMPLES = 50
-
-
-def _resolve_evt_and_txt(event_dir: Path) -> tuple[Path, Path]:
-	evt_files = sorted(event_dir.glob('*.evt'))
-	if len(evt_files) != 1:
-		raise ValueError(
-			f'.evt must be exactly 1 in {event_dir} (found {len(evt_files)}): '
-			+ ', '.join([p.name for p in evt_files])
-		)
-	evt_path = evt_files[0]
-	txt_path = evt_path.with_suffix('.txt')
-	if not txt_path.is_file():
-		raise FileNotFoundError(f'event txt not found: {txt_path}')
-	return evt_path, txt_path
 
 
 def _iso_to_ns(origin_iso: str) -> int:
@@ -95,7 +82,7 @@ def main() -> None:
 	n_not_found = 0
 
 	for event_dir in event_dirs:
-		evt_path, txt_path = _resolve_evt_and_txt(event_dir)
+		evt_path, txt_path = resolve_evt_and_txt(event_dir)
 		origin_iso = read_origin_iso_from_txt(txt_path)
 		origin_ns = _iso_to_ns(origin_iso)
 

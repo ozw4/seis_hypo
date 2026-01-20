@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from jma.prepare.event_paths import resolve_evt_and_ch
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
 from jma.win32_reader import get_evt_info, scan_channel_sampling_rate_map_win32
@@ -130,22 +131,8 @@ class Candidate:
 	comp_rank: int
 
 
-def _resolve_event_files(event_dir: Path) -> tuple[Path, Path]:
-	evt_files = sorted(event_dir.glob('*.evt'))
-	if len(evt_files) != 1:
-		raise ValueError(
-			f'.evt must be exactly 1 in {event_dir} (found {len(evt_files)}): '
-			+ ', '.join([p.name for p in evt_files])
-		)
-	evt_path = evt_files[0]
-	ch_path = event_dir / f'{evt_path.stem}.ch'
-	if not ch_path.is_file():
-		raise FileNotFoundError(f'event .ch not found: {ch_path}')
-	return evt_path, ch_path
-
-
 def _list_sources(event_dir: Path) -> list[SourceSpec]:
-	evt_path, evt_ch = _resolve_event_files(event_dir)
+	evt_path, evt_ch = resolve_evt_and_ch(event_dir)
 
 	out: list[SourceSpec] = [
 		SourceSpec(
