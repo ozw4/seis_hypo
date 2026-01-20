@@ -14,7 +14,6 @@ import pandas as pd
 
 from jma.download import create_hinet_client
 from jma.picks import read_origin_iso_from_txt
-from jma.win32_reader import scan_channel_sampling_rate_map_win32
 
 # =========================
 # 設定（直書き）
@@ -280,56 +279,6 @@ def _safe_copy(src: Path, dst: Path) -> None:
 	if dst.exists():
 		return
 	shutil.copy2(src, dst)
-
-
-def _make_active_ch_from_evt_and_ch(
-	evt_path: Path, ch_path: Path, out_path: Path
-) -> None:
-	fs_by_ch = scan_channel_sampling_rate_map_win32(evt_path, max_second_blocks=1)
-	present_ch = set(int(x) for x in fs_by_ch.keys())
-	if not present_ch:
-		raise ValueError(f'no channels in evt (scan empty): {evt_path}')
-
-	lines = ch_path.read_text(encoding='utf-8', errors='ignore').splitlines()
-
-	out_lines: list[str] = []
-	pending_header: str | None = None
-	header_emitted = False
-
-	for raw in lines:
-		line = raw.rstrip('\n')
-		if not line.strip():
-			continue
-		if line.startswith('#'):
-			pending_header = line
-			header_emitted = False
-			continue
-
-		tok = line.strip().split()[0]
-		if not tok.isdigit():
-			continue
-		ch_int = int(tok)
-		if ch_int not in present_ch:
-			continue
-
-		if pending_header is not None and not header_emitted:
-			out_lines.append(pending_header)
-			header_emitted = True
-		out_lines.append(line)
-
-	out_path.parent.mkdir(parents=True, exist_ok=True)
-	out_path.write_text(
-		'\n'.join(out_lines) + ('\n' if out_lines else ''), encoding='utf-8'
-	)
-
-
-def _ensure_active_ch(event_dir: Path) -> None:
-	p = _step1_paths(event_dir)
-	if p.active_ch_path.is_file():
-		return
-	if not (p.evt_path.is_file() and p.ch_path.is_file()):
-		return
-	_make_active_ch_from_evt_and_ch(p.evt_path, p.ch_path, p.active_ch_path)
 
 
 def _scan_orphan_dirs(
@@ -620,14 +569,6 @@ def main() -> None:
 				_safe_copy(src_ch, dst_ch)
 			if src_txt.is_file():
 				_safe_copy(src_txt, dst_txt)
-
-			try:
-				_ensure_active_ch(dst_dir)
-			except Exception as e:
-				print(
-					f'[warn] active.ch build failed: dir={dst_dir.name} err={e!r}',
-					flush=True,
-				)
 
 			n_applied += 1
 
