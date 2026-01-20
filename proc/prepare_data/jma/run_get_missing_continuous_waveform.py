@@ -1,10 +1,10 @@
 # %%
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from pathlib import Path
 
+from common.csv_util import open_dict_writer
 from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.time_util import ceil_minutes, floor_minute
 from jma.download import (
@@ -63,30 +63,6 @@ class EventInputs:
 	event_dir: Path
 	evt_path: Path
 	missing_path: Path | None
-
-
-def _open_log_writer(log_path: Path) -> tuple[object, csv.DictWriter]:
-	log_path.parent.mkdir(parents=True, exist_ok=True)
-	f = log_path.open('w', newline='', encoding='utf-8')
-	fields = [
-		'event_dir',
-		'evt_file',
-		't0_jst',
-		'span_min',
-		'network_code',
-		'n_stations_request',
-		'select_used',
-		'full_download',
-		'threads_used',
-		'try_idx',
-		'status',
-		'cnt_file',
-		'ch_file',
-		'message',
-	]
-	w = csv.DictWriter(f, fieldnames=fields)
-	w.writeheader()
-	return f, w
 
 
 def _net_done_path(
@@ -193,7 +169,23 @@ def main() -> None:
 			continue
 
 		log_path = inp.event_dir / f'{inp.evt_path.stem}_continuous_download_log.csv'
-		log_f, writer = _open_log_writer(log_path)
+		fields = [
+			'event_dir',
+			'evt_file',
+			't0_jst',
+			'span_min',
+			'network_code',
+			'n_stations_request',
+			'select_used',
+			'full_download',
+			'threads_used',
+			'try_idx',
+			'status',
+			'cnt_file',
+			'ch_file',
+			'message',
+		]
+		log_f, writer = open_dict_writer(log_path, fieldnames=fields)
 
 		try:
 			evt_info = get_evt_info(inp.evt_path, scan_rate_blocks=1)

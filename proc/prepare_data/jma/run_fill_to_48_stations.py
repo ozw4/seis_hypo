@@ -2,13 +2,13 @@
 # proc/prepare_data/jma/run_fill_to_48_stations.py （薄いラッパー / Step3）
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
+from common.csv_util import open_dict_writer
 from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.geo import haversine_distance_km
 from common.time_util import ceil_minutes, floor_minute
@@ -179,33 +179,6 @@ def _read_event_txt_meta(path: Path) -> EventMeta:
 	lon = _parse_latlon_with_hemisphere(kv['LONGITUDE'])
 
 	return EventMeta(origin_jst=origin, event_month=month, lat=lat, lon=lon)
-
-
-def _open_log_writer(log_path: Path) -> tuple[object, csv.DictWriter]:
-	log_path.parent.mkdir(parents=True, exist_ok=True)
-	f = log_path.open('w', newline='', encoding='utf-8')
-	fields = [
-		'event_dir',
-		'evt_file',
-		'event_month',
-		'event_lat',
-		'event_lon',
-		't0_jst',
-		'span_min',
-		'n_before',
-		'n_need',
-		'n_selected',
-		'n_after',
-		'network_code',
-		'select_used',
-		'status',
-		'cnt_file',
-		'ch_file',
-		'message',
-	]
-	w = csv.DictWriter(f, fieldnames=fields)
-	w.writeheader()
-	return f, w
 
 
 def _load_station_geo_0101(channel_table_path: Path) -> dict[str, tuple[float, float]]:
@@ -568,7 +541,26 @@ def main() -> None:
 		)
 
 		log_path = inp.event_dir / f'{inp.evt_path.stem}_fill_to_48_log.csv'
-		log_f, writer = _open_log_writer(log_path)
+		fields = [
+			'event_dir',
+			'evt_file',
+			'event_month',
+			'event_lat',
+			'event_lon',
+			't0_jst',
+			'span_min',
+			'n_before',
+			'n_need',
+			'n_selected',
+			'n_after',
+			'network_code',
+			'select_used',
+			'status',
+			'cnt_file',
+			'ch_file',
+			'message',
+		]
+		log_f, writer = open_dict_writer(log_path, fieldnames=fields)
 		_p(f'  log={log_path.name}')
 
 		try:
