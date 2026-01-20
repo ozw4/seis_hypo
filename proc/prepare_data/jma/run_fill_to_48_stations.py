@@ -12,8 +12,7 @@ from common.csv_util import open_dict_writer
 from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.geo import haversine_distance_km
 from common.time_util import ceil_minutes, floor_minute
-from jma.download import _name_stem, create_hinet_client
-from jma.prepare.download_retry import download_with_retry
+from jma.download import _name_stem, create_hinet_client, download_win_for_stations
 from jma.prepare.event_dirs import (
 	event_dir_date_jst_from_name,
 	in_date_range,
@@ -841,39 +840,44 @@ def main() -> None:
 
 			_p('  [download] start (0101 select_stations enabled) ...')
 
-			def _on_retry(attempt) -> None:
-				if attempt.ladders_used > 1:
+			cnt_out = ch_out = None
+			last_err: Exception | None = None
+			for attempt, th in enumerate(thread_seq, 1):
+				if attempt > 1:
 					_p(
-						f'  [warn] retry {attempt.ladders_used}/{len(thread_seq)} '
-						f'with threads={attempt.threads}: {attempt.error!r}'
+						f'  [warn] retry {attempt}/{len(thread_seq)} with threads={th}: {last_err!r}'
 					)
+				try:
+					cnt_out, ch_out, _select_used = download_win_for_stations(
+						client,
+						stations=sorted(selected),
+						when=t0,
+						network_code=FILL_NETWORK_CODE,
+						span_min=span_min,
+						outdir=outdir,
+						threads=int(th),
+						cleanup=CLEANUP,
+						clear_selection=False,
+						skip_if_exists=False,
+						use_select=True,
+						data_name=data_name,
+						ctable_name=ctable_name,
+					)
+					last_err = None
+					break
+				except Exception as e:
+					last_err = e
+				finally:
+					client.select_stations(FILL_NETWORK_CODE)
 
-			try:
-				result = download_with_retry(
-					client,
-					stations=sorted(selected),
-					when=t0,
-					threads_ladder=thread_seq,
-					max_retry_request_none=1,
-					network_code=FILL_NETWORK_CODE,
-					span_min=span_min,
-					outdir=outdir,
-					cleanup=CLEANUP,
-					clear_selection=False,
-					skip_if_exists=False,
-					use_select=True,
-					data_name=data_name,
-					ctable_name=ctable_name,
-					retry_on_exception=True,
-					raise_on_failure=True,
-					on_retry=_on_retry,
+			if last_err is not None or cnt_out is None or ch_out is None:
+				raise (
+					last_err
+					if last_err is not None
+					else RuntimeError('download failed (no outputs)')
 				)
-			finally:
-				client.select_stations(FILL_NETWORK_CODE)
 
-			_p(
-				f'  [download] done: {result.cnt_path.name}, {result.ch_path.name}'
-			)
+			_p(f'  [download] done: {Path(cnt_out).name}, {Path(ch_out).name}')
 
 			inv2 = _scan_continuous_inventory(cont_dir)
 			s_cont_0101_2 = inv2.present_by_net.get(
@@ -923,10 +927,10 @@ def main() -> None:
 					'n_selected': len(selected),
 					'n_after': n_after,
 					'network_code': FILL_NETWORK_CODE,
-					'select_used': bool(result.select_used),
+					'select_used': True,
 					'status': status,
-					'cnt_file': result.cnt_path.name,
-					'ch_file': result.ch_path.name,
+					'cnt_file': Path(cnt_out).name,
+					'ch_file': Path(ch_out).name,
 					'message': f'base={len(base2)} near{int(NEAR_KM)}={len(s_near200_2)}',
 				}
 			)
