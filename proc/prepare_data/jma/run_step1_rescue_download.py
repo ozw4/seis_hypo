@@ -51,7 +51,7 @@ OUT_RESCUE_RUN_CSV = Path(
 ).resolve()
 
 SKIP_IF_ALREADY_OK = True
-
+DOWNLOAD_RUN = False
 
 # =========================
 # 実装
@@ -454,6 +454,10 @@ def main() -> None:
 		print('[done] nothing to rescue', flush=True)
 		return
 
+	if not DOWNLOAD_RUN:
+		print('[done] download run skipped by config', flush=True)
+		return
+
 	epi_need = epi[epi['origin_ns'].isin(sorted(target_origin_ns_set))].copy()
 
 	epi_minute_set: set[str] = set()
@@ -473,6 +477,10 @@ def main() -> None:
 
 	if not minute_list:
 		print('[done] no minutes to request', flush=True)
+		return
+
+	if not DOWNLOAD_RUN:
+		print('[done] download run skipped by config', flush=True)
 		return
 
 	client = create_hinet_client()
