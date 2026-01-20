@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import csv
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.time_util import ceil_minutes, floor_minute
 from jma.download import (
 	_name_stem,
@@ -97,15 +97,12 @@ def _net_done_path(
 
 
 def _should_skip_net_done(done_path: Path, *, run_tag: str) -> bool:
-	if not done_path.is_file():
-		return False
-	try:
-		obj = json.loads(done_path.read_text(encoding='utf-8'))
-	except Exception:
-		return False
-	if str(obj.get('run_tag', '')) != str(run_tag):
-		return False
-	return str(obj.get('status', '')) in {'done', 'exists', 'no_missing_file'}
+	obj = read_done_json(done_path, on_missing='empty', on_error='empty')
+	return should_skip_done(
+		obj,
+		run_tag=run_tag,
+		ok_statuses={'done', 'exists', 'no_missing_file'},
+	)
 
 
 def _write_net_done(
@@ -134,9 +131,7 @@ def _write_net_done(
 		'threads_used': int(threads_used),
 		'try_idx': int(try_idx),
 	}
-	done_path.write_text(
-		json.dumps(obj, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
-	)
+	write_done_json(done_path, obj)
 
 
 def main() -> None:

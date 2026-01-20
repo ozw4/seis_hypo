@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import csv
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
+from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.geo import haversine_distance_km
 from common.time_util import ceil_minutes, floor_minute
 from jma.download import _name_stem, create_hinet_client, download_win_for_stations
@@ -421,20 +421,12 @@ def _step3_done_path(event_dir: Path, *, evt_stem: str, run_tag: str) -> Path:
 
 
 def _should_skip_step3_done(done_path: Path, *, run_tag: str) -> bool:
-	if not done_path.is_file():
-		return False
-	try:
-		obj = json.loads(done_path.read_text(encoding='utf-8'))
-	except Exception:
-		return False
-	return str(obj.get('run_tag', '')) == str(run_tag)
+	obj = read_done_json(done_path, on_missing='empty', on_error='empty')
+	return should_skip_done(obj, run_tag=run_tag, ok_statuses=None)
 
 
 def _write_step3_done(done_path: Path, obj: dict[str, object]) -> None:
-	done_path.write_text(
-		json.dumps(obj, ensure_ascii=False, indent=2) + '\n',
-		encoding='utf-8',
-	)
+	write_done_json(done_path, obj)
 
 
 def _threads_schedule(base_threads: int, n_try: int) -> list[int]:
