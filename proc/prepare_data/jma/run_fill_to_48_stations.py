@@ -25,6 +25,7 @@ from jma.prepare.event_paths import (
 	resolve_single_evt,
 	resolve_txt_for_evt,
 )
+from jma.prepare.missing_io import read_missing_pairs
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
 from jma.stationcode_presence import PresenceDB, load_presence_db
@@ -320,36 +321,6 @@ def _scan_continuous_inventory(cont_dir: Path) -> ContinuousInventory:
 	)
 
 
-def _read_missing_pairs(missing_path: Path | None) -> list[tuple[str, str]]:
-	if missing_path is None:
-		return []
-	pairs: list[tuple[str, str]] = []
-	seen: set[tuple[str, str]] = set()
-
-	for raw in missing_path.read_text(encoding='utf-8').splitlines():
-		line = raw.strip()
-		if not line:
-			continue
-		parts = line.split('\t')
-		if len(parts) != 2:
-			raise ValueError(
-				f'invalid line (expected 2 TSV fields) in {missing_path.name}: {raw}'
-			)
-		sta = normalize_code(parts[0].strip())
-		net = normalize_network_code(parts[1].strip())
-		if not sta or not net:
-			raise ValueError(
-				f'invalid station/network_code in {missing_path.name}: {raw}'
-			)
-		key = (sta, net)
-		if key in seen:
-			continue
-		seen.add(key)
-		pairs.append(key)
-
-	return pairs
-
-
 def _missing_recovered_set(
 	missing_pairs: list[tuple[str, str]],
 	present_by_net: dict[str, set[str]],
@@ -617,7 +588,15 @@ def main() -> None:
 				normalize_network_code(FILL_NETWORK_CODE), set()
 			)
 
-			missing_pairs = _read_missing_pairs(inp.missing_path)
+			missing_pairs = (
+				read_missing_pairs(
+					inp.missing_path,
+					normalize_station=normalize_code,
+					normalize_network=normalize_network_code,
+				)
+				if inp.missing_path is not None
+				else []
+			)
 			s_missing_ok = _missing_recovered_set(missing_pairs, inv.present_by_net)
 
 			base = set(s_active) | set(s_cont_0101) | set(s_missing_ok)

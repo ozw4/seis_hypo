@@ -20,6 +20,7 @@ from jma.prepare.event_dirs import (
 	parse_date_yyyy_mm_dd,
 )
 from jma.prepare.event_paths import resolve_missing_continuous, resolve_single_evt
+from jma.prepare.missing_io import read_missing_by_network
 from jma.win32_reader import get_evt_info
 
 # =========================
@@ -62,37 +63,6 @@ class EventInputs:
 	event_dir: Path
 	evt_path: Path
 	missing_path: Path | None
-
-
-def _read_missing(missing_path: Path) -> dict[str, list[str]]:
-	stations_by_network: dict[str, list[str]] = {}
-	seen: set[tuple[str, str]] = set()
-
-	for raw in missing_path.read_text(encoding='utf-8').splitlines():
-		line = raw.strip()
-		if not line:
-			continue
-		parts = line.split('\t')
-		if len(parts) != 2:
-			raise ValueError(
-				f'invalid line (expected 2 TSV fields) in {missing_path.name}: {raw}'
-			)
-		station = parts[0].strip()
-		network_code = parts[1].strip()
-		if not station or not network_code:
-			raise ValueError(
-				f'invalid station/network_code in {missing_path.name}: {raw}'
-			)
-		key = (station, network_code)
-		if key in seen:
-			continue
-		seen.add(key)
-		stations_by_network.setdefault(network_code, []).append(station)
-
-	for code in list(stations_by_network.keys()):
-		stations_by_network[code] = sorted(stations_by_network[code])
-
-	return stations_by_network
 
 
 def _open_log_writer(log_path: Path) -> tuple[object, csv.DictWriter]:
@@ -239,7 +209,7 @@ def main() -> None:
 				ceil_minutes((t_end - t0).total_seconds()), 3
 			)  # max time 3 min
 
-			stations_by_network = _read_missing(inp.missing_path)
+			stations_by_network = read_missing_by_network(inp.missing_path)
 			outdir = inp.event_dir / OUT_SUBDIR
 			outdir.mkdir(parents=True, exist_ok=True)
 
