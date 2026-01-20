@@ -21,8 +21,8 @@ EPI_CSV = Path(
 	'/workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv'
 ).resolve()
 
-DATE_MIN: str | None = '2023-04-21'
-DATE_MAX: str | None = '2023-04-22'
+DATE_MIN: str | None = '2023-01-01'
+DATE_MAX: str | None = '2023-01-31'
 
 MIN_MAG: float | None = 1.0
 MAX_MAG: float | None = 9.9
