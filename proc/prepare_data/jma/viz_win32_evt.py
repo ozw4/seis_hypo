@@ -13,8 +13,8 @@ from jma.picks import (
 	build_pick_table_for_event,
 	find_event_id_by_origin,
 	pick_time_to_index,
-	read_origin_iso_from_txt,
 )
+from jma.prepare.event_txt import read_origin_jst_iso
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code
 from jma.stationcode_mappingdb import load_mapping_db
@@ -166,7 +166,7 @@ def main() -> None:
 			if not ch_path.is_file():
 				raise FileNotFoundError(ch_path)
 
-			origin_iso = read_origin_iso_from_txt(txt_path)
+			origin_iso = read_origin_jst_iso(txt_path)
 			event_time = pd.to_datetime(
 				origin_iso, format='ISO8601', errors='raise'
 			).to_pydatetime()

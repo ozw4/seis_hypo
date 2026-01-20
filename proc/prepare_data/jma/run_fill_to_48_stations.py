@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +18,7 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
+from jma.prepare.event_txt import read_event_txt_meta
 from jma.prepare.event_paths import (
 	resolve_active_ch,
 	resolve_missing_continuous,
@@ -104,81 +104,7 @@ class EventInputs:
 	missing_path: Path | None
 
 
-def _parse_latlon_with_hemisphere(s: str) -> float:
-	ss = s.strip()
-	if len(ss) < 2:
-		raise ValueError(f'invalid lat/lon token: {s!r}')
-	hem = ss[-1].upper()
-	val = float(ss[:-1])
-	if hem in {'N', 'E'}:
-		return val
-	if hem in {'S', 'W'}:
-		return -val
-	raise ValueError(f'invalid hemisphere in lat/lon: {s!r}')
 
-
-def _parse_origin_jst(s: str) -> datetime:
-	ss = s.strip()
-	parts = ss.split()
-	if len(parts) != 2:
-		raise ValueError(f'invalid ORIGIN_JST: {s!r}')
-	date_part, time_part = parts
-	y_s, m_s, d_s = date_part.split('/')
-	h_s, mi_s, sec_s = time_part.split(':')
-
-	if '.' in sec_s:
-		sec_int_s, frac_s = sec_s.split('.', 1)
-		frac_s = ''.join([c for c in frac_s if c.isdigit()])
-		frac_s = (frac_s + '000000')[:6]
-		micro = int(frac_s)
-	else:
-		sec_int_s = sec_s
-		micro = 0
-
-	return datetime(
-		int(y_s),
-		int(m_s),
-		int(d_s),
-		int(h_s),
-		int(mi_s),
-		int(sec_int_s),
-		micro,
-	)
-
-
-@dataclass(frozen=True)
-class EventMeta:
-	origin_jst: datetime
-	event_month: str  # YYYY-MM
-	lat: float
-	lon: float
-
-
-def _read_event_txt_meta(path: Path) -> EventMeta:
-	lines = path.read_text(encoding='utf-8', errors='ignore').splitlines()
-
-	kv: dict[str, str] = {}
-	for raw in lines:
-		line = raw.strip()
-		if not line or ':' not in line:
-			continue
-		k, v = line.split(':', 1)
-		key = k.strip()
-		val = v.strip()
-		if key and val:
-			kv[key] = val
-
-	req_keys = {'ORIGIN_JST', 'LATITUDE', 'LONGITUDE'}
-	missing = sorted(req_keys - set(kv.keys()))
-	if missing:
-		raise ValueError(f'missing keys in {path.name}: {missing}')
-
-	origin = _parse_origin_jst(kv['ORIGIN_JST'])
-	month = f'{origin.year:04d}-{origin.month:02d}'
-	lat = _parse_latlon_with_hemisphere(kv['LATITUDE'])
-	lon = _parse_latlon_with_hemisphere(kv['LONGITUDE'])
-
-	return EventMeta(origin_jst=origin, event_month=month, lat=lat, lon=lon)
 
 
 def _load_station_geo_0101(channel_table_path: Path) -> dict[str, tuple[float, float]]:
@@ -525,7 +451,7 @@ def main() -> None:
 		_p(f'  txt={inp.event_txt_path.name}')
 		_p(f'  missing={inp.missing_path.name if inp.missing_path else "(none)"}')
 
-		meta = _read_event_txt_meta(inp.event_txt_path)
+		meta = read_event_txt_meta(inp.event_txt_path)
 		_p(
 			f'  meta month={meta.event_month} lat={meta.lat:.5f} lon={meta.lon:.5f} origin={meta.origin_jst}'
 		)
