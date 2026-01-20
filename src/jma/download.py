@@ -19,7 +19,9 @@ from jma.win32_reader import compute_event_time_window
 
 def create_hinet_client() -> Client:
 	login, _, password = netrc().authenticators('hinet')
-	return Client(login, password)
+	return Client(
+		login, password, timeout=150, sleep_time_in_seconds=10, max_sleep_count=60
+	)
 
 
 def _name_stem(
