@@ -466,3 +466,241 @@ def plot_stations_from_hinet_table(
 
 	fig.savefig(out_png, dpi=200)
 	print(f'Saved: {out_png}')
+
+
+def _normalize_comment_local(s: object) -> str:
+	if pd.isna(s):
+		return 'Unknown'
+	return ' '.join(str(s).split())
+
+
+def _sanitize_filename(s: str) -> str:
+	bad = '\\/:*?"<>|'
+	for ch in bad:
+		s = s.replace(ch, '_')
+	s = s.replace('\n', ' ').replace('\r', ' ')
+	s = ' '.join(s.split())
+	return s if s else 'Unknown'
+
+
+def plot_stations_by_original_affiliation_from_station_csv(
+	station_csv: str | Path,
+	*,
+	prefecture_shp: str | Path,
+	out_dir: str | Path = 'fig_affiliations',
+	out_png_template: str = 'Figure_Stations_affiliation_{affiliation}.png',
+	station_codes: Iterable[str] | None = None,
+	affiliation_comments: Iterable[str] | None = None,
+	exclude_jma: bool = False,
+	marker: str = '^',
+	markersize: int = 24,
+	fontsize: int = 8,
+	extras: list[dict] | None = None,
+	label_dlat: float = 0.03,
+	show_station_labels: bool = True,
+	fixed_extent: bool = True,
+) -> None:
+	station_csv = Path(station_csv)
+	prefecture_shp = Path(prefecture_shp)
+	out_dir = Path(out_dir)
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	if not station_csv.is_file():
+		raise FileNotFoundError(f'station_csv not found: {station_csv}')
+	if not prefecture_shp.is_file():
+		raise FileNotFoundError(f'prefecture_shp not found: {prefecture_shp}')
+
+	df = pd.read_csv(station_csv)
+
+	required_cols = {'station_code', 'Latitude_deg', 'Longitude_deg', 'Comment'}
+	missing = required_cols.difference(df.columns)
+	if missing:
+		raise ValueError(f'station.csv missing required columns: {sorted(missing)}')
+
+	if station_codes is not None:
+		st_set = set(station_codes)
+		df = df[df['station_code'].isin(st_set)].copy()
+
+	if df.empty:
+		raise RuntimeError('No stations to plot (check station_codes / CSV contents).')
+
+	df['lat'] = df['Latitude_deg'].astype(float)
+	df['lon'] = df['Longitude_deg'].astype(float)
+	df['affiliation_raw'] = df['Comment'].map(_normalize_comment_local)
+
+	# JMA（地方区分）と JMA Intensity を除外（出力はあくまで affiliation_raw で分割）
+	if exclude_jma:
+		aff_cat = df['Comment'].map(_comment_to_affiliation_en)
+		df = df[~aff_cat.isin({'JMA', 'JMA Intensity'})].copy()
+		if df.empty:
+			raise RuntimeError('No stations to plot after excluding JMA.')
+
+	if affiliation_comments is not None:
+		want = {_normalize_comment_local(s) for s in affiliation_comments}
+		df = df[df['affiliation_raw'].isin(want)].copy()
+		if df.empty:
+			raise RuntimeError(
+				'No stations to plot for specified affiliation_comments.'
+			)
+
+	df['geometry'] = [
+		Point(lon, lat) for lon, lat in zip(df['lon'], df['lat'], strict=False)
+	]
+	gdf_all = gpd.GeoDataFrame(
+		df.drop_duplicates(subset=['station_code']),
+		geometry='geometry',
+		crs='EPSG:4326',
+	)
+
+	pref = gpd.read_file(prefecture_shp)
+	if pref.crs is None or pref.crs.to_string().upper() != 'EPSG:4326':
+		pref = pref.to_crs('EPSG:4326')
+
+	extras_gdfs: list[gpd.GeoDataFrame] = []
+	if extras:
+		for item in extras:
+			xy = item.get('xy', [])
+			if not xy:
+				continue
+			ex_df = pd.DataFrame(xy, columns=['lon', 'lat'])
+			ex_df['geometry'] = [
+				Point(lon, lat)
+				for lon, lat in zip(ex_df['lon'], ex_df['lat'], strict=False)
+			]
+			ex_gdf = gpd.GeoDataFrame(ex_df, geometry='geometry', crs='EPSG:4326')
+			ex_gdf.attrs['style'] = {
+				'label': item.get('label', 'Extra'),
+				'marker': item.get('marker', 'o'),
+				'color': item.get('color', 'tab:blue'),
+				'size': item.get('size', 30),
+				'annotate': bool(item.get('annotate', False)),
+				'names': item.get('names'),
+			}
+			extras_gdfs.append(ex_gdf)
+
+	plt.rcParams['font.family'] = 'Arial'
+	plt.rcParams.update({'font.size': fontsize, 'axes.linewidth': 0.5})
+
+	affiliations = sorted(gdf_all['affiliation_raw'].unique())
+
+	for aff in affiliations:
+		sub = gdf_all[gdf_all['affiliation_raw'] == aff]
+		if sub.empty:
+			continue
+
+		fig, ax = plt.subplots(figsize=(10, 10))
+
+		pref.plot(
+			ax=ax,
+			facecolor='whitesmoke',
+			edgecolor='gray',
+			linewidth=0.6,
+			zorder=1,
+			label='Prefecture',
+		)
+
+		for ex_gdf in extras_gdfs:
+			st = ex_gdf.attrs['style']
+			ex_gdf.plot(
+				ax=ax,
+				color=st['color'],
+				marker=st['marker'],
+				markersize=st['size'],
+				zorder=5,
+				label=st['label'],
+			)
+			if st['annotate']:
+				names = st['names']
+				if names is None:
+					names = [f'{st["label"]}_{i + 1}' for i in range(len(ex_gdf))]
+				for (x0, y0), name in zip(
+					ex_gdf[['lon', 'lat']].to_numpy(), names, strict=False
+				):
+					ax.text(
+						x0,
+						y0 + label_dlat,
+						str(name),
+						ha='center',
+						va='bottom',
+						fontsize=fontsize,
+						color='black',
+						bbox=dict(facecolor='white', edgecolor='none', pad=0.6),
+						zorder=6,
+					)
+
+		sub.plot(
+			ax=ax,
+			color='tab:red',
+			marker=marker,
+			markersize=markersize,
+			zorder=4,
+			label='Station',
+		)
+
+		texts = []
+		if show_station_labels:
+			for x0, y0, code in zip(
+				sub.geometry.x, sub.geometry.y, sub['station_code'], strict=False
+			):
+				texts.append(
+					ax.text(
+						x0,
+						y0 - label_dlat,
+						str(code),
+						ha='center',
+						va='top',
+						fontsize=fontsize,
+						bbox=dict(facecolor='white', edgecolor='none', pad=0.6),
+						zorder=3,
+					)
+				)
+
+		ax.set_xlabel('Longitude')
+		ax.set_ylabel('Latitude')
+		ax.set_title(aff)
+
+		if fixed_extent:
+			ax.set_xlim(128, 151)
+			ax.set_ylim(30, 46)
+		else:
+			xs = sub.geometry.x.to_list()
+			ys = sub.geometry.y.to_list()
+			for ex_gdf in extras_gdfs:
+				xs.extend(ex_gdf.geometry.x.to_list())
+				ys.extend(ex_gdf.geometry.y.to_list())
+			minx, maxx = min(xs), max(xs)
+			miny, maxy = min(ys), max(ys)
+			pad_x = max(0.5, (maxx - minx) * 0.15)
+			pad_y = max(0.5, (maxy - miny) * 0.15)
+			ax.set_xlim(minx - pad_x, maxx + pad_x)
+			ax.set_ylim(miny - pad_y, maxy + pad_y)
+
+		handles, labels = ax.get_legend_handles_labels()
+		uniq: dict[str, object] = {}
+		for h, l in zip(handles, labels, strict=False):
+			if l not in uniq:
+				uniq[l] = h
+		ax.legend(uniq.values(), uniq.keys(), loc='lower right', fontsize=fontsize)
+
+		plt.tight_layout()
+
+		if texts:
+			xs_obs = sub.geometry.x.to_list()
+			ys_obs = sub.geometry.y.to_list()
+			for ex_gdf in extras_gdfs:
+				xs_obs.extend(ex_gdf.geometry.x.to_list())
+				ys_obs.extend(ex_gdf.geometry.y.to_list())
+			adjust_text(
+				texts,
+				x=xs_obs,
+				y=ys_obs,
+				ax=ax,
+				expand_text=(1.05, 1.2),
+				expand_points=(1.05, 1.2),
+			)
+
+		fname = out_png_template.format(affiliation=_sanitize_filename(aff))
+		out_png = out_dir / fname
+		fig.savefig(out_png, dpi=200)
+		plt.close(fig)
+		print(f'Saved: {out_png}')

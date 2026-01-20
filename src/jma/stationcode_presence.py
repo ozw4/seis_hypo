@@ -23,18 +23,20 @@ def load_presence_db(pres_csv: str | Path) -> PresenceDB:
 
 	df = pd.read_csv(p, low_memory=False)
 
-	req = {"network_code", "station"}
+	req = {'network_code', 'station'}
 	if not req.issubset(df.columns):
-		raise ValueError(f"monthly_presence missing columns: {sorted(req - set(df.columns))}")
+		raise ValueError(
+			f'monthly_presence missing columns: {sorted(req - set(df.columns))}'
+		)
 
 	month_cols = month_columns(df)
 	if not month_cols:
-		raise ValueError("no YYYY-MM presence columns found in monthly_presence")
+		raise ValueError('no YYYY-MM presence columns found in monthly_presence')
 
 	df = df.copy()
-	df["ch_key"] = df["station"].astype(str).map(normalize_code)
-	df["network_code"] = df["network_code"].map(normalize_network_code)
+	df['ch_key'] = df['station'].astype(str).map(normalize_code)
+	df['network_code'] = df['network_code'].map(normalize_network_code)
 
-	ch_set = set(df["ch_key"].unique().tolist())
-	keep_cols = ["ch_key", "network_code"] + month_cols
+	ch_set = set(df['ch_key'].unique().tolist())
+	keep_cols = ['ch_key', 'network_code'] + month_cols
 	return PresenceDB(pres=df[keep_cols].copy(), ch_set=ch_set, month_cols=month_cols)
