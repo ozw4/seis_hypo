@@ -7,12 +7,8 @@ from pathlib import Path
 from common.csv_util import open_dict_writer
 from common.done_marker import read_done_json, should_skip_done, write_done_json
 from common.time_util import ceil_minutes, floor_minute
-from jma.download import (
-	_name_stem,
-	_supports_station_selection,
-	create_hinet_client,
-	download_win_for_stations,
-)
+from jma.download import _name_stem, _supports_station_selection, create_hinet_client
+from jma.prepare.download_retry import download_with_retry
 from jma.prepare.event_dirs import (
 	event_dir_date_jst_from_name,
 	in_date_range,
@@ -255,84 +251,48 @@ def main() -> None:
 						)
 						continue
 
-					cnt_out = None
-					ch_out = None
-					select_used = False
-					last_msg = ''
-					last_threads = 0
-					last_try_idx = 0
-
-					# None のときだけ threads を落とす：8→4→2→1
-					for th in ladder:
-						for k in range(1, int(MAX_RETRY_REQUEST_NONE) + 1):
-							last_threads = int(th)
-							last_try_idx = int(k)
-							try:
-								cnt_out, ch_out, select_used = (
-									download_win_for_stations(
-										client,
-										stations=stations,
-										when=t0,
-										network_code=str(network_code),
-										span_min=span_min,
-										outdir=outdir,
-										threads=int(th),
-										cleanup=CLEANUP,
-										clear_selection=False,
-										skip_if_exists=False,
-										use_select=select_supported,
-										data_name=data_name,
-										ctable_name=ctable_name,
-									)
-								)
-								last_msg = ''
-								break
-							except ValueError as e:
-								msg = str(e)
-								last_msg = msg
-								if msg.startswith(
-									'Fail to request WIN32 (returned None).'
-								):
-									print(
-										f'[warn] returned None -> retry {k}/{MAX_RETRY_REQUEST_NONE} '
-										f'(threads={th}): code={network_code} start={t0} '
-										f'span_min={span_min} n_stations={len(stations)}',
-										flush=True,
-									)
-									continue
-								raise
-						if cnt_out is not None and ch_out is not None:
-							break
-
-					if cnt_out is None or ch_out is None:
-						# 警告付きフォールバック：どうしても None が続くので skip
+				def _on_retry(attempt) -> None:
+					if attempt.is_none_retry:
 						print(
-							f'[warn] skip network (returned None) after ladder+retries: '
-							f'code={network_code} start={t0} span_min={span_min} '
-							f'n_stations={len(stations)}',
+							f'[warn] returned None -> retry {attempt.try_idx}/{MAX_RETRY_REQUEST_NONE} '
+							f'(threads={attempt.threads}): code={network_code} start={t0} '
+							f'span_min={span_min} n_stations={len(stations)}',
 							flush=True,
 						)
-						writer.writerow(
-							{
-								'event_dir': str(inp.event_dir),
-								'evt_file': inp.evt_path.name,
-								't0_jst': f'{t0:%Y-%m-%d %H:%M:%S}',
-								'span_min': span_min,
-								'network_code': network_code,
-								'n_stations_request': len(stations),
-								'select_used': select_supported,
-								'full_download': full_download,
-								'threads_used': last_threads,
-								'try_idx': last_try_idx,
-								'status': 'request_failed_skip',
-								'cnt_file': '',
-								'ch_file': '',
-								'message': last_msg,
-							}
-						)
-						# skip は done にしない（次回このネットから再挑戦できる）
-						continue
+						return
+					print(
+						f'[warn] retry {attempt.try_idx}/{MAX_RETRY_REQUEST_NONE} '
+						f'(threads={attempt.threads}): code={network_code} start={t0} '
+						f'span_min={span_min} n_stations={len(stations)} err={attempt.message}',
+						flush=True,
+					)
 
+				result = download_with_retry(
+					client,
+					stations=stations,
+					when=t0,
+					threads_ladder=ladder,
+					max_retry_request_none=MAX_RETRY_REQUEST_NONE,
+					network_code=str(network_code),
+					span_min=span_min,
+					outdir=outdir,
+					cleanup=CLEANUP,
+					clear_selection=False,
+					skip_if_exists=False,
+					use_select=select_supported,
+					data_name=data_name,
+					ctable_name=ctable_name,
+					on_retry=_on_retry,
+				)
+
+				if not result.success:
+					# 警告付きフォールバック：どうしても None が続くので skip
+					print(
+						f'[warn] skip network (returned None) after ladder+retries: '
+						f'code={network_code} start={t0} span_min={span_min} '
+						f'n_stations={len(stations)}',
+						flush=True,
+					)
 					writer.writerow(
 						{
 							'event_dir': str(inp.event_dir),
@@ -341,29 +301,50 @@ def main() -> None:
 							'span_min': span_min,
 							'network_code': network_code,
 							'n_stations_request': len(stations),
-							'select_used': bool(select_used),
+							'select_used': select_supported,
 							'full_download': full_download,
-							'threads_used': last_threads,
-							'try_idx': last_try_idx,
-							'status': 'downloaded',
-							'cnt_file': Path(cnt_out).name,
-							'ch_file': Path(ch_out).name,
-							'message': '',
+							'threads_used': result.threads_used,
+							'try_idx': result.try_idx,
+							'status': 'request_failed_skip',
+							'cnt_file': '',
+							'ch_file': '',
+							'message': result.message,
 						}
 					)
-					_write_net_done(
-						net_done,
-						evt_file=inp.evt_path.name,
-						run_tag=run_tag2,
-						network_code=str(network_code),
-						status='done',
-						cnt_file=Path(cnt_out).name,
-						ch_file=Path(ch_out).name,
-						message='',
-						n_stations_request=len(stations),
-						threads_used=last_threads,
-						try_idx=last_try_idx,
-					)
+					# skip は done にしない（次回このネットから再挑戦できる）
+					continue
+
+				writer.writerow(
+					{
+						'event_dir': str(inp.event_dir),
+						'evt_file': inp.evt_path.name,
+						't0_jst': f'{t0:%Y-%m-%d %H:%M:%S}',
+						'span_min': span_min,
+						'network_code': network_code,
+						'n_stations_request': len(stations),
+						'select_used': bool(result.select_used),
+						'full_download': full_download,
+						'threads_used': result.threads_used,
+						'try_idx': result.try_idx,
+						'status': 'downloaded',
+						'cnt_file': Path(result.cnt_path).name,
+						'ch_file': Path(result.ch_path).name,
+						'message': '',
+					}
+				)
+				_write_net_done(
+					net_done,
+					evt_file=inp.evt_path.name,
+					run_tag=run_tag2,
+					network_code=str(network_code),
+					status='done',
+					cnt_file=Path(result.cnt_path).name,
+					ch_file=Path(result.ch_path).name,
+					message='',
+					n_stations_request=len(stations),
+					threads_used=result.threads_used,
+					try_idx=result.try_idx,
+				)
 
 				finally:
 					if select_supported:
