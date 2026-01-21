@@ -1,7 +1,7 @@
 # %%
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -196,6 +196,43 @@ def _annotate_source_location_xy(
 	)
 
 	return x_km, y_km
+
+
+def _plot_tt_slice(
+	data_2d: np.ndarray,
+	*,
+	extent: list[float],
+	xlabel: str,
+	ylabel: str,
+	title: str,
+	colorbar_label: str,
+	figsize: tuple[float, float],
+	out_png: str | Path,
+	annotate: Callable[[Any], Any] | None = None,
+) -> Path:
+	"""走時スライスの共通描画ユーティリティ。"""
+	out_png = Path(out_png)
+	out_png.parent.mkdir(parents=True, exist_ok=True)
+
+	fig, ax = plt.subplots(figsize=figsize)
+	im = ax.imshow(
+		data_2d,
+		origin='lower',
+		extent=extent,
+		aspect='auto',
+	)
+	if annotate is not None:
+		annotate(ax)
+	fig.colorbar(im, ax=ax, label=colorbar_label)
+
+	ax.set_xlabel(xlabel)
+	ax.set_ylabel(ylabel)
+	ax.set_title(title)
+
+	fig.tight_layout()
+	fig.savefig(out_png, dpi=200)
+	plt.close(fig)
+	return out_png
 
 
 # ----------------------------
@@ -469,24 +506,17 @@ def plot_tt_horizontal_slice(
 
 	slice_2d = grid_3d[iz, :, :]
 
-	fig, ax = plt.subplots(figsize=(7, 6))
-	im = ax.imshow(
+	return _plot_tt_slice(
 		slice_2d,
-		origin='lower',
 		extent=[x[0], x[-1], y[0], y[-1]],
-		aspect='auto',
+		xlabel='x East (km)',
+		ylabel='y North (km)',
+		title=f'{title} | z={z_km:.2f} km',
+		colorbar_label='Travel time (s)',
+		figsize=(7, 6),
+		out_png=out_png,
+		annotate=lambda ax: _annotate_source_location_xy(ax, info, source=source),
 	)
-	_annotate_source_location_xy(ax, info, source=source)
-	fig.colorbar(im, ax=ax, label='Travel time (s)')
-
-	ax.set_xlabel('x East (km)')
-	ax.set_ylabel('y North (km)')
-	ax.set_title(f'{title} | z={z_km:.2f} km')
-
-	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
 
 
 def plot_tt_vertical_xz(
@@ -509,23 +539,16 @@ def plot_tt_vertical_xz(
 
 	section = grid_3d[:, iy, :]
 
-	fig, ax = plt.subplots(figsize=(7, 5.5))
-	im = ax.imshow(
+	return _plot_tt_slice(
 		section,
-		origin='lower',
 		extent=[x[0], x[-1], z[0], z[-1]],
-		aspect='auto',
+		xlabel='x East (km)',
+		ylabel='z (km)',
+		title=title,
+		colorbar_label='Travel time (s)',
+		figsize=(7, 5.5),
+		out_png=out_png,
 	)
-	fig.colorbar(im, ax=ax, label='Travel time (s)')
-
-	ax.set_xlabel('x East (km)')
-	ax.set_ylabel('z (km)')
-	ax.set_title(title)
-
-	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
 
 
 def plot_tt_vertical_yz(
@@ -548,23 +571,16 @@ def plot_tt_vertical_yz(
 
 	section = grid_3d[:, :, ix]
 
-	fig, ax = plt.subplots(figsize=(7, 5.5))
-	im = ax.imshow(
+	return _plot_tt_slice(
 		section,
-		origin='lower',
 		extent=[y[0], y[-1], z[0], z[-1]],
-		aspect='auto',
+		xlabel='y North (km)',
+		ylabel='z (km)',
+		title=title,
+		colorbar_label='Travel time (s)',
+		figsize=(7, 5.5),
+		out_png=out_png,
 	)
-	fig.colorbar(im, ax=ax, label='Travel time (s)')
-
-	ax.set_xlabel('y North (km)')
-	ax.set_ylabel('z (km)')
-	ax.set_title(title)
-
-	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
 
 
 def plot_tt_ps_difference_slice(
@@ -591,23 +607,16 @@ def plot_tt_ps_difference_slice(
 
 	diff = grid_s[iz, :, :] - grid_p[iz, :, :]
 
-	fig, ax = plt.subplots(figsize=(7, 6))
-	im = ax.imshow(
+	return _plot_tt_slice(
 		diff,
-		origin='lower',
 		extent=[x[0], x[-1], y[0], y[-1]],
-		aspect='auto',
+		xlabel='x East (km)',
+		ylabel='y North (km)',
+		title=f'{title} | z={z_km:.2f} km',
+		colorbar_label='S - P (s)',
+		figsize=(7, 6),
+		out_png=out_png,
 	)
-	fig.colorbar(im, ax=ax, label='S - P (s)')
-
-	ax.set_xlabel('x East (km)')
-	ax.set_ylabel('y North (km)')
-	ax.set_title(f'{title} | z={z_km:.2f} km')
-
-	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
 
 
 # ----------------------------
