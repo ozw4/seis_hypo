@@ -15,7 +15,7 @@ from common.config import (
 	LokiWaveformStackingPipelineConfig,
 )
 from common.core import load_event_json
-from common.time_util import to_utc
+from common.time_util import get_event_origin_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.loki_parse import parse_loki_header
 from loki_tools.prob_stream import build_loki_ps_prob_stream
@@ -50,23 +50,6 @@ def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 	return to_utc(ts, naive_tz='Asia/Tokyo')
 
 
-def _get_event_origin_utc(ev: dict, *, event_json_path: Path) -> pd.Timestamp:
-	origin_jst = ev.get('origin_time_jst')
-	origin_other = ev.get('origin_time')
-	origin_raw = origin_jst if origin_jst is not None else origin_other
-	if origin_raw is None:
-		raise ValueError(f'missing origin_time(_jst) in {event_json_path}')
-
-	origin = pd.to_datetime(origin_raw)
-	if pd.isna(origin):
-		raise ValueError(f'failed to parse origin_time in {event_json_path}')
-
-	# If origin_time_jst is present and timezone is omitted, interpret it as JST.
-	# Otherwise (origin_time), interpret naive as UTC by default.
-	naive_tz = 'Asia/Tokyo' if origin_jst is not None else 'UTC'
-	return to_utc(origin, naive_tz=naive_tz)
-
-
 def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
 	base = Path(cfg.base_input_dir)
 	if not base.is_dir():
@@ -90,7 +73,7 @@ def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Pa
 			continue
 
 		ev = load_event_json(p)
-		origin_utc = _get_event_origin_utc(ev, event_json_path=event_json)
+		origin_utc = get_event_origin_utc(ev, event_json_path=event_json)
 
 		if t_start is not None and origin_utc < t_start:
 			dropped += 1

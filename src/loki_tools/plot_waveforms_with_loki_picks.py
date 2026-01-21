@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from common.core import load_event_json
+from common.time_util import get_event_origin_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from io_util.trace_util import trace_station_comp
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
@@ -140,14 +141,9 @@ def main() -> None:
 
 	# event_time（相対表示の0基準）
 	ev = load_event_json(event_dir)
-	origin_jst = ev.get('origin_time_jst', None)
-	if origin_jst is None:
-		origin_jst = ev.get('origin_time', None)
-	if origin_jst is None:
-		raise ValueError(f'origin_time missing in {event_dir / "event.json"}')
-
-	# origin_time_jst は +09 つきのことが多い想定 → UTCへ
-	event_time_utc = pd.to_datetime(origin_jst).tz_convert('UTC').to_pydatetime()
+	event_time_utc = get_event_origin_utc(
+		ev, event_json_path=event_dir / 'event.json'
+	).to_pydatetime()
 
 	# header stations（並び替え用）
 	stations_df = parse_loki_header(header_path).stations_df
