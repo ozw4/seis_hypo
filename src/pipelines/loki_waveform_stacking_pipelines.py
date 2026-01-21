@@ -54,6 +54,72 @@ def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 	return to_utc(ts, naive_tz='Asia/Tokyo')
 
 
+def _build_loki(
+	cfg: LokiWaveformStackingPipelineConfig,
+) -> tuple[Loki, object, Path]:
+	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
+	if not header_path.is_file():
+		raise FileNotFoundError(f'header not found: {header_path}')
+	header = parse_loki_header(header_path)
+	loki = Loki(
+		str(cfg.loki_data_path),
+		str(cfg.loki_output_path),
+		str(cfg.loki_db_path),
+		str(header_path),
+		mode='locator',
+	)
+	return loki, header, header_path
+
+
+def _log_db_station_summary(header: object, *, enabled: bool = True) -> set[str]:
+	if not enabled:
+		return set()
+	stations_df = getattr(header, 'stations_df', None)
+	if stations_df is None:
+		return set()
+	db_stas = set(stations_df['station'].astype(str).tolist())
+	print(f'[DBG] db stations: {len(db_stas)}')
+	return db_stas
+
+
+def _log_stream_station_overlap(
+	st: Stream,
+	*,
+	evid: str,
+	db_stas: set[str],
+	cfg: LokiWaveformStackingPipelineConfig,
+	enabled: bool = True,
+) -> None:
+	if not enabled:
+		return
+	st_stas = sorted(
+		{
+			str(tr.stats.station)
+			for tr in st
+			if getattr(tr.stats, 'station', None) is not None
+		}
+	)
+	ch_suf = sorted(
+		{
+			str(tr.stats.channel)[-1]
+			for tr in st
+			if getattr(tr.stats, 'channel', None) is not None
+		}
+	)
+	overlap = sorted(set(st_stas) & db_stas)
+
+	print(
+		f'[DBG] event={evid} traces={len(st)} '
+		f'stations={len(st_stas)} overlap_db={len(overlap)} '
+		f'chan_suffixes={ch_suf} cfg.comp={list(cfg.comp)}'
+	)
+
+	if len(overlap) == 0:
+		# ここが真犯人候補
+		print(f'[DBG]   example station names (stream): {st_stas[:10]}')
+		print(f'[DBG]   example station names (db): {sorted(list(db_stas))[:10]}')
+
+
 def _filter_event_dirs(
 	cfg: LokiWaveformStackingPipelineConfig,
 	*,
@@ -204,51 +270,21 @@ def pipeline_loki_waveform_stacking(
 			f'(pre={"on" if inputs.pre_enable else "off"})'
 		)
 
-	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
-	header = parse_loki_header(header_path)
-	l1 = Loki(
-		str(cfg.loki_data_path),
-		str(cfg.loki_output_path),
-		str(cfg.loki_db_path),
-		str(header_path),
-		mode='locator',
-	)
+	l1, header, _header_path = _build_loki(cfg)
 
 	inputs_dict = asdict(inputs)
 	# ★ 前処理キーは LOKI に渡さない
 	loki_kwargs = {k: v for k, v in inputs_dict.items() if k not in _PRE_KEYS}
 
-	db_stas = set(header.stations_df['station'].astype(str).tolist())
-
-	print(f'[DBG] db stations: {len(db_stas)}')
+	db_stas = _log_db_station_summary(header)
 
 	for evid, st in streams_by_event.items():
-		st_stas = sorted(
-			{
-				str(tr.stats.station)
-				for tr in st
-				if getattr(tr.stats, 'station', None) is not None
-			}
+		_log_stream_station_overlap(
+			st,
+			evid=evid,
+			db_stas=db_stas,
+			cfg=cfg,
 		)
-		ch_suf = sorted(
-			{
-				str(tr.stats.channel)[-1]
-				for tr in st
-				if getattr(tr.stats, 'channel', None) is not None
-			}
-		)
-		overlap = sorted(set(st_stas) & db_stas)
-
-		print(
-			f'[DBG] event={evid} traces={len(st)} '
-			f'stations={len(st_stas)} overlap_db={len(overlap)} '
-			f'chan_suffixes={ch_suf} cfg.comp={list(cfg.comp)}'
-		)
-
-		if len(overlap) == 0:
-			# ここが真犯人候補
-			print(f'[DBG]   example station names (stream): {st_stas[:10]}')
-			print(f'[DBG]   example station names (db): {sorted(list(db_stas))[:10]}')
 	l1.location(
 		extension=cfg.extension,
 		comp=list(cfg.comp),
@@ -278,10 +314,6 @@ def pipeline_loki_waveform_stacking_eqt(
 	"""
 	cfg.loki_data_path.mkdir(parents=True, exist_ok=True)
 	cfg.loki_output_path.mkdir(parents=True, exist_ok=True)
-
-	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
-	if not header_path.is_file():
-		raise FileNotFoundError(f'header not found: {header_path}')
 
 	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
@@ -339,13 +371,7 @@ def pipeline_loki_waveform_stacking_eqt(
 		'model': str(getattr(inputs, 'model', 'jma2001')),
 	}
 
-	l1 = Loki(
-		str(cfg.loki_data_path),
-		str(cfg.loki_output_path),
-		str(cfg.loki_db_path),
-		str(header_path),
-		mode='locator',
-	)
+	l1, _header, _header_path = _build_loki(cfg)
 
 	l1.location(
 		extension=cfg.extension,
