@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import TypeVar
@@ -63,6 +63,33 @@ def prepare_win32_stream(
 			fs_expected=float(base_fs_hz),
 		)
 	return st
+
+
+def iter_preprocessed_event_streams(
+	event_dirs: list[Path],
+	inputs: LokiWaveformStackingInputs,
+	prepare_stream_fn: Callable[[Stream], Stream],
+) -> Iterator[tuple[str, Stream]]:
+	pre_enable = bool(inputs.pre_enable)
+	pre_spec = spec_from_inputs(inputs)
+	base_fs_hz = int(inputs.base_sampling_rate_hz)
+
+	for event_dir in event_dirs:
+		event_name = event_dir.name
+		st = prepare_win32_stream(
+			event_dir,
+			base_fs_hz=base_fs_hz,
+			pre_enable=pre_enable,
+			pre_spec=pre_spec,
+		)
+
+		prepared_stream = prepare_stream_fn(st)
+		print(
+			f'prepared stream: event={event_name} '
+			f'n_traces={len(prepared_stream)} dir={event_dir} '
+			f'pre={"on" if pre_enable else "off"}'
+		)
+		yield event_name, prepared_stream
 
 
 def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
@@ -247,26 +274,15 @@ def pipeline_loki_waveform_stacking(
 	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
-	pre_enable = bool(inputs.pre_enable)
-	pre_spec = spec_from_inputs(inputs)
-	base_fs_hz = int(inputs.base_sampling_rate_hz)
-
 	for event_dir in event_dirs:
-		event_name = event_dir.name
-		(cfg.loki_data_path / event_name).mkdir(parents=True, exist_ok=True)
+		(cfg.loki_data_path / event_dir.name).mkdir(parents=True, exist_ok=True)
 
-		st = prepare_win32_stream(
-			event_dir,
-			base_fs_hz=base_fs_hz,
-			pre_enable=pre_enable,
-			pre_spec=pre_spec,
-		)
-
-		streams_by_event[event_name] = st
-		print(
-			f'prepared stream: event={event_name} n_traces={len(st)} dir={event_dir} '
-			f'(pre={"on" if pre_enable else "off"})'
-		)
+	for event_name, stream in iter_preprocessed_event_streams(
+		event_dirs,
+		inputs,
+		prepare_stream_fn=lambda st: st,
+	):
+		streams_by_event[event_name] = stream
 
 	l1, header, _header_path = build_loki_with_header(cfg)
 
@@ -316,22 +332,12 @@ def pipeline_loki_waveform_stacking_eqt(
 	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
-	pre_enable = bool(inputs.pre_enable)
-	pre_spec = spec_from_inputs(inputs)
-	base_fs_hz = int(inputs.base_sampling_rate_hz)
-	fs_expected = float(base_fs_hz)
-
 	for event_dir in event_dirs:
-		event_name = event_dir.name
-		(cfg.loki_data_path / event_name).mkdir(parents=True, exist_ok=True)
+		(cfg.loki_data_path / event_dir.name).mkdir(parents=True, exist_ok=True)
 
-		st = prepare_win32_stream(
-			event_dir,
-			base_fs_hz=base_fs_hz,
-			pre_enable=pre_enable,
-			pre_spec=pre_spec,
-		)
+	fs_expected = float(inputs.base_sampling_rate_hz)
 
+	def build_eqt_prob_stream(st: Stream) -> Stream:
 		probs_by_sta = build_probs_by_station(
 			st,
 			fs=fs_expected,
@@ -340,20 +346,19 @@ def pipeline_loki_waveform_stacking_eqt(
 			eqt_overlap=int(eqt_overlap),
 			eqt_batch_size=int(eqt_batch_size),
 		)
-
-		st_prob = build_loki_ps_prob_stream(
+		return build_loki_ps_prob_stream(
 			ref_stream=st,
 			probs_by_station=probs_by_sta,
 			channel_prefix=str(channel_prefix),
 			require_both_ps=True,
 		)
 
-		streams_by_event[event_name] = st_prob
-		print(
-			f'prepared EqT prob stream: event={event_name} '
-			f'n_traces={len(st_prob)} stations={len(probs_by_sta)} '
-			f'pre={"on" if pre_enable else "off"} dir={event_dir}'
-		)
+	for event_name, stream in iter_preprocessed_event_streams(
+		event_dirs,
+		inputs,
+		prepare_stream_fn=build_eqt_prob_stream,
+	):
+		streams_by_event[event_name] = stream
 
 	comp = list(getattr(cfg, 'comp', ['P', 'S']))
 	if comp != ['P', 'S']:
