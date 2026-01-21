@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
+from typing import TypeVar
 
 import pandas as pd
 from loki.loki import Loki
@@ -39,6 +41,8 @@ _PRE_KEYS = {
 	'pre_mad_c',
 }
 
+_EventContext = TypeVar('_EventContext')
+
 
 def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 	if raw is None:
@@ -50,7 +54,16 @@ def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 	return to_utc(ts, naive_tz='Asia/Tokyo')
 
 
-def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
+def _filter_event_dirs(
+	cfg: LokiWaveformStackingPipelineConfig,
+	*,
+	build_candidates: Callable[[Path], list[Path]],
+	read_event: Callable[[Path], _EventContext | None],
+	get_event_time: Callable[[_EventContext], pd.Timestamp],
+	extra_filter: Callable[[_EventContext], bool] | None,
+	empty_error: str,
+	log_prefix: str,
+) -> list[Path]:
 	base = Path(cfg.base_input_dir)
 	if not base.is_dir():
 		raise FileNotFoundError(f'base_input_dir not found: {base}')
@@ -62,18 +75,17 @@ def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Pa
 			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
 		)
 
-	candidates = sorted(base.glob(cfg.event_glob))
+	candidates = build_candidates(base)
 
 	dirs: list[Path] = []
 	dropped = 0
 
 	for p in candidates:
-		event_json = p / 'event.json'
-		if not (p.is_dir() and event_json.is_file()):
+		ctx = read_event(p)
+		if ctx is None:
 			continue
 
-		ev = load_event_json(p)
-		origin_utc = get_event_origin_utc(ev, event_json_path=event_json)
+		origin_utc = get_event_time(ctx)
 
 		if t_start is not None and origin_utc < t_start:
 			dropped += 1
@@ -82,6 +94,43 @@ def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Pa
 			dropped += 1
 			continue
 
+		if extra_filter is not None and not extra_filter(ctx):
+			dropped += 1
+			continue
+
+		dirs.append(p)
+
+	if cfg.max_events is not None and cfg.max_events > 0:
+		dirs = dirs[: int(cfg.max_events)]
+
+	if not dirs:
+		raise ValueError(
+			empty_error.format(base=base, glob=cfg.event_glob)
+		)
+
+	print(
+		f'{log_prefix}: total={len(candidates)} kept={len(dirs)} dropped={dropped}'
+	)
+	return dirs
+
+
+def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
+	def build_candidates(base: Path) -> list[Path]:
+		return sorted(base.glob(cfg.event_glob))
+
+	def read_event_dir(ev_dir: Path) -> tuple[pd.Timestamp, dict, Path] | None:
+		event_json = ev_dir / 'event.json'
+		if not (ev_dir.is_dir() and event_json.is_file()):
+			return None
+		ev = load_event_json(ev_dir)
+		origin_utc = get_event_origin_utc(ev, event_json_path=event_json)
+		return (origin_utc, ev, event_json)
+
+	def get_event_time(ctx: tuple[pd.Timestamp, dict, Path]) -> pd.Timestamp:
+		return ctx[0]
+
+	def extra_filter(ctx: tuple[pd.Timestamp, dict, Path]) -> bool:
+		ev = ctx[1]
 		mag = None
 		extra = ev.get('extra', {})
 		if not isinstance(extra, dict):
@@ -97,27 +146,26 @@ def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Pa
 
 		if mag is None and (cfg.mag_min is not None or cfg.mag_max is not None):
 			if cfg.drop_if_mag_missing:
-				dropped += 1
-				continue
+				return False
+			return True
+
 		if mag is not None:
 			mag_f = float(mag)
 			if cfg.mag_min is not None and mag_f < float(cfg.mag_min):
-				dropped += 1
-				continue
+				return False
 			if cfg.mag_max is not None and mag_f > float(cfg.mag_max):
-				dropped += 1
-				continue
+				return False
+		return True
 
-		dirs.append(p)
-
-	if cfg.max_events is not None and cfg.max_events > 0:
-		dirs = dirs[: int(cfg.max_events)]
-
-	if not dirs:
-		raise ValueError(f'No event dirs found under: {base} (glob={cfg.event_glob})')
-
-	print(f'event filter: total={len(candidates)} kept={len(dirs)} dropped={dropped}')
-	return dirs
+	return _filter_event_dirs(
+		cfg,
+		build_candidates=build_candidates,
+		read_event=read_event_dir,
+		get_event_time=get_event_time,
+		extra_filter=extra_filter,
+		empty_error='No event dirs found under: {base} (glob={glob})',
+		log_prefix='event filter',
+	)
 
 
 def pipeline_loki_waveform_stacking(
@@ -340,61 +388,38 @@ def list_event_dirs_filtered_forge_das(
 	cfg: LokiWaveformStackingPipelineConfig,
 ) -> list[Path]:
 	"""cut_events_fromzarr_for_loki.py の生成物(event_XXXXXX/meta.json等)を列挙してフィルタする。"""
-	base = Path(cfg.base_input_dir)
-	if not base.is_dir():
-		raise FileNotFoundError(f'base_input_dir not found: {base}')
-
-	# 既存のJST-naive解釈ロジックに合わせて、ここも同じ関数を使う
-	t_start = _parse_cfg_time_utc(cfg.origin_time_start)
-	t_end = _parse_cfg_time_utc(cfg.origin_time_end)
-	if t_start is not None and t_end is not None and t_end < t_start:
-		raise ValueError(
-			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
-		)
-
 	# DASにはmagが無いので、magフィルタ指定は事故源。明示的に止める。
 	if cfg.mag_min is not None or cfg.mag_max is not None:
 		raise ValueError(
 			'ForgeDAS events (meta.json) do not contain magnitude; mag_min/mag_max is unsupported.'
 		)
 
-	candidates = sorted(
-		[p for p in base.glob(cfg.event_glob) if p.is_dir()], key=_das_event_sort_key
-	)
+	def build_candidates(base: Path) -> list[Path]:
+		return sorted(
+			[p for p in base.glob(cfg.event_glob) if p.is_dir()], key=_das_event_sort_key
+		)
 
-	dirs: list[Path] = []
-	dropped = 0
-
-	for p in candidates:
-		waveform_path = p / 'waveform.npy'
-		meta_path = p / 'meta.json'
-		stations_path = p / 'stations.csv'
+	def read_event_dir(ev_dir: Path) -> tuple[pd.Timestamp, dict, Path] | None:
+		waveform_path = ev_dir / 'waveform.npy'
+		meta_path = ev_dir / 'meta.json'
+		stations_path = ev_dir / 'stations.csv'
 		if not (
 			waveform_path.is_file() and meta_path.is_file() and stations_path.is_file()
 		):
-			continue
-
+			return None
 		meta = json.loads(meta_path.read_text(encoding='utf-8', errors='strict'))
 		t0 = _das_event_time_utc_from_meta(meta, meta_path=meta_path)
+		return (t0, meta, meta_path)
 
-		if t_start is not None and t0 < t_start:
-			dropped += 1
-			continue
-		if t_end is not None and t0 > t_end:
-			dropped += 1
-			continue
+	def get_event_time(ctx: tuple[pd.Timestamp, dict, Path]) -> pd.Timestamp:
+		return ctx[0]
 
-		dirs.append(p)
-
-	if cfg.max_events is not None and cfg.max_events > 0:
-		dirs = dirs[: int(cfg.max_events)]
-
-	if not dirs:
-		raise ValueError(
-			f'No DAS event dirs found under: {base} (glob={cfg.event_glob})'
-		)
-
-	print(
-		f'das event filter: total={len(candidates)} kept={len(dirs)} dropped={dropped}'
+	return _filter_event_dirs(
+		cfg,
+		build_candidates=build_candidates,
+		read_event=read_event_dir,
+		get_event_time=get_event_time,
+		extra_filter=None,
+		empty_error='No DAS event dirs found under: {base} (glob={glob})',
+		log_prefix='das event filter',
 	)
-	return dirs
