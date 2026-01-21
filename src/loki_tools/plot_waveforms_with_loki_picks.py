@@ -13,90 +13,22 @@
 
 from __future__ import annotations
 
-import datetime as dt
-from datetime import timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 
 from common.core import load_event_json
 from common.time_util import get_event_origin_utc
 from io_util.stream import build_stream_from_downloaded_win32
-from io_util.trace_util import trace_station_comp
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
 from viz.gather import (
 	plot_gather,  # ←あなたの plot_gather があるモジュールに合わせてimport先修正して
 )
+from viz.gather_util import build_gather_matrix, picks_to_sample_idx
 from waveform.preprocess import (
 	DetrendBandpassSpec,
 	preprocess_stream_detrend_bandpass,
 )
-
-
-def _build_gather_matrix(
-	stream, comp: str
-) -> tuple[np.ndarray, list[str], float, dt.datetime]:
-	"""Returns:
-	- data: (n_station, n_samples)
-	- stations: station keys (e.g., N.FUTH)
-	- fs: sampling rate [Hz] (float)
-	- t_start_utc: window start (datetime, UTC tz-aware)
-
-	"""
-	trs = []
-	for tr in stream:
-		sta_full, c = trace_station_comp(tr)
-		if c != comp:
-			continue
-		trs.append((sta_full, tr))
-
-	if not trs:
-		raise ValueError(f'no traces for comp={comp}')
-
-	fs = float(trs[0][1].stats.sampling_rate)
-
-	# ObsPy は naive datetime を返しがちなので UTC tz-aware に統一
-	t0 = trs[0][1].stats.starttime.datetime
-	if t0.tzinfo is None:
-		t_start_utc = t0.replace(tzinfo=timezone.utc)
-	else:
-		t_start_utc = t0.astimezone(timezone.utc)
-
-	n = min(int(t.stats.npts) for _, t in trs)
-	stations = [sta for sta, _ in trs]
-	data = np.vstack([t.data[:n].astype(np.float32, copy=False) for _, t in trs])
-
-	return data, stations, fs, t_start_utc
-
-
-def _picks_to_sample_idx(
-	stations: list[str],
-	phs_df: pd.DataFrame,
-	*,
-	fs: float,
-	t_start_utc: dt.datetime,
-) -> tuple[np.ndarray, np.ndarray]:
-	phs_df = phs_df.set_index('station')
-	p_idx = np.full(len(stations), np.nan, dtype=float)
-	s_idx = np.full(len(stations), np.nan, dtype=float)
-
-	for i, sta in enumerate(stations):
-		if sta not in phs_df.index:
-			continue
-		tp = phs_df.loc[sta, 'tp']
-		ts = phs_df.loc[sta, 'ts']
-
-		# pandas Timestamp -> python datetime (UTC aware)
-		tp_dt = tp.to_pydatetime()
-		ts_dt = ts.to_pydatetime()
-
-		p_idx[i] = (tp_dt - t_start_utc).total_seconds() * fs
-		s_idx[i] = (ts_dt - t_start_utc).total_seconds() * fs
-
-	return p_idx, s_idx
-
 
 def main() -> None:
 	# =========================
@@ -156,9 +88,20 @@ def main() -> None:
 	phs_df = parse_phs_absolute_times(phs_paths[0])
 
 	for comp in plot_components:
-		data, stations, fs, t_start_utc = _build_gather_matrix(st, comp=comp)
-		p_idx, s_idx = _picks_to_sample_idx(
-			stations, phs_df, fs=fs, t_start_utc=t_start_utc
+		data, stations, fs, t_start_utc = build_gather_matrix(
+			st,
+			comp=comp,
+			start_time_mode='first',
+			length_mode='min',
+			align_on_start=False,
+		)
+		p_idx, s_idx = picks_to_sample_idx(
+			stations,
+			phs_df,
+			fs=fs,
+			t_start_utc=t_start_utc,
+			dropna=False,
+			deduplicate=False,
 		)
 
 		# station_df を trace順に合わせる（無い局は落ちるので NaNのまま）
