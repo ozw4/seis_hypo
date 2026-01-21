@@ -16,7 +16,7 @@ from common.config import (
 )
 from common.core import load_event_json
 from common.json_io import read_json
-from common.time_util import get_event_origin_utc, to_utc
+from common.time_util import get_event_origin_utc, parse_cfg_time_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.build_loki import build_loki_with_header
 from loki_tools.prob_stream import build_loki_ps_prob_stream
@@ -92,16 +92,6 @@ def iter_preprocessed_event_streams(
 		yield event_name, prepared_stream
 
 
-def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
-	if raw is None:
-		return None
-	ts = pd.to_datetime(raw)
-	if pd.isna(ts):
-		raise ValueError(f'failed to parse time: {raw}')
-	# Config times are treated as JST if timezone is omitted.
-	return to_utc(ts, naive_tz='Asia/Tokyo')
-
-
 def _log_db_station_summary(header: object, *, enabled: bool = True) -> set[str]:
 	if not enabled:
 		return set()
@@ -165,8 +155,8 @@ def _filter_event_dirs(
 	if not base.is_dir():
 		raise FileNotFoundError(f'base_input_dir not found: {base}')
 
-	t_start = _parse_cfg_time_utc(cfg.origin_time_start)
-	t_end = _parse_cfg_time_utc(cfg.origin_time_end)
+	t_start = parse_cfg_time_utc(cfg.origin_time_start)
+	t_end = parse_cfg_time_utc(cfg.origin_time_end)
 	if t_start is not None and t_end is not None and t_end < t_start:
 		raise ValueError(
 			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
