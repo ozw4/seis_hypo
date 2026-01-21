@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from common.json_io import read_json, write_json
 
 # --- src/common/core.py に追加（write_event_json の下あたり） ---
 
@@ -67,16 +68,14 @@ def write_event_json(
 		obj['extra'] = extra
 
 	out = event_dir / 'event.json'
-	with out.open('w', encoding='utf-8') as f:
-		json.dump(obj, f, ensure_ascii=False, indent=2)
+	write_json(out, obj, ensure_ascii=False, indent=2)
 
 
 def load_event_json(event_dir: Path) -> dict[str, Any]:
 	p = event_dir / 'event.json'
 	if not p.is_file():
 		raise FileNotFoundError(f'event.json not found: {p}')
-	with p.open('r', encoding='utf-8') as f:
-		return json.load(f)
+	return read_json(p, encoding='utf-8', errors='strict')
 
 
 def write_event_json_win32_groups(
@@ -118,8 +117,7 @@ def write_event_json_win32_groups(
 		obj['extra'] = extra
 
 	out = event_dir / 'event.json'
-	with out.open('w', encoding='utf-8') as f:
-		json.dump(obj, f, ensure_ascii=False, indent=2)
+	write_json(out, obj, ensure_ascii=False, indent=2)
 
 
 def as_int_rate(fs: float, name: str) -> int:

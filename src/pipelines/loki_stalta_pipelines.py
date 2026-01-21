@@ -1,7 +1,6 @@
 # file: src/pipelines/loki_stalta_pipelines.py
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
@@ -9,6 +8,7 @@ import numpy as np
 from obspy import Stream
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
+from common.json_io import write_json
 from io_util.stream import build_stream_from_forge_event_npy
 from loki_tools.build_loki import build_loki_with_header
 from loki_tools.loki_parse import read_phs_token_by_station
@@ -51,11 +51,12 @@ def _require_one_trial_phs(event_out_dir: Path, *, trial: int) -> Path:
 	return phs[0]
 
 
-def _write_json(path: Path, obj: dict) -> None:
-	path = Path(path)
-	path.parent.mkdir(parents=True, exist_ok=True)
-	txt = json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True)
-	path.write_text(txt + '\n', encoding='utf-8')
+def _sort_json_obj(obj: object) -> object:
+	if isinstance(obj, dict):
+		return {k: _sort_json_obj(obj[k]) for k in sorted(obj, key=str)}
+	if isinstance(obj, list):
+		return [_sort_json_obj(v) for v in obj]
+	return obj
 
 
 def _ones_prob(npts: int) -> np.ndarray:
@@ -251,7 +252,14 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 			obj['channel_stride'] = int(stride)
 			obj['channels_original'] = int(orig_n_channels)
 			obj['channels_kept'] = int(kept_n_channels)
-		_write_json(out_json, obj)
+		write_json(
+			out_json,
+			_sort_json_obj(obj),
+			ensure_ascii=False,
+			indent=2,
+		)
+		with out_json.open('a', encoding='utf-8') as f:
+			f.write('\n')
 		pick_json_by_event[str(event_name)] = out_json
 
 		print(

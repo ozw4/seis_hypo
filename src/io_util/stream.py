@@ -1,5 +1,4 @@
 import datetime as dt
-import json
 import logging
 from collections.abc import Iterable
 from pathlib import Path
@@ -9,6 +8,7 @@ import pandas as pd
 from obspy import Stream, Trace, UTCDateTime
 
 from common.core import load_event_json, slice_with_pad
+from common.json_io import read_json
 from common.time_util import floor_minute
 from jma.station_reader import read_hinet_channel_table
 from jma.win32_reader import read_win32
@@ -238,7 +238,7 @@ def build_stream_from_forge_event_npy(
 	if not stations_path.is_file():
 		raise FileNotFoundError(f'stations.csv not found: {stations_path}')
 
-	meta = json.loads(meta_path.read_text(encoding='utf-8'))
+	meta = read_json(meta_path, encoding='utf-8', errors='strict')
 	fs_hz = float(meta['fs_hz'])
 	if fs_hz <= 0.0:
 		raise ValueError(f'fs_hz must be > 0. got {fs_hz}')

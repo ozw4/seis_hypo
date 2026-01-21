@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Literal
+
+from common.json_io import read_json, write_json
 
 
 def read_done_json(
@@ -17,7 +18,7 @@ def read_done_json(
 			return {}
 		raise FileNotFoundError(p)
 	try:
-		return json.loads(p.read_text(encoding='utf-8'))
+		return read_json(p, encoding='utf-8', errors='strict')
 	except Exception:
 		if on_error == 'empty':
 			return {}
@@ -27,9 +28,9 @@ def read_done_json(
 def write_done_json(path: Path, data: dict[str, Any]) -> None:
 	p = Path(path)
 	p.parent.mkdir(parents=True, exist_ok=True)
-	p.write_text(
-		json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8'
-	)
+	write_json(p, data, ensure_ascii=False, indent=2)
+	with p.open('a', encoding='utf-8') as f:
+		f.write('\n')
 
 
 def should_skip_done(

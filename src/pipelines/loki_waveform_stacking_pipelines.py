@@ -1,7 +1,6 @@
 # file: src/pipelines/loki_waveform_stacking_pipelines.py
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
 from dataclasses import asdict
@@ -16,6 +15,7 @@ from common.config import (
 	LokiWaveformStackingPipelineConfig,
 )
 from common.core import load_event_json
+from common.json_io import read_json
 from common.time_util import get_event_origin_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.build_loki import build_loki_with_header
@@ -426,7 +426,7 @@ def list_event_dirs_filtered_forge_das(
 			waveform_path.is_file() and meta_path.is_file() and stations_path.is_file()
 		):
 			return None
-		meta = json.loads(meta_path.read_text(encoding='utf-8', errors='strict'))
+		meta = read_json(meta_path, encoding='utf-8', errors='strict')
 		t0 = _das_event_time_utc_from_meta(meta, meta_path=meta_path)
 		return (t0, meta, meta_path)
 
