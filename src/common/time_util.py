@@ -87,3 +87,18 @@ def get_event_origin_utc(ev: dict, event_json_path: Path) -> pd.Timestamp:
 
 
 _JST_UTC_OFFSET_HOURS = 9
+
+
+def parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
+	"""Config 時刻文字列を UTC-aware Timestamp に正規化する。
+
+	- raw が None の場合は None
+	- timezone 省略時は JST として扱う
+	"""
+	if raw is None:
+		return None
+	ts = pd.to_datetime(raw)
+	if pd.isna(ts):
+		raise ValueError(f'failed to parse time: {raw}')
+	# Config times are treated as JST if timezone is omitted.
+	return to_utc(ts, naive_tz='Asia/Tokyo')
