@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import TypeVar
 
 import pandas as pd
-from loki.loki import Loki
 from obspy import Stream
 
 from common.config import (
@@ -19,7 +18,7 @@ from common.config import (
 from common.core import load_event_json
 from common.time_util import get_event_origin_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
-from loki_tools.loki_parse import parse_loki_header
+from loki_tools.build_loki import build_loki_with_header
 from loki_tools.prob_stream import build_loki_ps_prob_stream
 from pick.eqt_probs import build_probs_by_station
 from waveform.preprocess import (
@@ -74,23 +73,6 @@ def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 		raise ValueError(f'failed to parse time: {raw}')
 	# Config times are treated as JST if timezone is omitted.
 	return to_utc(ts, naive_tz='Asia/Tokyo')
-
-
-def _build_loki(
-	cfg: LokiWaveformStackingPipelineConfig,
-) -> tuple[Loki, object, Path]:
-	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
-	if not header_path.is_file():
-		raise FileNotFoundError(f'header not found: {header_path}')
-	header = parse_loki_header(header_path)
-	loki = Loki(
-		str(cfg.loki_data_path),
-		str(cfg.loki_output_path),
-		str(cfg.loki_db_path),
-		str(header_path),
-		mode='locator',
-	)
-	return loki, header, header_path
 
 
 def _log_db_station_summary(header: object, *, enabled: bool = True) -> set[str]:
@@ -286,7 +268,7 @@ def pipeline_loki_waveform_stacking(
 			f'(pre={"on" if pre_enable else "off"})'
 		)
 
-	l1, header, _header_path = _build_loki(cfg)
+	l1, header, _header_path = build_loki_with_header(cfg)
 
 	inputs_dict = asdict(inputs)
 	# ★ 前処理キーは LOKI に渡さない
@@ -382,7 +364,7 @@ def pipeline_loki_waveform_stacking_eqt(
 		'model': str(getattr(inputs, 'model', 'jma2001')),
 	}
 
-	l1, _header, _header_path = _build_loki(cfg)
+	l1, _header, _header_path = build_loki_with_header(cfg)
 
 	l1.location(
 		extension=cfg.extension,
