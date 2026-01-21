@@ -6,11 +6,11 @@ import shutil
 from pathlib import Path
 
 import numpy as np
-from loki.loki import Loki
 from obspy import Stream
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
 from io_util.stream import build_stream_from_forge_event_npy
+from loki_tools.build_loki import build_loki_with_header
 from loki_tools.loki_parse import read_phs_token_by_station
 from loki_tools.prob_stream import build_loki_ps_prob_stream
 from pick.stalta_probs import (  # type: ignore
@@ -100,9 +100,12 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 	out_dir = Path(cfg.loki_output_path) / str(output_subdir)
 	out_dir.mkdir(parents=True, exist_ok=True)
 
-	header_path = Path(cfg.loki_db_path) / Path(cfg.loki_hdr_filename)
-	if not header_path.is_file():
-		raise FileNotFoundError(f'header not found: {header_path}')
+	stream_data_root = Path(cfg.loki_data_path) / '_streaming_direct_input'
+	l1, _header, _header_path = build_loki_with_header(
+		cfg,
+		data_path=stream_data_root,
+		output_path=out_dir,
+	)
 
 	event_dirs = list_event_dirs_filtered_forge_das(cfg)
 
@@ -127,16 +130,7 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 	stride = _normalize_channel_stride(channel_stride)
 
 	# 逐次専用の隔離 data_path（ここに「今処理中の1イベント」だけ置く）
-	stream_data_root = Path(cfg.loki_data_path) / '_streaming_direct_input'
 	_reset_dir_empty(stream_data_root)
-
-	l1 = Loki(
-		str(stream_data_root),
-		str(out_dir),
-		str(cfg.loki_db_path),
-		str(header_path),
-		mode='locator',
-	)
 	print(f'[STALTA-PASS1-DAS] output: {out_dir}')
 	print(f'[STALTA-PASS1-DAS] streaming data_path: {stream_data_root}')
 
