@@ -11,6 +11,7 @@ from obspy import Stream
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
 from io_util.stream import build_stream_from_forge_event_npy
+from loki_tools.loki_parse import read_phs_token_by_station
 from loki_tools.prob_stream import build_loki_ps_prob_stream
 from pick.stalta_probs import (  # type: ignore
 	StaltaProbSpec,
@@ -48,54 +49,6 @@ def _require_one_trial_phs(event_out_dir: Path, *, trial: int) -> Path:
 			f'multiple *trial{trial}.phs in {event_out_dir}: {[p.name for p in phs]}'
 		)
 	return phs[0]
-
-
-def _read_phs_token_by_station(phs_path: Path, *, phase: str) -> dict[str, str]:
-	"""LOKI出力 .phs を station -> token の生文字列で読む（2列/3列以上に対応）。
-
-	想定:
-	- 2列: station token
-	- 3列+: station Ptoken Stoken ...
-
-	規約:
-	- phase='P': cols[1]
-	- phase='S': cols[2] if exists else cols[1]
-	"""
-	phs_path = Path(phs_path)
-	phase_s = str(phase)
-	if phase_s not in ('P', 'S'):
-		raise ValueError(f"phase must be 'P' or 'S', got {phase!r}")
-
-	out: dict[str, str] = {}
-	for ln in phs_path.read_text(encoding='utf-8', errors='strict').splitlines():
-		if not ln:
-			continue
-		if ln.startswith('#'):
-			continue
-		cols = ln.split()
-		if not cols:
-			continue
-		if cols[0].lower() == 'station':
-			continue
-		if len(cols) < 2:
-			raise ValueError(
-				f"invalid .phs line (need >=2 cols): {phs_path} line='{ln}'"
-			)
-
-		sta = str(cols[0])
-
-		if phase_s == 'P':
-			tok = str(cols[1])
-		else:
-			tok = str(cols[2]) if len(cols) >= 3 else str(cols[1])
-
-		if sta in out:
-			raise ValueError(f'duplicate station in phs: station={sta} file={phs_path}')
-		out[sta] = tok
-
-	if not out:
-		raise ValueError(f'no phs rows parsed: {phs_path}')
-	return out
 
 
 def _write_json(path: Path, obj: dict) -> None:
@@ -287,7 +240,8 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 
 		ev_out_dir = out_dir / event_name
 		phs_path = _require_one_trial_phs(ev_out_dir, trial=int(trial))
-		p_tok = _read_phs_token_by_station(phs_path, phase='P')
+		# phase='P'/'S' と station -> token(str) 返却の仕様は旧実装と一致させる。
+		p_tok = read_phs_token_by_station(phs_path, phase='P')
 
 		out_json = ev_out_dir / str(pick_json_name)
 		obj = {
