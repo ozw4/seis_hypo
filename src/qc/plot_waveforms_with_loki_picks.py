@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from common.core import load_event_json
-from common.time_util import origin_to_utc
+from common.time_util import get_event_origin_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
 from loki_tools.plot_waveforms_with_loki_picks import plot_gather
@@ -44,11 +44,9 @@ def plot_waveforms_with_picks_for_event(
 	)
 
 	ev = load_event_json(event_dir)
-	origin = ev.get('origin_time_jst', None) or ev.get('origin_time', None)
-	if origin is None:
-		raise ValueError(f'origin_time missing in {event_dir / "event.json"}')
-
-	event_time_utc = origin_to_utc(origin).to_pydatetime()
+	event_time_utc = get_event_origin_utc(
+		ev, event_json_path=event_dir / 'event.json'
+	).to_pydatetime()
 
 	stations_df = parse_loki_header(header_path).stations_df
 	phs_df = parse_phs_absolute_times(phs_paths[0])  # station,tp,ts（UTC想定）

@@ -4,6 +4,7 @@ import datetime as dt
 import math
 from collections.abc import Iterator
 from datetime import timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -58,6 +59,31 @@ def origin_to_utc(origin: object) -> pd.Timestamp:
 	if ts.tzinfo is None:
 		ts = ts.tz_localize('Asia/Tokyo')
 	return ts.tz_convert('UTC')
+
+
+def get_event_origin_utc(ev: dict, event_json_path: Path) -> pd.Timestamp:
+	"""event.json の origin_time を UTC-aware Timestamp に正規化する。
+
+	優先順位:
+	- origin_time_jst があればそれを優先
+	- なければ origin_time を使う
+
+	naive の扱い:
+	- origin_time_jst: JST として扱う
+	- origin_time: UTC として扱う
+	"""
+	origin_jst = ev.get('origin_time_jst')
+	origin_other = ev.get('origin_time')
+	origin_raw = origin_jst if origin_jst is not None else origin_other
+	if origin_raw is None:
+		raise ValueError(f'missing origin_time(_jst) in {event_json_path}')
+
+	origin = pd.to_datetime(origin_raw)
+	if pd.isna(origin):
+		raise ValueError(f'failed to parse origin_time in {event_json_path}')
+
+	naive_tz = 'Asia/Tokyo' if origin_jst is not None else 'UTC'
+	return to_utc(origin, naive_tz=naive_tz)
 
 
 _JST_UTC_OFFSET_HOURS = 9

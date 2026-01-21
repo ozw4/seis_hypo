@@ -8,7 +8,7 @@ import pandas as pd
 
 from common.core import load_event_json
 from common.geo import haversine_distance_km, local_xy_km_to_latlon
-from common.time_util import to_utc
+from common.time_util import get_event_origin_utc, to_utc
 from loki_tools.loki_parse import (
 	infer_event_origin_time_from_loki_result,
 	list_event_dirs,
@@ -64,10 +64,15 @@ def load_jma_event_jsons(
 				f'lat/lon/dep may be under extra)'
 			)
 
+		origin_time_utc = get_event_origin_utc(
+			ev, event_json_path=evdir / 'event.json'
+		)
+
 		rows.append(
 			{
 				'event_id': event_id,
 				'origin_time_jma': str(origin_time),
+				'origin_time_jma_utc': origin_time_utc,
 				'lat_jma': float(lat),
 				'lon_jma': float(lon),
 				'depth_km_jma': float(dep),
@@ -77,6 +82,7 @@ def load_jma_event_jsons(
 
 	df = pd.DataFrame(rows)
 	df['origin_time_jma'] = pd.to_datetime(df['origin_time_jma'])
+	df['origin_time_jma_utc'] = pd.to_datetime(df['origin_time_jma_utc'], utc=True)
 	return df
 
 
@@ -153,11 +159,12 @@ def build_compare_df(
 
 	# ---- origin time error (LOKI - JMA) ----
 	df['origin_time_jma'] = pd.to_datetime(df['origin_time_jma'])
+	df['origin_time_jma_utc'] = pd.to_datetime(df['origin_time_jma_utc'], utc=True)
 	df['origin_time_loki'] = pd.to_datetime(df['origin_time_loki'])
 
 	dt_sec: list[float] = []
 	for r in df.itertuples(index=False):
-		j = to_utc(pd.Timestamp(r.origin_time_jma), naive_tz='Asia/Tokyo')
+		j = to_utc(pd.Timestamp(r.origin_time_jma_utc), naive_tz='UTC')
 		l = to_utc(pd.Timestamp(r.origin_time_loki), naive_tz='UTC')
 		dt_sec.append(float((l - j).total_seconds()))
 	df['dt_origin_sec'] = dt_sec
