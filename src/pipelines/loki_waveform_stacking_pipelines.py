@@ -44,6 +44,28 @@ _PRE_KEYS = {
 _EventContext = TypeVar('_EventContext')
 
 
+def prepare_win32_stream(
+	event_dir: Path,
+	*,
+	base_fs_hz: int,
+	pre_enable: bool,
+	pre_spec: dict[str, float | str | bool | None],
+) -> Stream:
+	st = build_stream_from_downloaded_win32(
+		event_dir,
+		base_sampling_rate_hz=int(base_fs_hz),
+		components_order=('U', 'N', 'E'),
+	)
+
+	if pre_enable:
+		preprocess_stream_detrend_bandpass(
+			st,
+			spec=pre_spec,
+			fs_expected=float(base_fs_hz),
+		)
+	return st
+
+
 def _parse_cfg_time_utc(raw: str | None) -> pd.Timestamp | None:
 	if raw is None:
 		return None
@@ -243,31 +265,25 @@ def pipeline_loki_waveform_stacking(
 	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
-	# 前処理specは inputs から作る（yaml管理）。属性が無い場合はデフォルト値を使用。
+	pre_enable = bool(inputs.pre_enable)
 	pre_spec = spec_from_inputs(inputs)
-	fs_expected = float(inputs.base_sampling_rate_hz)
+	base_fs_hz = int(inputs.base_sampling_rate_hz)
 
 	for event_dir in event_dirs:
 		event_name = event_dir.name
 		(cfg.loki_data_path / event_name).mkdir(parents=True, exist_ok=True)
 
-		st = build_stream_from_downloaded_win32(
+		st = prepare_win32_stream(
 			event_dir,
-			base_sampling_rate_hz=int(inputs.base_sampling_rate_hz),
-			components_order=('U', 'N', 'E'),
+			base_fs_hz=base_fs_hz,
+			pre_enable=pre_enable,
+			pre_spec=pre_spec,
 		)
-
-		if inputs.pre_enable:
-			preprocess_stream_detrend_bandpass(
-				st,
-				spec=pre_spec,
-				fs_expected=fs_expected,
-			)
 
 		streams_by_event[event_name] = st
 		print(
 			f'prepared stream: event={event_name} n_traces={len(st)} dir={event_dir} '
-			f'(pre={"on" if inputs.pre_enable else "off"})'
+			f'(pre={"on" if pre_enable else "off"})'
 		)
 
 	l1, header, _header_path = _build_loki(cfg)
@@ -318,26 +334,21 @@ def pipeline_loki_waveform_stacking_eqt(
 	event_dirs = list_event_dirs_filtered(cfg)
 	streams_by_event: dict[str, Stream] = {}
 
-	pre_enable = bool(getattr(inputs, 'pre_enable', True))
+	pre_enable = bool(inputs.pre_enable)
 	pre_spec = spec_from_inputs(inputs)
-	fs_expected = float(inputs.base_sampling_rate_hz)
+	base_fs_hz = int(inputs.base_sampling_rate_hz)
+	fs_expected = float(base_fs_hz)
 
 	for event_dir in event_dirs:
 		event_name = event_dir.name
 		(cfg.loki_data_path / event_name).mkdir(parents=True, exist_ok=True)
 
-		st = build_stream_from_downloaded_win32(
+		st = prepare_win32_stream(
 			event_dir,
-			base_sampling_rate_hz=int(inputs.base_sampling_rate_hz),
-			components_order=('U', 'N', 'E'),
+			base_fs_hz=base_fs_hz,
+			pre_enable=pre_enable,
+			pre_spec=pre_spec,
 		)
-
-		if pre_enable:
-			preprocess_stream_detrend_bandpass(
-				st,
-				spec=pre_spec,
-				fs_expected=fs_expected,
-			)
 
 		probs_by_sta = build_probs_by_station(
 			st,
