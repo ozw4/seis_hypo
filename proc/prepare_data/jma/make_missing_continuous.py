@@ -30,8 +30,7 @@ OUT_MISSING_CSV = Path(
 ).resolve()
 
 SKIP_IF_NO_ACTIVE_CH = True
-
-
+SKIP_IF_DONE = True
 DATE_MIN = '2023-01-01'
 DATE_MAX = '2023-01-31'
 
@@ -48,6 +47,7 @@ def main() -> None:
 		skip_if_no_active_ch=SKIP_IF_NO_ACTIVE_CH,
 		date_min=DATE_MIN,
 		date_max=DATE_MAX,
+		skip_if_done=SKIP_IF_DONE,
 	)
 
 

@@ -39,8 +39,8 @@ CLEANUP = True
 SKIP_IF_EXISTS = True
 
 # ---- 期間フィルタ（ディレクトリ名 DYYYYMMDD... の YYYYMMDD で絞る）----
-DATE_MIN: str | None = '2023-01-01'
-DATE_MAX: str | None = '2023-01-31'
+DATE_MIN: str | None = '2023-02-09'
+DATE_MAX: str | None = '2023-05-01'
 
 # ---- 処理済み skip（ネットワーク単位 done マーカー方式） ----
 SKIP_IF_DONE = True
@@ -141,6 +141,7 @@ def main() -> None:
 	client = create_hinet_client()
 
 	event_dirs = list_event_dirs(WIN_EVENT_DIR, target_names=TARGET_EVENT_DIR_NAMES)
+
 	if not event_dirs:
 		raise RuntimeError(f'no event dirs under: {WIN_EVENT_DIR}')
 
@@ -208,6 +209,12 @@ def main() -> None:
 					network_code=str(network_code),
 				)
 				if SKIP_IF_DONE and _should_skip_net_done(net_done, run_tag=run_tag2):
+					print(
+						f'[info] skip network (done exists): '
+						f'code={network_code} start={t0} span_min={span_min} '
+						f'n_stations={len(stations)}',
+						flush=True,
+					)
 					continue
 
 				select_supported = _supports_station_selection(network_code)

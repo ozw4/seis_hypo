@@ -18,13 +18,13 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
-from jma.prepare.event_txt import read_event_txt_meta
 from jma.prepare.event_paths import (
 	resolve_active_ch,
 	resolve_missing_continuous,
 	resolve_single_evt,
 	resolve_txt_for_evt,
 )
+from jma.prepare.event_txt import read_event_txt_meta
 from jma.prepare.missing_io import read_missing_pairs
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
@@ -65,7 +65,7 @@ SKIP_IF_EXISTS = True
 CONT_SCAN_SECOND_BLOCKS = 3
 
 # ---- Step2 実行済みチェック（doneマーカー） ----
-SKIP_IF_STEP2_NOT_DONE = True
+SKIP_IF_STEP2_NOT_DONE = False
 STEP2_RUN_TAG = 'v1'  # Step2側の RUN_TAG と合わせる
 
 # ---- Step3 実行済みチェック（doneマーカー） ----
@@ -102,9 +102,6 @@ class EventInputs:
 	active_ch_path: Path
 	event_txt_path: Path
 	missing_path: Path | None
-
-
-
 
 
 def _load_station_geo_0101(channel_table_path: Path) -> dict[str, tuple[float, float]]:
@@ -308,10 +305,10 @@ def _select_nearest_0101(
 
 
 def _step2_done_exists(event_dir: Path, *, evt_stem: str, run_tag: str) -> bool:
-	p0 = event_dir / f'{evt_stem}_continuous_download_done_{run_tag}.json'
+	p0 = event_dir / f'{evt_stem}_missing_continuous_done_{run_tag}.json'
 	if p0.is_file():
 		return True
-	pats = list(event_dir.glob(f'{evt_stem}_continuous_download_done_{run_tag}_*.json'))
+	pats = list(event_dir.glob(f'{evt_stem}_missing_continuous_done_{run_tag}_*.json'))
 	return len(pats) > 0
 
 
@@ -419,7 +416,12 @@ def main() -> None:
 		if evt_path is None:
 			_p(f'  [warn] skip (no .evt): {event_dir}')
 			continue
-		active_ch_path = resolve_active_ch(event_dir, mode='glob_single')
+		try:
+			active_ch_path = resolve_active_ch(event_dir, mode='glob_single')
+		except ValueError as e:
+			if 'must be exactly 1' in str(e):
+				_p(f'  [warn] skip (no _active.ch): {evt_path}')
+				continue
 		event_txt_path = resolve_txt_for_evt(evt_path)
 		missing_path = resolve_missing_continuous(event_dir, stem=evt_path.stem)
 		inp = EventInputs(
@@ -878,7 +880,9 @@ def main() -> None:
 					},
 				},
 			)
-
+		except Exception as e:
+			_p(f'  [error] failed: {e!r}')
+			continue
 		finally:
 			log_f.close()
 
