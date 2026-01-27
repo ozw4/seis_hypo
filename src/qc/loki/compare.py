@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -17,6 +16,7 @@ from loki_tools.plot_error_stats import (
 	plot_hist,
 )
 from viz.events_map import plot_events_map_and_sections
+from viz.loki.compare import plot_hist_overlay, save_scatter
 from viz.plot_config import PlotConfig
 
 
@@ -72,53 +72,6 @@ def print_error_summary(
 			f'd3_km: n={n_d3}, mean={mean_d3:.3f}, median={med_d3:.3f}, '
 			f'RMSE={rmse_d3:.3f}'
 		)
-
-
-def plot_hist_overlay(
-	series: list[np.ndarray],
-	labels: list[str],
-	*,
-	title: str,
-	xlabel: str,
-	out_png: Path,
-	bins: int,
-	density: bool = True,
-) -> None:
-	if len(series) == 0:
-		raise ValueError('series must be non-empty')
-	if len(series) != len(labels):
-		raise ValueError('len(series) must match len(labels)')
-
-	series_f = [_finite_1d(s) for s in series]
-	all_vals = np.concatenate([s for s in series_f if s.size > 0], axis=0)
-	if all_vals.size == 0:
-		raise RuntimeError('no finite values to plot')
-
-	edges = np.histogram_bin_edges(all_vals, bins=bins)
-
-	fig = plt.figure(figsize=(9, 4.8))
-	ax = fig.add_subplot(111)
-	for s, lbl in zip(series_f, labels, strict=True):
-		if s.size == 0:
-			continue
-		ax.hist(
-			s,
-			bins=edges,
-			histtype='step',
-			density=bool(density),
-			label=f'{lbl} (n={s.size})',
-			linewidth=2.0,
-		)
-
-	ax.set_title(title)
-	ax.set_xlabel(xlabel)
-	ax.set_ylabel('Density' if density else 'Count')
-	ax.legend()
-	fig.tight_layout()
-
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
 
 
 def compare_error_hists_from_compare_csvs(
@@ -406,25 +359,23 @@ def run_loki_vs_jma_qc(
 		out_png=error_out_dir / 'dz_km_box_by_mag.png',
 	)
 
-	fig = plt.figure(figsize=(9, 4.8))
-	ax = fig.add_subplot(111)
-	ax.scatter(df_mag['mag_jma'].to_numpy(), df_mag['dh_km'].to_numpy())
-	ax.set_title('dh_km vs JMA magnitude')
-	ax.set_xlabel('JMA magnitude')
-	ax.set_ylabel('dh_km [km]')
-	fig.tight_layout()
-	fig.savefig(error_out_dir / 'dh_km_vs_mag.png', dpi=200)
-	plt.close(fig)
+	save_scatter(
+		df_mag['mag_jma'].to_numpy(),
+		df_mag['dh_km'].to_numpy(),
+		title='dh_km vs JMA magnitude',
+		xlabel='JMA magnitude',
+		ylabel='dh_km [km]',
+		out_png=error_out_dir / 'dh_km_vs_mag.png',
+	)
 
-	fig = plt.figure(figsize=(9, 4.8))
-	ax = fig.add_subplot(111)
-	ax.scatter(df_mag['mag_jma'].to_numpy(), df_mag['dz_km'].to_numpy())
-	ax.set_title('dz_km vs JMA magnitude')
-	ax.set_xlabel('JMA magnitude')
-	ax.set_ylabel('dz_km [km]')
-	fig.tight_layout()
-	fig.savefig(error_out_dir / 'dz_km_vs_mag.png', dpi=200)
-	plt.close(fig)
+	save_scatter(
+		df_mag['mag_jma'].to_numpy(),
+		df_mag['dz_km'].to_numpy(),
+		title='dz_km vs JMA magnitude',
+		xlabel='JMA magnitude',
+		ylabel='dz_km [km]',
+		out_png=error_out_dir / 'dz_km_vs_mag.png',
+	)
 
 	summary = df_mag.groupby('mag_bin', as_index=False).agg(
 		n=('event_id', 'count'),

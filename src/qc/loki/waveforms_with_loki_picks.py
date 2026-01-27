@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-
 from common.core import load_event_json
 from common.time_util import get_event_origin_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.loki_parse import parse_loki_header, parse_phs_absolute_times
-from loki_tools.plot_waveforms_with_loki_picks import plot_gather
 from viz.gather_util import build_gather_matrix, picks_to_sample_idx
+from viz.loki.waveforms_with_picks import save_gather_with_loki_picks
 
 # EqT backend（あなたが src/pick などに追加した想定）
 # backend_eqt_probs(x_3cn, fs, weights=..., in_samples=..., overlap=..., batch_size=...)
@@ -59,30 +57,20 @@ def plot_waveforms_with_picks_for_event(
 
 		sta_meta = stations_df.set_index('station').reindex(stations).reset_index()
 
-		fig, ax = plt.subplots(figsize=(max(10.0, 0.18 * len(stations)), 8))
-		plot_gather(
+		out_png = ev_out_dir / f'waveform_with_loki_picks_{comp}.png'
+
+		save_gather_with_loki_picks(
 			data,
 			station_df=sta_meta.rename(
 				columns={'station': 'station', 'lat': 'lat', 'lon': 'lon'}
 			),
-			# 前処理済みなので、ここでは「表示用」のzscoreだけ入れるのはアリ
-			scaling='zscore',
-			amp=1.0,
-			title=f'event={event_id} comp={comp} (LOKI P/S picks)',
+			event_id=event_id,
+			comp=comp,
 			p_idx=p_idx,
 			s_idx=s_idx,
-			order_mode='pca',
-			ax=ax,
-			decim=1,
-			detrend=None,  # 二重detrendしない
-			taper_frac=0.02,
+			out_png=out_png,
 			y_time=y_time,
-			fs=fs if y_time != 'samples' else None,
-			t_start=t_start_utc if y_time != 'samples' else None,
-			event_time=event_time_utc if y_time == 'relative' else None,
+			fs=fs,
+			t_start_utc=t_start_utc,
+			event_time_utc=event_time_utc,
 		)
-
-		out_png = ev_out_dir / f'waveform_with_loki_picks_{comp}.png'
-		out_png.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(out_png, dpi=200)
-		plt.close(fig)
