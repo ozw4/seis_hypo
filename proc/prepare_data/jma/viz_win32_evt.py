@@ -14,6 +14,7 @@ from jma.picks import (
 	find_event_id_by_origin,
 	pick_time_to_index,
 )
+from jma.prepare.event_paths import resolve_active_ch, resolve_txt_for_evt
 from jma.prepare.event_txt import read_origin_jst_iso
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code
@@ -158,13 +159,8 @@ def main() -> None:
 			if not evt_path.is_file():
 				continue
 
-			txt_path = evt_path.with_suffix('.txt')
-			ch_path = evt_path.with_name(f'{evt_path.stem}_active.ch')
-
-			if not txt_path.is_file():
-				raise FileNotFoundError(txt_path)
-			if not ch_path.is_file():
-				raise FileNotFoundError(ch_path)
+			txt_path = resolve_txt_for_evt(evt_path)
+			ch_path = resolve_active_ch(evt_path.parent, stem=evt_path.stem)
 
 			origin_iso = read_origin_jst_iso(txt_path)
 			event_time = pd.to_datetime(

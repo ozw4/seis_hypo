@@ -6,7 +6,6 @@ import csv
 import os
 import shutil
 import time
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import pandas as pd
 from common.time_util import floor_minute
 from jma.download import create_hinet_client
 from jma.prepare.event_dirs import in_date_range, list_event_dirs, parse_date_yyyy_mm_dd
+from jma.prepare.step1_paths import build_step1_paths
 from jma.prepare.event_txt import read_origin_jst_iso
 
 # =========================
@@ -145,28 +145,8 @@ def _minute0_from_event_dir_name(dir_name: str) -> str | None:
 	return ts14[0:12]
 
 
-@dataclass(frozen=True)
-class Step1Files:
-	stem: str
-	evt_path: Path
-	ch_path: Path
-	txt_path: Path
-	active_ch_path: Path
-
-
-def _step1_paths(event_dir: Path) -> Step1Files:
-	stem = event_dir.name
-	return Step1Files(
-		stem=stem,
-		evt_path=event_dir / f'{stem}.evt',
-		ch_path=event_dir / f'{stem}.ch',
-		txt_path=event_dir / f'{stem}.txt',  # ★この1ファイルだけを見る
-		active_ch_path=event_dir / f'{stem}_active.ch',
-	)
-
-
 def _event_step1_ok(event_dir: Path) -> bool:
-	p = _step1_paths(event_dir)
+	p = build_step1_paths(event_dir)
 	return p.evt_path.is_file() and p.ch_path.is_file() and p.txt_path.is_file()
 
 
@@ -258,7 +238,7 @@ def _scan_orphan_dirs(
 	for d in list_event_dirs(
 		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
 	):
-		p = _step1_paths(d)
+		p = build_step1_paths(d)
 		missing = []
 		if not p.txt_path.is_file():
 			missing.append('txt')
@@ -301,7 +281,7 @@ def _build_origin_ns_to_dir_map(
 	for d in list_event_dirs(
 		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
 	):
-		p = _step1_paths(d)
+		p = build_step1_paths(d)
 		if not p.txt_path.is_file():
 			continue
 		try:
@@ -411,7 +391,7 @@ def main() -> None:
 			ok += 1
 			continue
 
-		p = _step1_paths(event_dir)
+		p = build_step1_paths(event_dir)
 		missing = []
 		if not p.evt_path.is_file():
 			missing.append('evt')
@@ -562,7 +542,7 @@ def main() -> None:
 
 		n_applied = 0
 		for d in downloaded_dirs:
-			p = _step1_paths(d)
+			p = build_step1_paths(d)
 
 			want = False
 			origin_ns = None
@@ -584,20 +564,14 @@ def main() -> None:
 			dst_dir = WIN_EVENT_DIR / d.name
 			dst_dir.mkdir(parents=True, exist_ok=True)
 
-			src_evt = d / f'{d.name}.evt'
-			src_ch = d / f'{d.name}.ch'
-			src_txt = d / f'{d.name}.txt'
+			dst_paths = build_step1_paths(dst_dir)
 
-			dst_evt = dst_dir / f'{d.name}.evt'
-			dst_ch = dst_dir / f'{d.name}.ch'
-			dst_txt = dst_dir / f'{d.name}.txt'
-
-			if src_evt.is_file():
-				_safe_copy(src_evt, dst_evt)
-			if src_ch.is_file():
-				_safe_copy(src_ch, dst_ch)
-			if src_txt.is_file():
-				_safe_copy(src_txt, dst_txt)
+			if p.evt_path.is_file():
+				_safe_copy(p.evt_path, dst_paths.evt_path)
+			if p.ch_path.is_file():
+				_safe_copy(p.ch_path, dst_paths.ch_path)
+			if p.txt_path.is_file():
+				_safe_copy(p.txt_path, dst_paths.txt_path)
 
 			n_applied += 1
 
