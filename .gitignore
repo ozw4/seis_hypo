@@ -52,6 +52,7 @@ debug_*/
 outputs/
 tmp_code/
 model_weight
+*/runs/
 # Hypoinverse artifacts (file-based)
 **/hypoinverse_input.arc
 **/hypoinverse_run.prt
