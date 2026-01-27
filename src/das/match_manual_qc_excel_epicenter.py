@@ -176,27 +176,3 @@ def match_excel_to_epicenters_with_das(
 		raise RuntimeError('対応が取れた event_id が 1 件もありません。')
 
 	return matched_event_ids, das_by_event_id
-
-
-def subset_by_event_ids(df: pd.DataFrame, event_ids: set[int]) -> pd.DataFrame:
-	"""任意の DataFrame を event_id で絞り込む。epicenters / measurements 共通で使う想定。"""
-	if 'event_id' not in df.columns:
-		raise ValueError('event_id 列がありません。')
-	df_sub = df[df['event_id'].isin(event_ids)].copy()
-	df_sub = df_sub.sort_values('event_id').reset_index(drop=True)
-	return df_sub
-
-
-def attach_das_score(
-	df_ep_subset: pd.DataFrame,
-	das_by_event_id: dict[int, float],
-) -> pd.DataFrame:
-	"""Epicenters サブセットに das_score を付与する。"""
-	df_das = pd.DataFrame(
-		{
-			'event_id': list(das_by_event_id.keys()),
-			'das_score': list(das_by_event_id.values()),
-		}
-	)
-	df = df_ep_subset.merge(df_das, on='event_id', how='left')
-	return df
