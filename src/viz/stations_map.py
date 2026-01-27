@@ -11,6 +11,8 @@ import pandas as pd
 from adjustText import adjust_text
 from shapely.geometry import Point
 
+from viz.core.fig_io import save_figure
+
 from jma.station_affiliation import _comment_to_affiliation_en
 from jma.station_reader import read_hinet_channel_table
 
@@ -267,7 +269,7 @@ def plot_stations_by_affiliation_from_station_csv(
 			expand_points=(1.05, 1.2),
 		)
 
-	fig.savefig(out_png, dpi=200)
+	out_png = save_figure(fig, out_png, dpi=200)
 	print(f'Saved: {out_png}')
 
 
@@ -464,7 +466,7 @@ def plot_stations_from_hinet_table(
 		# arrowprops=dict(arrowstyle='-', lw=0.5, color='0.3', alpha=0.7),
 	)
 
-	fig.savefig(out_png, dpi=200)
+	out_png = save_figure(fig, out_png, dpi=200)
 	print(f'Saved: {out_png}')
 
 
@@ -701,6 +703,5 @@ def plot_stations_by_original_affiliation_from_station_csv(
 
 		fname = out_png_template.format(affiliation=_sanitize_filename(aff))
 		out_png = out_dir / fname
-		fig.savefig(out_png, dpi=200)
-		plt.close(fig)
+		out_png = save_figure(fig, out_png, dpi=200)
 		print(f'Saved: {out_png}')

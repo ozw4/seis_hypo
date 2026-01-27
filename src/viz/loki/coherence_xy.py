@@ -13,6 +13,7 @@ from loki_tools.loki_parse import (
 	parse_loki_grid_spec,
 	parse_loki_header,
 )
+from viz.core.fig_io import save_figure
 
 
 def _load_jma_hypocenter_latlon_deg(event_dir: Path) -> tuple[float, float]:
@@ -266,7 +267,4 @@ def plot_loki_event_coherence_xy_overlay(
 		if out_png.is_dir():
 			out_png = out_png / f'coherence_xy_overlay_trial{trial}.png'
 
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-	fig.savefig(out_png, dpi=int(dpi))
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=int(dpi))

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from loki_tools.plot_waveforms_with_loki_picks import plot_gather
+from viz.core.fig_io import save_figure
 
 
 def save_gather_with_loki_picks(
@@ -29,9 +30,6 @@ def save_gather_with_loki_picks(
 	taper_frac: float = 0.02,
 	dpi: int = 200,
 ) -> Path:
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	fig_w = max(10.0, 0.18 * len(station_df))
 	fig, ax = plt.subplots(figsize=(fig_w, 8))
 
@@ -54,6 +52,4 @@ def save_gather_with_loki_picks(
 		event_time=event_time_utc if y_time == 'relative' else None,
 	)
 
-	fig.savefig(out_png, dpi=dpi)
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=dpi)

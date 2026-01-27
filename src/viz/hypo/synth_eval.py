@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
 
+from viz.core.fig_io import save_current_figure, save_figure
+
 
 def save_dxdy_scatter(
 	dx_m: np.ndarray,
@@ -17,9 +19,6 @@ def save_dxdy_scatter(
 	xlabel: str = 'dx_m',
 	ylabel: str = 'dy_m',
 ) -> Path:
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	fig, ax = plt.subplots()
 	ax.scatter(dx_m, dy_m, s=10)
 	ax.axhline(0)
@@ -29,9 +28,7 @@ def save_dxdy_scatter(
 	ax.set_ylabel(ylabel)
 
 	fig.tight_layout()
-	fig.savefig(out_png, dpi=150)
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=150)
 
 
 def save_true_pred_xy_plot(
@@ -84,8 +81,7 @@ def save_true_pred_xy_plot(
 	ax.legend()
 
 	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
+	save_figure(fig, out_png, dpi=200)
 
 
 def plot_xy_true_vs_hyp(df_eval: pd.DataFrame, out_png: Path) -> None:
@@ -115,9 +111,7 @@ def plot_xy_true_vs_hyp(df_eval: pd.DataFrame, out_png: Path) -> None:
 	ax.legend()
 	fig.tight_layout()
 
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
+	save_figure(fig, out_png, dpi=200)
 
 
 def save_hist(series: pd.Series, out_png: Path, title: str, xlabel: str) -> None:
@@ -127,5 +121,4 @@ def save_hist(series: pd.Series, out_png: Path, title: str, xlabel: str) -> None
 	plt.xlabel(xlabel)
 	plt.ylabel('count')
 	plt.tight_layout()
-	plt.savefig(out_png, dpi=150)
-	plt.close()
+	save_current_figure(out_png, dpi=150)
