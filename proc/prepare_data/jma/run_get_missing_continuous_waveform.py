@@ -39,7 +39,7 @@ CLEANUP = True
 SKIP_IF_EXISTS = True
 
 # ---- 期間フィルタ（ディレクトリ名 DYYYYMMDD... の YYYYMMDD で絞る）----
-DATE_MIN: str | None = '2023-02-09'
+DATE_MIN: str | None = '2023-02-10'
 DATE_MAX: str | None = '2023-05-01'
 
 # ---- 処理済み skip（ネットワーク単位 done マーカー方式） ----
@@ -168,7 +168,7 @@ def main() -> None:
 		# missing が無いイベントはネットワーク処理自体が無いので何もしない
 		if inp.missing_path is None:
 			continue
-
+		print(event_dir)
 		log_path = inp.event_dir / f'{inp.evt_path.stem}_continuous_download_log.csv'
 		fields = [
 			'event_dir',

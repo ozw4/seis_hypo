@@ -31,8 +31,8 @@ OUT_MISSING_CSV = Path(
 
 SKIP_IF_NO_ACTIVE_CH = True
 SKIP_IF_DONE = True
-DATE_MIN = '2023-01-01'
-DATE_MAX = '2023-01-31'
+DATE_MIN = '2023-02-09'
+DATE_MAX = '2023-05-01'
 
 
 def main() -> None:
