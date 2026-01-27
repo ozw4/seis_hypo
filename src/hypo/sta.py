@@ -10,30 +10,43 @@ from common.core import validate_columns
 from hypo.station_meta import parse_station_code
 
 
-def decimal_deg_to_lat_fields(lat: Any) -> tuple[int | None, float | None, str | None]:
-	"""10進緯度 -> (deg, minutes, 'N'/'S')"""
-	if pd.isna(lat):
+def decimal_deg_to_degmin_fields(
+	dd: Any,
+	*,
+	pos_hemi: str,
+	neg_hemi: str,
+	deg_width: int,
+) -> tuple[int | None, float | None, str | None]:
+	"""10進度 -> (deg, minutes, hemisphere)"""
+	if pd.isna(dd):
 		return None, None, None
 
-	v = float(lat)
-	hemi = 'S' if v < 0.0 else 'N'
+	v = float(dd)
+	hemi = neg_hemi if v < 0.0 else pos_hemi
 	a = abs(v)
 	deg = int(a)
 	minutes = (a - deg) * 60.0
 	return deg, minutes, hemi
+
+
+def decimal_deg_to_lat_fields(lat: Any) -> tuple[int | None, float | None, str | None]:
+	"""10進緯度 -> (deg, minutes, 'N'/'S')"""
+	return decimal_deg_to_degmin_fields(
+		lat,
+		pos_hemi='N',
+		neg_hemi='S',
+		deg_width=2,
+	)
 
 
 def decimal_deg_to_lon_fields(lon: Any) -> tuple[int | None, float | None, str | None]:
 	"""10進経度 -> (deg, minutes, 'E'/'W')"""
-	if pd.isna(lon):
-		return None, None, None
-
-	v = float(lon)
-	hemi = 'W' if v < 0.0 else 'E'
-	a = abs(v)
-	deg = int(a)
-	minutes = (a - deg) * 60.0
-	return deg, minutes, hemi
+	return decimal_deg_to_degmin_fields(
+		lon,
+		pos_hemi='E',
+		neg_hemi='W',
+		deg_width=3,
+	)
 
 
 def format_station_line(
