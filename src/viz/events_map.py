@@ -1,9 +1,4 @@
-# pasted.txt の plot_events_map_and_sections を「リンク線」対応に拡張した完全版
-# - extras_lld: (lon,lat,depth) の点群を XY/XZ/YZ に重ねる
-# - links_lld: 対応点ペアを線で結ぶ（XY/XZ/YZ すべて）
-#
-# 元の関数（extras_xyのみ）を置き換えてOK :contentReference[oaicite:0]{index=0}
-
+# src/viz/events_map.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +11,12 @@ from matplotlib import colors
 from shapely.geometry import Point
 
 from viz.core.fig_io import save_figure
+from viz.core.sections3 import (
+	freeze_limits,
+	make_3view_axes,
+	plot_links_3view,
+	sync_xyz_ranges,
+)
 
 
 def plot_events_map_and_sections(
@@ -114,8 +115,8 @@ def plot_events_map_and_sections(
 	if has_color and color_col is not None:
 		vals_color = df[color_col].astype(float).to_numpy()
 		if color_col == 'cmax':
-			color_vmin = df[color_col].min()
-			color_vmax = df[color_col].max()
+			color_vmin = float(df[color_col].min())
+			color_vmax = float(df[color_col].max())
 		cmap = plt.get_cmap('winter')
 		norm = colors.Normalize(vmin=float(color_vmin), vmax=float(color_vmax))
 
@@ -134,7 +135,7 @@ def plot_events_map_and_sections(
 	]
 	gdf = gpd.GeoDataFrame(df, geometry=geometry, crs='EPSG:4326')
 
-	if len(lon_range) != 2:
+	if lon_range is None or len(lon_range) != 2:
 		raise ValueError(
 			'lon_range は (min_lon, max_lon) の長さ2タプルである必要があります。'
 		)
@@ -145,7 +146,7 @@ def plot_events_map_and_sections(
 	if minx >= maxx:
 		raise ValueError('lon_range は min_lon < max_lon を満たす必要があります。')
 
-	if len(lat_range) != 2:
+	if lat_range is None or len(lat_range) != 2:
 		raise ValueError(
 			'lat_range は (min_lat, max_lat) の長さ2タプルである必要があります。'
 		)
@@ -212,28 +213,16 @@ def plot_events_map_and_sections(
 			}
 			extras_lld_items.append((lons, lats, deps, style))
 
-	extras_handles: list = []
+	extras_handles: list[object] = []
 	extras_labels: list[str] = []
 
 	# ---- Figure / Axes ----
 	plt.rcParams['font.family'] = 'Arial'
 	plt.rcParams.update({'font.size': fontsize, 'axes.linewidth': 0.5})
 
-	fig = plt.figure(figsize=(10, 10))
-	gs = fig.add_gridspec(
-		2,
-		2,
-		width_ratios=(3.0, 1.5),
-		height_ratios=(3.0, 1.5),
-		wspace=0.1,
-		hspace=0.1,
+	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(
+		figsize=(10, 10), width_ratios=(3.0, 1.5), height_ratios=(3.0, 1.5)
 	)
-
-	ax_xy = fig.add_subplot(gs[0, 0])
-	ax_yz = fig.add_subplot(gs[0, 1])
-	ax_xz = fig.add_subplot(gs[1, 0])
-	ax_empty = fig.add_subplot(gs[1, 1])
-	ax_empty.axis('off')
 
 	# ---- XY(地図)----
 	pref = gpd.read_file(prefecture_shp)
@@ -292,7 +281,7 @@ def plot_events_map_and_sections(
 			label=st['label'],
 		)
 		extras_handles.append(h_extra)
-		extras_labels.append(st['label'])
+		extras_labels.append(str(st['label']))
 
 		if st['annotate']:
 			names = st['names']
@@ -333,7 +322,7 @@ def plot_events_map_and_sections(
 			label=st['label'],
 		)
 		extras_handles.append(h_extra)
-		extras_labels.append(st['label'])
+		extras_labels.append(str(st['label']))
 
 		if st['annotate']:
 			names = st['names']
@@ -353,8 +342,6 @@ def plot_events_map_and_sections(
 				)
 
 	ax_xy.set_ylabel('Latitude', fontsize=fontsize + 2)
-	ax_xy.set_xlim(minx, maxx)
-	ax_xy.set_ylim(miny, maxy)
 	ax_xy.set_aspect('auto')
 
 	# ---- XZ ----
@@ -403,8 +390,6 @@ def plot_events_map_and_sections(
 
 	ax_xz.set_xlabel('Longitude', fontsize=fontsize + 2)
 	ax_xz.set_ylabel('Depth (km)', fontsize=fontsize + 2)
-	ax_xz.set_ylim(minz, maxz)
-	ax_xz.invert_yaxis()
 
 	# ---- YZ ----
 	if has_color and cmap is not None and norm is not None and color_col is not None:
@@ -451,76 +436,56 @@ def plot_events_map_and_sections(
 		)
 
 	ax_yz.set_xlabel('Depth (km)', fontsize=fontsize + 2)
-	ax_yz.set_xlim(minz, maxz)
 
-	# ---- 軸範囲を揃える ----
-	lon_min, lon_max = ax_xy.get_xlim()
-	lat_min, lat_max = ax_xy.get_ylim()
-	ax_xz.set_xlim(lon_min, lon_max)
-	ax_yz.set_ylim(lat_min, lat_max)
+	# ---- 軸範囲を揃える（共通関数）----
+	sync_xyz_ranges(
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		x_range=(minx, maxx),  # lon
+		y_range=(miny, maxy),  # lat
+		z_range=(minz, maxz),  # depth
+		invert_z=True,
+		yz_mode='z-y',  # YZ is (depth, lat)
+	)
 
-	_xy_xlim = ax_xy.get_xlim()
-	_xy_ylim = ax_xy.get_ylim()
-	_xz_xlim = ax_xz.get_xlim()
-	_xz_ylim = ax_xz.get_ylim()
-	_yz_xlim = ax_yz.get_xlim()
-	_yz_ylim = ax_yz.get_ylim()
-
-	ax_xy.set_autoscale_on(False)
-	ax_xz.set_autoscale_on(False)
-	ax_yz.set_autoscale_on(False)
-
+	# ---- links_lld（対応点リンク線）----
 	if links_lld:
-		for item in links_lld:
-			pairs = item.get('pairs', [])
-			if not pairs:
-				continue
+		with freeze_limits(ax_xy), freeze_limits(ax_xz), freeze_limits(ax_yz):
+			for item in links_lld:
+				pairs = item.get('pairs', [])
+				if not pairs:
+					continue
 
-			color = item.get('color', 'black')
-			lw = float(item.get('linewidth', 0.6))
-			alpha = float(item.get('alpha', 0.35))
-			label = item.get('label', None)
+				color = item.get('color', 'black')
+				lw = float(item.get('linewidth', 0.6))
+				alpha = float(item.get('alpha', 0.35))
+				label = item.get('label', None)
+				linestyle = item.get('linestyle', ':')
+				zorder = float(item.get('zorder', 2.6))
 
-			first = True
-			for (lon1, lat1, dep1), (lon2, lat2, dep2) in pairs:
-				lbl = label if (label is not None and first) else None
-				first = False
-
-				ax_xy.plot(
-					[float(lon1), float(lon2)],
-					[float(lat1), float(lat2)],
-					color=color,
+				pairs_xyz = [
+					(
+						(float(lon1), float(lat1), float(dep1)),
+						(float(lon2), float(lat2), float(dep2)),
+					)
+					for (lon1, lat1, dep1), (lon2, lat2, dep2) in pairs
+				]
+				plot_links_3view(
+					ax_xy,
+					ax_xz,
+					ax_yz,
+					pairs_xyz=pairs_xyz,
+					color=str(color),
 					linewidth=lw,
 					alpha=alpha,
-					label=lbl,
-					zorder=2.6,
-				)
-				ax_xz.plot(
-					[float(lon1), float(lon2)],
-					[float(dep1), float(dep2)],
-					color=color,
-					linewidth=lw,
-					alpha=alpha,
-					zorder=2.6,
-				)
-				ax_yz.plot(
-					[float(dep1), float(dep2)],
-					[float(lat1), float(lat2)],
-					color=color,
-					linewidth=lw,
-					alpha=alpha,
-					zorder=2.6,
+					label=label,
+					linestyle=str(linestyle),
+					zorder=zorder,
+					yz_mode='z-y',
 				)
 
-	# ★追加: 表示範囲を必ず元に戻す（これで“点が動く”見え方が消える）
-	ax_xy.set_xlim(_xy_xlim)
-	ax_xy.set_ylim(_xy_ylim)
-	ax_xz.set_xlim(_xz_xlim)
-	ax_xz.set_ylim(_xz_ylim)
-	ax_yz.set_xlim(_yz_xlim)
-	ax_yz.set_ylim(_yz_ylim)
-
-	# ---- カラーバー + サイズ凡例 + extras/links 凡例 ----
+	# ---- カラーバー + サイズ凡例 + extras 凡例 ----
 	if has_color and cmap is not None and norm is not None:
 		sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
 		sm.set_array([])

@@ -174,3 +174,173 @@ def ranges_from_xyz(
 		_pad_range(y0, y1, pad_frac=pad_frac),
 		_pad_range(z0, z1, pad_frac=pad_frac),
 	)
+
+
+@contextmanager
+def freeze_limits(ax: Axes):
+	xlim = ax.get_xlim()
+	ylim = ax.get_ylim()
+	ax.set_autoscale_on(False)
+	try:
+		yield
+	finally:
+		ax.set_xlim(xlim)
+		ax.set_ylim(ylim)
+
+
+def make_3view_axes(
+	*,
+	figsize: tuple[float, float] = (10.0, 10.0),
+	width_ratios: tuple[float, float] = (3.0, 1.5),
+	height_ratios: tuple[float, float] = (3.0, 1.5),
+	wspace: float = 0.1,
+	hspace: float = 0.1,
+) -> tuple[Figure, Axes, Axes, Axes, Axes]:
+	fig = plt.figure(figsize=figsize)
+	gs = fig.add_gridspec(
+		2,
+		2,
+		width_ratios=width_ratios,
+		height_ratios=height_ratios,
+		wspace=wspace,
+		hspace=hspace,
+	)
+	ax_xy = fig.add_subplot(gs[0, 0])
+	ax_yz = fig.add_subplot(gs[0, 1])
+	ax_xz = fig.add_subplot(gs[1, 0])
+	ax_empty = fig.add_subplot(gs[1, 1])
+	ax_empty.axis('off')
+	return fig, ax_xy, ax_xz, ax_yz, ax_empty
+
+
+def sync_xyz_ranges(
+	ax_xy: Axes,
+	ax_xz: Axes,
+	ax_yz: Axes,
+	*,
+	x_range: tuple[float, float],
+	y_range: tuple[float, float],
+	z_range: tuple[float, float],
+	invert_z: bool = True,
+	yz_mode: str = 'y-z',  # 'y-z' or 'z-y'
+) -> None:
+	ax_xy.set_xlim(*x_range)
+	ax_xy.set_ylim(*y_range)
+
+	ax_xz.set_xlim(*x_range)
+	ax_xz.set_ylim(*z_range)
+	if invert_z:
+		ax_xz.invert_yaxis()
+
+	if yz_mode == 'y-z':
+		ax_yz.set_xlim(*y_range)
+		ax_yz.set_ylim(*z_range)
+		if invert_z:
+			ax_yz.invert_yaxis()
+	elif yz_mode == 'z-y':
+		ax_yz.set_xlim(*z_range)
+		ax_yz.set_ylim(*y_range)
+	else:
+		raise ValueError(f'unknown yz_mode: {yz_mode}')
+
+
+def plot_links_3view(
+	ax_xy: Axes,
+	ax_xz: Axes,
+	ax_yz: Axes,
+	*,
+	pairs_xyz: Iterable[tuple[tuple[float, float, float], tuple[float, float, float]]],
+	color: str = 'black',
+	linewidth: float = 0.6,
+	alpha: float = 0.35,
+	label: str | None = None,
+	linestyle: str = ':',
+	zorder: float = 2.6,
+	yz_mode: str = 'y-z',
+) -> None:
+	first = True
+	for (x1, y1, z1), (x2, y2, z2) in pairs_xyz:
+		lbl = label if (label is not None and first) else None
+		first = False
+
+		ax_xy.plot(
+			[float(x1), float(x2)],
+			[float(y1), float(y2)],
+			color=color,
+			linewidth=float(linewidth),
+			alpha=float(alpha),
+			linestyle=linestyle,
+			label=lbl,
+			zorder=zorder,
+		)
+
+		ax_xz.plot(
+			[float(x1), float(x2)],
+			[float(z1), float(z2)],
+			color=color,
+			linewidth=float(linewidth),
+			alpha=float(alpha),
+			linestyle=linestyle,
+			zorder=zorder,
+		)
+
+		if yz_mode == 'y-z':
+			ax_yz.plot(
+				[float(y1), float(y2)],
+				[float(z1), float(z2)],
+				color=color,
+				linewidth=float(linewidth),
+				alpha=float(alpha),
+				linestyle=linestyle,
+				zorder=zorder,
+			)
+		elif yz_mode == 'z-y':
+			ax_yz.plot(
+				[float(z1), float(z2)],
+				[float(y1), float(y2)],
+				color=color,
+				linewidth=float(linewidth),
+				alpha=float(alpha),
+				linestyle=linestyle,
+				zorder=zorder,
+			)
+		else:
+			raise ValueError(f'unknown yz_mode: {yz_mode}')
+
+
+def scatter_points_3view(
+	ax_xy: Axes,
+	ax_xz: Axes,
+	ax_yz: Axes,
+	*,
+	x: np.ndarray,
+	y: np.ndarray,
+	z: np.ndarray,
+	yz_mode: str = 'y-z',
+	label: str | None = None,
+	**scatter_kwargs,
+):
+	"""同一点群(x,y,z)を XY/XZ/YZ に散布図として描く。
+
+	- label は XY のみに付ける（凡例重複を防ぐ）
+	- yz_mode:
+	- 'y-z' => YZ は (y, z)
+	- 'z-y' => YZ は (z, y)  ※ events_map の Depth vs Lat に対応
+	"""
+	xv = np.asarray(x, float).ravel()
+	yv = np.asarray(y, float).ravel()
+	zv = np.asarray(z, float).ravel()
+	if not (xv.size == yv.size == zv.size):
+		raise ValueError('x,y,z length mismatch')
+
+	h_xy = ax_xy.scatter(xv, yv, label=label, **scatter_kwargs)
+	ax_xz.scatter(xv, zv, label=None, **scatter_kwargs)
+
+	if yz_mode == 'y-z':
+		ax_yz.scatter(yv, zv, label=None, **scatter_kwargs)
+	elif yz_mode == 'z-y':
+		ax_yz.scatter(zv, yv, label=None, **scatter_kwargs)
+	else:
+		raise ValueError(f'unknown yz_mode: {yz_mode}')
+
+	return h_xy

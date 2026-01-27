@@ -3,17 +3,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
 
-from hypo.synth_eval.validation import require_abs, require_dirname_only
-from viz.hypo.synth_eval import plot_xy_true_vs_hyp, save_dxdy_scatter, save_hist
+from hypo.synth_eval.validation import (
+	require_abs,
+	require_dirname_only,
+	require_filename_only,
+)
+from viz.hypo.synth_eval import save_dxdy_scatter, save_hist, save_true_pred_xyz_3view
 
 
 @dataclass(frozen=True)
 class Config:
 	dataset_dir: str
 	outputs_dir: str
+	receiver_geometry: str
+	station_set: str  # surface | all
 
 
 def load_config(path: Path) -> Config:
@@ -21,7 +28,39 @@ def load_config(path: Path) -> Config:
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),
 		outputs_dir=str(obj['outputs_dir']),
+		receiver_geometry=str(obj['receiver_geometry']),
+		station_set=str(obj['station_set']),
 	)
+
+
+def _load_station_xyz_m(
+	*,
+	dataset_dir: Path,
+	receiver_geometry: str,
+	station_set: str,
+) -> np.ndarray:
+	require_filename_only(receiver_geometry, 'receiver_geometry')
+
+	geom_path = dataset_dir / 'geometry' / receiver_geometry
+	if not geom_path.is_file():
+		raise FileNotFoundError(f'missing: {geom_path}')
+
+	recv_xyz_m = np.load(geom_path).astype(float)
+	if recv_xyz_m.ndim != 2 or recv_xyz_m.shape[1] != 3:
+		raise ValueError(f'receiver geometry must be (N,3), got {recv_xyz_m.shape}')
+
+	n = recv_xyz_m.shape[0]
+	if n < 9:
+		raise ValueError(f'receiver count too small: {n}')
+
+	if station_set == 'surface':
+		idx = np.arange(0, 9, dtype=int)
+	elif station_set == 'all':
+		idx = np.arange(0, n, dtype=int)
+	else:
+		raise ValueError(f"station_set must be 'surface' or 'all', got: {station_set}")
+
+	return recv_xyz_m[idx]
 
 
 def run_qc(config_path: Path) -> None:
@@ -33,6 +72,7 @@ def run_qc(config_path: Path) -> None:
 	dataset_dir = Path(cfg.dataset_dir)
 	require_abs(dataset_dir, 'dataset_dir')
 	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
+	require_filename_only(cfg.receiver_geometry, 'receiver_geometry')
 
 	runs_root = config_path.resolve().parent.parent / 'runs'
 	run_dir = runs_root / cfg.outputs_dir
@@ -98,6 +138,7 @@ def run_qc(config_path: Path) -> None:
 		'horiz_m',
 	)
 	save_hist(df['dz_m'], run_dir / 'qc_dz_hist.png', 'Depth error histogram', 'dz_m')
+
 	if 'dx_m' in df.columns and 'dy_m' in df.columns:
 		save_dxdy_scatter(
 			df['dx_m'].to_numpy(),
@@ -113,6 +154,34 @@ def run_qc(config_path: Path) -> None:
 	print(f'[OK] wrote: {stats_path}')
 	print(f'[OK] wrote: {outliers_path}')
 	print(f'[OK] wrote: {qc_txt}')
+
+	# --- True vs HypoInverse (XY/XZ/YZ 3-view) + station locations ---
+	need_xyz = ['x_m_true', 'y_m_true', 'z_m_true', 'x_m_hyp', 'y_m_hyp', 'z_m_hyp']
+	missing_xyz = [c for c in need_xyz if c not in df.columns]
+	if missing_xyz:
+		raise KeyError(
+			f'missing columns for 3-view plot: {missing_xyz}. available={list(df.columns)}'
+		)
+
+	true_xyz_m = df[['x_m_true', 'y_m_true', 'z_m_true']].to_numpy(float)
+	pred_xyz_m = df[['x_m_hyp', 'y_m_hyp', 'z_m_hyp']].to_numpy(float)
+
+	mask = np.isfinite(true_xyz_m).all(axis=1) & np.isfinite(pred_xyz_m).all(axis=1)
+	true_xyz_m = true_xyz_m[mask]
+	pred_xyz_m = pred_xyz_m[mask]
+
+	stations_xyz_m = _load_station_xyz_m(
+		dataset_dir=dataset_dir,
+		receiver_geometry=cfg.receiver_geometry,
+		station_set=cfg.station_set,
+	)
+
 	xy_png = run_dir / 'xy_true_vs_hyp.png'
-	plot_xy_true_vs_hyp(df, xy_png)
+	save_true_pred_xyz_3view(
+		true_xyz_m,
+		pred_xyz_m,
+		xy_png,
+		stations_xyz_m=stations_xyz_m,
+		title='True vs HypoInverse (3-view)',
+	)
 	print(f'[OK] wrote: {xy_png}')
