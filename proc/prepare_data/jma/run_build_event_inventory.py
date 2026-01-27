@@ -1,9 +1,12 @@
 # %%
 # proc/prepare_data/jma/run_build_event_inventory.py
 from __future__ import annotations
+
 from pathlib import Path
 
-from jma.prepare.inventory import build_inventory, write_inventory_outputs
+from jma.prepare.inventory import (
+	_build_inventory_for_event,
+)
 
 # =========================
 # 設定（ここを直書きでOK）
@@ -42,22 +45,6 @@ AXIS_TAIL_CHARS = set(['U', 'N', 'E', 'Z', 'X', 'Y'])
 # =========================
 # 実装
 # =========================
-
-
-def _build_inventory_for_event(event_dir: Path) -> dict:
-	result = build_inventory(
-		event_dir,
-		cont_subdir=CONT_SUBDIR,
-		schema_version=SCHEMA_VERSION,
-		evt_info_scan_rate_blocks=EVT_INFO_SCAN_RATE_BLOCKS,
-		scan_max_second_blocks=SCAN_MAX_SECOND_BLOCKS,
-		comp_priority=COMP_PRIORITY,
-		axis_tail_chars=AXIS_TAIL_CHARS,
-	)
-	write_inventory_outputs(event_dir, OUTDIR, SCHEMA_VERSION, result)
-	return result.inventory
-
-
 def main() -> None:
 	_build_inventory_for_event(EVENT_DIR)
 
