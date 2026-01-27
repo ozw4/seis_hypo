@@ -11,6 +11,7 @@ import pandas as pd
 from adjustText import adjust_text
 from shapely.geometry import Point
 
+from common.text import normalize_comment
 from viz.core.fig_io import save_figure
 
 from jma.station_affiliation import _comment_to_affiliation_en
@@ -470,12 +471,6 @@ def plot_stations_from_hinet_table(
 	print(f'Saved: {out_png}')
 
 
-def _normalize_comment_local(s: object) -> str:
-	if pd.isna(s):
-		return 'Unknown'
-	return ' '.join(str(s).split())
-
-
 def _sanitize_filename(s: str) -> str:
 	bad = '\\/:*?"<>|'
 	for ch in bad:
@@ -528,7 +523,7 @@ def plot_stations_by_original_affiliation_from_station_csv(
 
 	df['lat'] = df['Latitude_deg'].astype(float)
 	df['lon'] = df['Longitude_deg'].astype(float)
-	df['affiliation_raw'] = df['Comment'].map(_normalize_comment_local)
+	df['affiliation_raw'] = df['Comment'].map(normalize_comment)
 
 	# JMA（地方区分）と JMA Intensity を除外（出力はあくまで affiliation_raw で分割）
 	if exclude_jma:
@@ -538,7 +533,7 @@ def plot_stations_by_original_affiliation_from_station_csv(
 			raise RuntimeError('No stations to plot after excluding JMA.')
 
 	if affiliation_comments is not None:
-		want = {_normalize_comment_local(s) for s in affiliation_comments}
+		want = {normalize_comment(s) for s in affiliation_comments}
 		df = df[df['affiliation_raw'].isin(want)].copy()
 		if df.empty:
 			raise RuntimeError(

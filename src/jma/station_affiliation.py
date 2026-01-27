@@ -1,6 +1,4 @@
-def _normalize_comment(s: str) -> str:
-	# 余分な空白を 1 個にそろえる
-	return ' '.join(str(s).split())
+from common.text import normalize_comment
 
 
 # Comment（元の所属文字列） → 英語 Legend ラベル
@@ -44,12 +42,12 @@ _COMMENT_LABEL_MAP_RAW: dict[str, str] = {
 
 
 _COMMENT_LABEL_MAP: dict[str, str] = {
-	_normalize_comment(k): v for k, v in _COMMENT_LABEL_MAP_RAW.items()
+	normalize_comment(k): v for k, v in _COMMENT_LABEL_MAP_RAW.items()
 }
 
 
 def _comment_to_affiliation_en(comment: str | float) -> str:
-	key = _normalize_comment(comment)
+	key = normalize_comment(comment)
 	label = _COMMENT_LABEL_MAP.get(key)
 	if label is None:
 		return 'Other'
