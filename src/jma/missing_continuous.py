@@ -110,7 +110,6 @@ def run_make_missing_continuous(
 						continue
 					raise FileNotFoundError(active_ch_path)
 
-<<<<<<< HEAD
 			pick_by_ch, map_log = build_pick_table_for_event(
 				meas_df,
 				event_id=event_id,
@@ -120,16 +119,6 @@ def run_make_missing_continuous(
 				p_phases=P_PHASES,
 				s_phases=S_PHASES,
 			)
-=======
-				# イベント単位skip（doneマーカー）
-				done_path = (
-					event_dir
-					/ f'{evt_path.stem}_missing_continuous_done_{run_tag2}.json'
-				)
-				if skip_if_done and done_path.is_file():
-					print(f'[skip] already done: {evt_path.name} -> {done_path.name}')
-					continue
->>>>>>> 3c65044 (Add date filtering and error handling to run_make_missing_continuous function)
 
 				origin_iso = read_origin_jst_iso(txt_path)
 				origin_ts = pd.to_datetime(origin_iso, format='ISO8601')
