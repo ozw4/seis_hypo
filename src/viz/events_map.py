@@ -49,7 +49,6 @@ def plot_events_map_and_sections(
 		raise ValueError(f'DataFrame に必要な列がありません: {missing}')
 
 	df = df.copy()
-	print(df[mag_col].max())
 	# ---- 時間フィルタ ----
 	df[origin_time_col] = pd.to_datetime(df[origin_time_col])
 	if start_time is not None:

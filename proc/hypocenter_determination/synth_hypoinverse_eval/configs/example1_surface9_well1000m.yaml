@@ -1,0 +1,25 @@
+# ---- path系（ルール通り）----
+dataset_dir: "/workspace/data/synthe/example1_das1_surface9_well1000m"     # 絶対パス
+sim_yaml: "pipeline_example_das1_surface9_well1000m.yaml"
+outputs_dir: "example_surface"
+template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd" # 絶対パス
+hypoinverse_exe: "/workspace/external_source/hyp1.40/hypoinverse.exe"          # 絶対パス
+receiver_geometry: "recv_das1_geo9_0001.npy"
+
+
+# ---- 非path（ここは自由に残す）----
+station_set: "surface"   # surface | all
+
+lat0: 35.0
+lon0: 140.0
+
+origin0: "2026-01-01T00:00:00"
+dt_sec: 10.0
+max_events: 0            # 0=全イベント
+
+default_depth_km: 20.0
+fix_depth: True
+
+arc_use_jma_flag: false
+arc_p_centroid_top_n: 5
+arc_origin_time_offset_sec: 1.0
