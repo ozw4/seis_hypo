@@ -15,9 +15,9 @@ from pipelines.loki_waveform_stacking_pipelines import (
 	list_event_dirs_filtered,
 	pipeline_loki_waveform_stacking_eqt,
 )
-from qc.loki_compare_qc import run_loki_vs_jma_qc
-from qc.loki_event_coherence_xy_plot import plot_loki_event_coherence_xy_overlay
-from qc.plot_waveforms_with_loki_picks import plot_waveforms_with_picks_for_event
+from qc.loki.compare import run_loki_vs_jma_qc
+from viz.loki.coherence_xy import plot_loki_event_coherence_xy_overlay
+from qc.loki.waveforms_with_loki_picks import plot_waveforms_with_picks_for_event
 from viz.plot_config import PlotConfig
 from waveform.preprocess import spec_from_inputs
 

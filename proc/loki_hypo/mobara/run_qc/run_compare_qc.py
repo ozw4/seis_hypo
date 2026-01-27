@@ -1,7 +1,7 @@
 # %%
 from pathlib import Path
 
-from qc.loki_compare_qc import compare_error_hists_from_compare_csvs
+from qc.loki.compare import compare_error_hists_from_compare_csvs
 
 compare_error_hists_from_compare_csvs(
 	[

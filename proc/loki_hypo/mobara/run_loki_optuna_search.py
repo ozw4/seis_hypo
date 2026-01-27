@@ -20,7 +20,7 @@ from pipelines.loki_waveform_stacking_pipelines import (
 	list_event_dirs_filtered,
 	pipeline_loki_waveform_stacking,
 )
-from qc.loki_compare_qc import run_loki_vs_jma_qc
+from qc.loki.compare import run_loki_vs_jma_qc
 from viz.plot_config import PlotConfig
 
 
