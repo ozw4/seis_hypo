@@ -28,6 +28,26 @@ def haversine_distance_km(
 	return r_km * c
 
 
+def haversine_distance_pair_km(
+	lat1_deg: Any,
+	lon1_deg: Any,
+	lat2_deg: Any,
+	lon2_deg: Any,
+) -> np.ndarray:
+	"""要素ごとに2点間の大円距離[km]を返す."""
+	r_km = 6371.0
+	lat1 = np.deg2rad(np.asarray(lat1_deg, dtype=float))
+	lon1 = np.deg2rad(np.asarray(lon1_deg, dtype=float))
+	lat2 = np.deg2rad(np.asarray(lat2_deg, dtype=float))
+	lon2 = np.deg2rad(np.asarray(lon2_deg, dtype=float))
+
+	dlat = lat2 - lat1
+	dlon = lon2 - lon1
+	a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+	c = 2.0 * np.arcsin(np.sqrt(a))
+	return r_km * c
+
+
 def latlon_to_local_xy_km(
 	lat_deg: Any,
 	lon_deg: Any,
