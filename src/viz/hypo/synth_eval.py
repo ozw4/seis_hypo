@@ -122,3 +122,112 @@ def save_hist(series: pd.Series, out_png: Path, title: str, xlabel: str) -> None
 	plt.ylabel('count')
 	plt.tight_layout()
 	save_current_figure(out_png, dpi=150)
+
+
+from viz.core.sections3 import (
+	freeze_limits,
+	make_3view_axes,
+	plot_links_3view,
+	ranges_from_xyz,
+	sync_xyz_ranges,
+)
+
+
+def save_true_pred_xyz_3view(
+	true_xyz_m: np.ndarray,
+	pred_xyz_m: np.ndarray,
+	out_png: Path,
+	*,
+	stations_xyz_m: np.ndarray | None = None,
+	title: str | None = None,
+	marker_size: float = 20.0,
+	station_size: float = 16.0,
+) -> None:
+	true_xyz = np.asarray(true_xyz_m, float).reshape(-1, 3) / 1000.0
+	pred_xyz = np.asarray(pred_xyz_m, float).reshape(-1, 3) / 1000.0
+	if true_xyz.shape != pred_xyz.shape:
+		raise ValueError(
+			f'true/pred shape mismatch: {true_xyz.shape} vs {pred_xyz.shape}'
+		)
+
+	st_xyz = None
+	if stations_xyz_m is not None:
+		st_xyz = np.asarray(stations_xyz_m, float).reshape(-1, 3) / 1000.0
+
+	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(figsize=(10.0, 10.0))
+
+	h_true = ax_xy.scatter(
+		true_xyz[:, 0], true_xyz[:, 1], s=marker_size, marker='o', label='True'
+	)
+	h_pred = ax_xy.scatter(
+		pred_xyz[:, 0], pred_xyz[:, 1], s=marker_size, marker='x', label='Pred'
+	)
+
+	ax_xz.scatter(true_xyz[:, 0], true_xyz[:, 2], s=marker_size, marker='o')
+	ax_xz.scatter(pred_xyz[:, 0], pred_xyz[:, 2], s=marker_size, marker='x')
+
+	ax_yz.scatter(true_xyz[:, 1], true_xyz[:, 2], s=marker_size, marker='o')
+	ax_yz.scatter(pred_xyz[:, 1], pred_xyz[:, 2], s=marker_size, marker='x')
+
+	h_sta = None
+	if st_xyz is not None and st_xyz.size > 0:
+		h_sta = ax_xy.scatter(
+			st_xyz[:, 0], st_xyz[:, 1], s=station_size, marker='^', label='Stations'
+		)
+		ax_xz.scatter(st_xyz[:, 0], st_xyz[:, 2], s=station_size, marker='^')
+		ax_yz.scatter(st_xyz[:, 1], st_xyz[:, 2], s=station_size, marker='^')
+
+	pairs = [
+		((a[0], a[1], a[2]), (b[0], b[1], b[2]))
+		for a, b in zip(true_xyz, pred_xyz, strict=True)
+	]
+
+	with freeze_limits(ax_xy), freeze_limits(ax_xz), freeze_limits(ax_yz):
+		plot_links_3view(
+			ax_xy,
+			ax_xz,
+			ax_yz,
+			pairs_xyz=pairs,
+			color='black',
+			linewidth=0.6,
+			alpha=0.35,
+			linestyle=':',
+			yz_mode='y-z',
+		)
+
+	xr, yr, zr = ranges_from_xyz(
+		[true_xyz, pred_xyz, st_xyz] if st_xyz is not None else [true_xyz, pred_xyz]
+	)
+	sync_xyz_ranges(
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		x_range=xr,
+		y_range=yr,
+		z_range=zr,
+		invert_z=True,
+		yz_mode='y-z',
+	)
+
+	ax_xy.set_xlabel('X (km)')
+	ax_xy.set_ylabel('Y (km)')
+	ax_xy.set_aspect('equal', adjustable='box')
+	ax_xy.grid(True)
+
+	ax_xz.set_xlabel('X (km)')
+	ax_xz.set_ylabel('Depth (km)')
+	ax_xz.grid(True)
+
+	ax_yz.set_xlabel('Y (km)')
+	ax_yz.set_ylabel('Depth (km)')
+	ax_yz.grid(True)
+
+	if title:
+		fig.suptitle(title)
+
+	handles = [h_true, h_pred] + ([h_sta] if h_sta is not None else [])
+	labels = [h.get_label() for h in handles]
+	ax_empty.legend(handles, labels, loc='center')
+
+	fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96])
+	save_figure(fig, out_png, dpi=200)
