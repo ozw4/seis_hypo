@@ -7,9 +7,12 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from hypo.arc import write_hypoinverse_arc
+from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.crh import write_crh
+from hypo.phase_jma import extract_phase_records
+from hypo.phase_weights import override_phase_weight_by_station_prefix
 from hypo.sta import write_hypoinverse_sta
+from hypo.station_delays import add_p_and_s_delays_from_elevation
 
 from .builders import (
 	build_epic_df,
@@ -48,6 +51,11 @@ class Config:
 	arc_p_centroid_top_n: int
 	arc_origin_time_offset_sec: float
 
+	apply_station_elevation_delay: bool
+
+	das_station_prefix: str
+	das_phase_weight_code: int
+
 
 @dataclass(frozen=True)
 class SimParams:
@@ -75,6 +83,11 @@ def load_config(path: Path) -> Config:
 		arc_use_jma_flag=bool(obj['arc_use_jma_flag']),
 		arc_p_centroid_top_n=int(obj['arc_p_centroid_top_n']),
 		arc_origin_time_offset_sec=float(obj['arc_origin_time_offset_sec']),
+		apply_station_elevation_delay=bool(
+			obj.get('apply_station_elevation_delay', True)
+		),
+		das_station_prefix=str(obj.get('das_station_prefix', 'D')),
+		das_phase_weight_code=int(obj.get('das_phase_weight_code', 3)),
 	)
 
 
@@ -144,6 +157,12 @@ def run_synth_eval(
 
 	recv_xyz_m = np.load(receiver_geometry).astype(float)
 	station_df = build_station_df(recv_xyz_m, cfg.station_set, cfg.lat0, cfg.lon0)
+	if cfg.apply_station_elevation_delay:
+		station_df = add_p_and_s_delays_from_elevation(
+			station_df,
+			vp_kms=float(sim.vp_kms),
+			vs_kms=float(sim.vs_kms),
+		)
 
 	truth_df = build_truth_df(
 		index_csv, cfg.lat0, cfg.lon0, origin0, cfg.dt_sec, cfg.max_events
@@ -154,11 +173,18 @@ def run_synth_eval(
 	station_df.to_csv(station_csv, index=False)
 	write_hypoinverse_sta(station_csv, sta_file)
 
-	write_hypoinverse_arc(
-		epic_df=epic_df,
-		meas_df=meas_df,
-		station_csv=station_csv,
-		output_arc=arc_file,
+	phases = extract_phase_records(meas_df)
+	phases = override_phase_weight_by_station_prefix(
+		phases,
+		station_prefix=str(cfg.das_station_prefix),
+		weight=int(cfg.das_phase_weight_code),
+	)
+
+	write_hypoinverse_arc_from_phases(
+		epic_df,
+		phases,
+		station_csv,
+		arc_file,
 		default_depth_km=float(cfg.default_depth_km),
 		use_jma_flag=bool(cfg.arc_use_jma_flag),
 		p_centroid_top_n=int(cfg.arc_p_centroid_top_n),

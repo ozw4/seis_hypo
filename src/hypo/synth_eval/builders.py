@@ -41,6 +41,12 @@ def build_station_df(
 	xyz = recv_xyz_m[idx]
 	x_km = xyz[:, 0] / 1000.0
 	y_km = xyz[:, 1] / 1000.0
+	z_m = xyz[:, 2].astype(float)
+
+	# 合成データの座標系は (x,y,z)=(E,N,depth[+down]) を想定。
+	# Hypoinverse station file の Elevation は「標高 (positive up)」なので
+	# Elevation_m = -depth_m として与える。
+	elevation_m = (-z_m).round().astype(int)
 
 	lat_deg, lon_deg = local_xy_km_to_latlon(x_km, y_km, lat0_deg=lat0, lon0_deg=lon0)
 
@@ -56,6 +62,7 @@ def build_station_df(
 			'station_code': codes,
 			'Latitude_deg': lat_deg.astype(float),
 			'Longitude_deg': lon_deg.astype(float),
+			'Elevation_m': elevation_m.astype(int),
 			'channel': 'HHZ',
 			'comp1': 'Z',
 			'weight_code': ' ',

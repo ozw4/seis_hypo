@@ -49,6 +49,22 @@ def decimal_deg_to_lon_fields(lon: Any) -> tuple[int | None, float | None, str |
 	)
 
 
+def _format_elevation_i4_and_neg_flag(elevation_m: int) -> tuple[int, str]:
+	"""Station format #2 の I4 elevation と col 86 の負フラグを決める。
+
+	仕様:
+	- elevation 欄は I4 なので、値が -1000 以下だと固定幅が崩れる。
+	- col 86 に '-' を立てると、elevation の符号に関係なく負の深さとして解釈される。
+	  (HypoInverse-2000 User's Guide: station format #2 col 86)
+	"""
+	if abs(elevation_m) > 9999:
+		raise ValueError(f'Elevation_m is out of I4 range: {elevation_m}')
+
+	if elevation_m < -999:
+		return abs(elevation_m), '-'
+	return elevation_m, ' '
+
+
 def format_station_line(
 	site: str,
 	net: str,
@@ -72,8 +88,20 @@ def format_station_line(
 	inst_type: int = 0,
 	cal_factor: float = 1.0,
 	loc_code: str = '  ',
+	alt_chan: str = '   ',
 ) -> str:
 	"""Hypoinverse station format #2 の1行を組み立てる。"""
+	# 固定幅が崩れないよう、明示的に切り詰め/パディングする
+	site = str(site)[:5]
+	net = str(net)[:2]
+	comp1 = str(comp1)[:1] if comp1 is not None else ' '
+	chan = str(chan)[:3]
+	weight_code = str(weight_code)[:1] if weight_code is not None else ' '
+	loc_code = str(loc_code).ljust(2)[:2]
+	alt_chan = str(alt_chan).ljust(3)[:3]
+
+	elev_i4, neg_flag = _format_elevation_i4_and_neg_flag(int(elevation_m))
+
 	line = ''
 
 	# 1-5: site, 6: space
@@ -93,7 +121,7 @@ def format_station_line(
 	# 31-37: lon minutes F7.4, 38: E/W
 	line += f'{lon_min:7.4f}{lon_hemi:1s}'
 	# 39-42: elevation (I4)
-	line += f'{int(elevation_m):4d}'
+	line += f'{elev_i4:4d}'
 	# 43-45: default period F3.1, 46-47: spaces
 	line += f'{default_period:3.1f}  '
 	# 48: alternate crust model flag
@@ -118,6 +146,15 @@ def format_station_line(
 	line += f'{cal_factor:6.2f}'
 	# 81-82: location code A2
 	line += f'{loc_code:2s}'
+	# 83-85: alternate component/channel code A3
+	line += f'{alt_chan:3s}'
+	# 86: '-' to force negative depth
+	line += f'{neg_flag:1s}'
+
+	if len(line) != 86:
+		raise ValueError(
+			f'Invalid station line length (expected 86): {len(line)}: {line!r}'
+		)
 
 	return line
 
