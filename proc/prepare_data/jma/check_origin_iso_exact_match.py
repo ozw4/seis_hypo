@@ -8,8 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from jma.prepare.event_txt import read_origin_jst_iso
+from jma.picks import _iso_to_ns
 from jma.prepare.event_paths import resolve_evt_and_txt
+from jma.prepare.event_txt import read_origin_jst_iso
 
 # =========================
 # 設定（直書き）
@@ -24,12 +25,6 @@ OUT_CSV = Path(
 	'/workspace/proc/prepare_data/jma/_tmp/origin_time_strict_match_check.csv'
 ).resolve()
 MAX_PRINT_EXAMPLES = 50
-
-
-def _iso_to_ns(origin_iso: str) -> int:
-	t = pd.to_datetime(origin_iso, format='ISO8601', errors='raise')
-	dt64 = np.datetime64(t.to_datetime64())
-	return int(dt64.astype('datetime64[ns]').astype('int64'))
 
 
 def _build_ns_to_rows(
