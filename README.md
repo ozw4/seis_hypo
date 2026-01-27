@@ -1,104 +1,168 @@
-# Seismic Hypocenter / LOKI Waveform Stacking Pipelines
+# seis_hypo-main — Seismic hypocenter / travel-time / LOKI pipelines
 
-This repository contains end-to-end pipelines for:
+This repository contains Python pipelines and utilities for seismic workflows including:
 
-- Preparing Hi-net WIN32 event folders (`event.json` + `.cnt/.ch`)
-- Building travel-time tables (NonLinLoc `Vel2Grid`/`Grid2Time`) and a LOKI `header.hdr`
-- Running LOKI waveform stacking/locator
-- QC plots and LOKI↔JMA comparison outputs
+- **JMA / Hi-net WIN32**: event preparation (download → per-event folders), travel-time DB building, LOKI waveform stacking, and QC/plots
+- **Forge DAS**: TDMS/Zarr utilities, per-event cutting, STALTA / probability-stream helpers, and LOKI “direct_input”-style stacking
+- **Hypocenter determination (HypoInverse)**: build ARC from arrival-time CSVs, run HypoInverse, merge back to catalog, and visualize
+- **Continuous pick + association (Forge)**: continuous picking (e.g., EQTransformer / PhaseNet via SeisBench) and association (GaMMA)
 
-All runnable entry points are under `proc/` and are driven by YAML presets under `data/config/`.
+Most runnable entry points are scripts under **`proc/`**. Reusable library code lives under **`src/`**.
 
-## Key Concepts
+> Note: YAML presets and large input data are expected to live outside the repo and be mounted under `/workspace/data/` (see below). This zip snapshot does **not** include those datasets/configs.
 
-### Event directory format
+---
 
-The LOKI waveform pipeline expects event directories like:
+## Repository layout
 
-`<base_input_dir>/<event_id>/`
+- `proc/` — runnable scripts (entry points)
+  - `proc/prepare_data/jma/` — Hi-net/JMA download + WIN32 helpers
+  - `proc/prepare_data/forge/` — Forge DAS utilities (TDMS→Zarr, station meta, event cutting)
+  - `proc/loki_hypo/mobara/` — example Mobara (Hi-net style) LOKI workflow (+ Optuna tuning)
+  - `proc/loki_hypo/forge/` — Forge DAS travel-time + STALTA-pass1 LOKI stacking
+  - `proc/hypocenter_determination/` — HypoInverse workflows (JMA Mobara example, synth eval)
+  - `proc/run_continuous/` — continuous picking + association (Forge)
 
-containing at least:
+- `src/` — library code (imported by `proc/`)
+  - `src/common/` — config dataclasses, YAML loader, time/json helpers
+  - `src/jma/` — Hi-net/JMA download + WIN32 parsing
+  - `src/nonlinloc/` — NonLinLoc control/layer helpers (for travel-time tables)
+  - `src/loki_tools/` — header / .phs parsing, plotting, comparisons (LOKI Python package required)
+  - `src/pipelines/` — orchestration (travel-time pipeline, LOKI stacking pipelines, STALTA pipelines)
+  - `src/pick/` — probability-stream / picking utilities (SeisBench, etc.)
+  - `src/qc/`, `src/viz/` — QC and plotting helpers
 
-- `event.json` (includes `origin_time_jst` preferred, or `origin_time`)
-- one or more WIN32 files referenced from `event.json` (`win32.cnt_files` / `win32.ch_file`)
+- `external_source/`
+  - `external_source/hyp1.40/` — **HypoInverse** binary (Linux ELF) + docs/source
 
-### Travel-time database
+---
 
-LOKI runs require travel-time tables and a header:
+## Environment
 
-- `header.hdr` and `*.time.*.buf/*.hdr` are expected under a single “db” directory
-- the travel-time pipeline writes these under: `<output_dir>/db/`
+### Recommended: devcontainer / Docker
 
-## Quickstart
+The repo includes:
 
-### 1) Prepare event folders (WIN32 download)
+- `Dockerfile` (target: `develop`)
+- `.devcontainer/compose-dev.yaml` (bind-mounts repo and external data)
 
-Edit `data/config/prepare_events.yaml` to point to your catalog and station selection, then run:
+Inside the container, the repo is mounted at:
 
-`python proc/loki_hypo/run_prepare_event.py`
+- `/workspace`  (this repository)
 
-This writes event directories under `PrepareEventsConfig.base_input_dir`.
+External configs/data are expected at:
 
-### 2) Build travel-time tables + LOKI header
+- `/workspace/data/`  (mounted from your host)
 
-Edit `data/config/traveltime_config.yaml` and run:
+Typical mount in `.devcontainer/compose-dev.yaml`:
 
-`python proc/loki_hypo/run_traveltime_pipelines.py`
+- `${HOME}/Desktop/data/seis_hypo  ->  /workspace/data`
 
-Outputs are written under `TravelTimeBaseConfig.output_dir` (including `db/header.hdr`).
+#### Important: external_source/NonLinLoc and external_source/loki
 
-### 3) Run LOKI waveform stacking + plots + QC
+The `Dockerfile` expects these two directories when building:
 
-Edit `data/config/loki_waveform_pipeline.yaml` and `data/config/loki_inputs.yaml`, then run:
+- `external_source/NonLinLoc` (to build/install `Vel2Grid` / `Grid2Time`)
+- `external_source/loki` (pip-installed as the `loki` Python package)
 
-`python proc/loki_hypo/run_loki_waveform_stacking_pipelines.py`
+They are **not included** in this zip snapshot. Either:
+- provide them in `external_source/` before building, or
+- edit the `Dockerfile` to skip those steps and install them another way.
 
-This performs:
+---
 
-- LOKI waveform stacking/locator
-- Per-event waveform gather plots with LOKI picks (when `*_trial0.phs` exists)
-- LOKI vs JMA QC compare (CSV + plots under `error_stats/`)
+## Configuration (YAML presets)
 
-## LOKI Waveform Pipeline Configuration
+Many pipelines use `src/common/load_config.py::load_config()` and read presets from YAML.
 
-The pipeline runner loads `LokiWaveformStackingPipelineConfig` from `data/config/loki_waveform_pipeline.yaml`.
+In this repo snapshot, scripts typically reference YAMLs under:
 
-Important fields:
+- `/workspace/data/config/*.yaml`
 
-- `base_input_dir`: directory containing `<event_id>/event.json`
-- `base_traveltime_dir`: directory containing a `db/` folder with travel-time tables
-- `loki_db_path`: path to travel-time `db/` directory (often `{base_traveltime_dir}/db`)
-- `loki_hdr_filename`: header filename inside `loki_db_path` (typically `header.hdr`)
-- `loki_output_path`: output directory for LOKI results and QC artifacts
-- `loki_data_path`: temporary LOKI “data tree” (must be safe to delete)
-- `event_glob`, `max_events`: event selection by directory name/glob
+Examples:
+- `proc/loki_hypo/mobara/run_prepare_event.py` → `/workspace/data/config/prepare_events.yaml` preset `mobara`
+- `proc/loki_hypo/mobara/run_traveltime_pipelines.py` → `/workspace/data/config/traveltime_config.yaml` preset `mobara`
+- `proc/loki_hypo/mobara/run_loki_waveform_stacking_pipelines.py` → `/workspace/data/config/loki_waveform_pipeline.yaml` preset `mobara`
 
-### Event filtering (YAML-driven)
+`load_config()` also supports simple template expansion like `{some_key}` inside YAML string values.
 
-You can filter which event directories are processed without code changes:
+---
 
-- `origin_time_start`: ISO string, inclusive
-- `origin_time_end`: ISO string, inclusive
-- `mag_min`, `mag_max`: JMA magnitude bounds (float)
-- `drop_if_mag_missing`: if a magnitude filter is set and mag is missing, drop the event when `true`
+## Quickstart: Mobara (Hi-net style) → travel-times → LOKI → QC
 
-Magnitude is read from `event.json` `extra` keys in priority order: `mag1`, `magnitude`, `mag`.
+Run these from the repository root (with `PYTHONPATH` including `src/` — the devcontainer sets this):
 
-## Outputs
+### 1) Prepare per-event folders (download WIN32)
 
-Under `LokiWaveformStackingPipelineConfig.loki_output_path`:
+Uses Hi-net credentials (typically via a mounted `~/.netrc`).
 
-- One subdirectory per processed event (LOKI output)
-- `compare_jma_vs_loki.csv` (LOKI↔JMA merged comparison)
-- `loki_vs_jma.png` (map + sections plot)
-- `error_stats/` (histograms, boxplots, outlier CSVs, magnitude-binned summary)
+```bash
+python proc/loki_hypo/mobara/run_prepare_event.py
+```
 
-## Troubleshooting
+### 2) Build travel-time DB (+ `header.hdr`)
 
-- If an “excluded” event is still processed, check whether `loki_data_path` contains stale event leaf directories from a previous run; LOKI enumerates events by walking `loki_data_path`.
-- If you see timezone-related errors, ensure `event.json` contains `origin_time_jst` with a timezone offset, or confirm the code treats timezone-naive `origin_time_jst` values as JST.
+Requires NonLinLoc executables `Vel2Grid` and `Grid2Time` in your `PATH`.
+
+```bash
+python proc/loki_hypo/mobara/run_traveltime_pipelines.py
+```
+
+### 3) Run LOKI waveform stacking + plots + LOKI↔JMA QC
+
+Requires the **`loki` Python package** to be installed.
+
+```bash
+python proc/loki_hypo/mobara/run_loki_waveform_stacking_pipelines.py
+```
+
+Optional:
+- EQT-assisted variant: `proc/loki_hypo/mobara/run_loki_waveform_stacking_pipelines_eqt.py`
+- Parameter search (Optuna): `proc/loki_hypo/mobara/run_loki_optuna_search.py`
+
+---
+
+## Quickstart: Forge DAS → travel-times → STALTA pass1 LOKI
+
+Typical flow:
+
+1) Build/inspect Zarr (if starting from TDMS):
+- `proc/prepare_data/forge/build_zarr.py`
+- `proc/prepare_data/forge/chk_tdms.py`
+- `proc/prepare_data/forge/chk_zarr.py`
+
+2) Cut per-event windows for LOKI input:
+- `proc/prepare_data/forge/cut_events_fromzarr_for_loki.py`
+
+3) Build travel-time DB + `header.hdr` (NonLinLoc tools required):
+- `proc/loki_hypo/forge/run_traveltime_pipeline.py`
+- QC for travel-time tables:
+  - `proc/loki_hypo/forge/run_traveltime_qc.py`
+
+4) Run STALTA-pass1 stacking (LOKI direct_input-style):
+- `proc/loki_hypo/forge/run_loki_waveform_stacking_pipelines_stalta_das_pass1.py`
+
+---
+
+## Hypocenter determination (HypoInverse)
+
+HypoInverse binary is included at:
+- `external_source/hyp1.40/hypoinverse.exe`
+
+Example JMA Mobara pipeline:
+- `proc/hypocenter_determination/jma_mobara_hypoinverse/pipeline.py`
+
+This workflow typically:
+- reads arrival-time CSVs under `/workspace/data/arrivetime/`
+- writes HypoInverse input/output (ARC/PRT/etc.) under a local `run_dir`
+- generates QC plots/maps (requires shapefiles and plotting configs under `/workspace/data/`)
+
+---
 
 ## Development
 
 - Lint: `ruff check src proc`
 - Format: `ruff format src proc`
+
+Many `proc/` scripts are intentionally **parameterized by constants near the top** (instead of argparse CLIs).
+If you want to change I/O paths or presets, start by editing those top-of-file parameters.
