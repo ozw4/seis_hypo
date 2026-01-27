@@ -181,28 +181,3 @@ def generate_nll_control_text(
 
 	return '\n'.join(lines) + '\n'
 
-
-# ---- In-code usage example (non-CLI) ----
-def build_controls_example(
-	grid: GridSpec,
-	stations_df: pd.DataFrame,
-) -> tuple[Path, Path]:
-	"""Your happy path:
-		1) stations_within_radius(..., output="rows") -> stations_df
-		2) propose_grid_from_stations(...) -> grid
-		3) write_nll_control_files_ps(grid, stations_df)
-
-	This helper just forwards to the writer.
-	"""
-	return write_nll_control_files_ps(
-		grid,
-		stations_df,
-		model_label='jma2001',
-		layers_path=DEFAULT_LAYERS_PATH,
-		run_dir=DEFAULT_NLL_RUN_DIR,
-		vgout_dir=DEFAULT_NLL_MODEL_DIR,
-		gtout_dir=DEFAULT_NLL_TIME_DIR,
-		quantity='SLOW_LEN',
-		gtmode='GRID3D ANGLES_NO',
-		depth_km_mode='zero',
-	)
