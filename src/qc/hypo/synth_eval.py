@@ -3,12 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import yaml
 
 from hypo.synth_eval.validation import require_abs, require_dirname_only
-from viz.hypo.synth_eval import plot_xy_true_vs_hyp, save_hist
+from viz.hypo.synth_eval import plot_xy_true_vs_hyp, save_dxdy_scatter, save_hist
 
 
 @dataclass(frozen=True)
@@ -99,18 +98,12 @@ def run_qc(config_path: Path) -> None:
 		'horiz_m',
 	)
 	save_hist(df['dz_m'], run_dir / 'qc_dz_hist.png', 'Depth error histogram', 'dz_m')
-
 	if 'dx_m' in df.columns and 'dy_m' in df.columns:
-		plt.figure()
-		plt.scatter(df['dx_m'].to_numpy(), df['dy_m'].to_numpy(), s=10)
-		plt.axhline(0)
-		plt.axvline(0)
-		plt.title('dx vs dy')
-		plt.xlabel('dx_m')
-		plt.ylabel('dy_m')
-		plt.tight_layout()
-		plt.savefig(run_dir / 'qc_dxdy_scatter.png', dpi=150)
-		plt.close()
+		save_dxdy_scatter(
+			df['dx_m'].to_numpy(),
+			df['dy_m'].to_numpy(),
+			run_dir / 'qc_dxdy_scatter.png',
+		)
 
 	# テキスト要約
 	qc_txt = run_dir / 'qc_summary.txt'

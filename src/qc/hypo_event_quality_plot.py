@@ -1,1 +1,2 @@
-from qc.hypo.event_quality import *
+# %%
+from viz.hypo.event_quality import *

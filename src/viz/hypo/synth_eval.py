@@ -8,6 +8,32 @@ import pandas as pd
 from matplotlib.collections import LineCollection
 
 
+def save_dxdy_scatter(
+	dx_m: np.ndarray,
+	dy_m: np.ndarray,
+	out_png: Path,
+	*,
+	title: str = 'dx vs dy',
+	xlabel: str = 'dx_m',
+	ylabel: str = 'dy_m',
+) -> Path:
+	out_png = Path(out_png)
+	out_png.parent.mkdir(parents=True, exist_ok=True)
+
+	fig, ax = plt.subplots()
+	ax.scatter(dx_m, dy_m, s=10)
+	ax.axhline(0)
+	ax.axvline(0)
+	ax.set_title(title)
+	ax.set_xlabel(xlabel)
+	ax.set_ylabel(ylabel)
+
+	fig.tight_layout()
+	fig.savefig(out_png, dpi=150)
+	plt.close(fig)
+	return out_png
+
+
 def save_true_pred_xy_plot(
 	true_xy: np.ndarray,
 	pred_xy: np.ndarray,
