@@ -1,12 +1,11 @@
 # %%
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -144,29 +143,12 @@ def parse_nll_control(control_path: str | Path) -> dict[str, Any]:
 	}
 
 
-def _annotate_source_location_xy(
-	ax: Any,
+def _source_location_xy_km(
 	info: dict[str, Any],
 	*,
 	source: str,
 ) -> tuple[float, float]:
-	"""TT マップ上に元のステーション位置を重ね描きする。
-
-	Parameters
-	----------
-	ax:
-		matplotlib Axes
-	info:
-		parse_nll_control() の戻り値
-	source:
-		GTSRCE に書き出された station コード
-
-	Returns
-	-------
-	(x_km, y_km)
-		TRANS SIMPLE 基準のローカルXY[km]
-
-	"""
+	"""GTSRCE に書き出された station のローカルXY[km]を返す。"""
 	ll = info['sources_latlon'].get(source)
 	if ll is None:
 		raise ValueError(f'source LATLON not found in control: {source}')
@@ -182,57 +164,7 @@ def _annotate_source_location_xy(
 		lon0_deg=lon0,
 	)
 
-	x_km = float(x_km_arr[0])
-	y_km = float(y_km_arr[0])
-
-	ax.scatter([x_km], [y_km], marker='*', s=160)
-	ax.text(
-		x_km,
-		y_km,
-		source,
-		ha='left',
-		va='bottom',
-		fontsize=9,
-	)
-
-	return x_km, y_km
-
-
-def _plot_tt_slice(
-	data_2d: np.ndarray,
-	*,
-	extent: list[float],
-	xlabel: str,
-	ylabel: str,
-	title: str,
-	colorbar_label: str,
-	figsize: tuple[float, float],
-	out_png: str | Path,
-	annotate: Callable[[Any], Any] | None = None,
-) -> Path:
-	"""走時スライスの共通描画ユーティリティ。"""
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
-	fig, ax = plt.subplots(figsize=figsize)
-	im = ax.imshow(
-		data_2d,
-		origin='lower',
-		extent=extent,
-		aspect='auto',
-	)
-	if annotate is not None:
-		annotate(ax)
-	fig.colorbar(im, ax=ax, label=colorbar_label)
-
-	ax.set_xlabel(xlabel)
-	ax.set_ylabel(ylabel)
-	ax.set_title(title)
-
-	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
+	return float(x_km_arr[0]), float(y_km_arr[0])
 
 
 # ----------------------------
@@ -489,33 +421,29 @@ def plot_tt_horizontal_slice(
 	title: str,
 	out_png: str | Path,
 ) -> Path:
-	"""水平スライスの走時マップ。
-
-	grid_3d shape:
-		(nz, ny, nx)
-	"""
 	if not (0 <= iz < meta.nz):
 		raise ValueError(f'iz out of range: {iz} (nz={meta.nz})')
+
 	info = parse_nll_control(control_path)
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
 
 	x = meta.x_axis_km()
 	y = meta.y_axis_km()
-	z_km = meta.z_axis_km()[iz]
+	z_km = float(meta.z_axis_km()[iz])
 
 	slice_2d = grid_3d[iz, :, :]
+	source_xy_km = _source_location_xy_km(info, source=source)
 
-	return _plot_tt_slice(
+	from viz.nonlinloc.traveltime import plot_tt_horizontal_slice as viz_plot
+
+	return viz_plot(
 		slice_2d,
-		extent=[x[0], x[-1], y[0], y[-1]],
-		xlabel='x East (km)',
-		ylabel='y North (km)',
-		title=f'{title} | z={z_km:.2f} km',
-		colorbar_label='Travel time (s)',
-		figsize=(7, 6),
+		x,
+		y,
+		z_km=z_km,
+		title=title,
 		out_png=out_png,
-		annotate=lambda ax: _annotate_source_location_xy(ax, info, source=source),
+		source_xy_km=source_xy_km,
+		source_label=source,
 	)
 
 
@@ -527,26 +455,20 @@ def plot_tt_vertical_xz(
 	title: str,
 	out_png: str | Path,
 ) -> Path:
-	"""X-Z断面（固定 y インデックス）。"""
 	if not (0 <= iy < meta.ny):
 		raise ValueError(f'iy out of range: {iy} (ny={meta.ny})')
 
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	x = meta.x_axis_km()
 	z = meta.z_axis_km()
-
 	section = grid_3d[:, iy, :]
 
-	return _plot_tt_slice(
+	from viz.nonlinloc.traveltime import plot_tt_vertical_xz as viz_plot
+
+	return viz_plot(
 		section,
-		extent=[x[0], x[-1], z[0], z[-1]],
-		xlabel='x East (km)',
-		ylabel='z (km)',
+		x,
+		z,
 		title=title,
-		colorbar_label='Travel time (s)',
-		figsize=(7, 5.5),
 		out_png=out_png,
 	)
 
@@ -559,26 +481,20 @@ def plot_tt_vertical_yz(
 	title: str,
 	out_png: str | Path,
 ) -> Path:
-	"""Y-Z断面（固定 x インデックス）。"""
 	if not (0 <= ix < meta.nx):
 		raise ValueError(f'ix out of range: {ix} (nx={meta.nx})')
 
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	y = meta.y_axis_km()
 	z = meta.z_axis_km()
-
 	section = grid_3d[:, :, ix]
 
-	return _plot_tt_slice(
+	from viz.nonlinloc.traveltime import plot_tt_vertical_yz as viz_plot
+
+	return viz_plot(
 		section,
-		extent=[y[0], y[-1], z[0], z[-1]],
-		xlabel='y North (km)',
-		ylabel='z (km)',
+		y,
+		z,
 		title=title,
-		colorbar_label='Travel time (s)',
-		figsize=(7, 5.5),
 		out_png=out_png,
 	)
 
@@ -592,29 +508,25 @@ def plot_tt_ps_difference_slice(
 	title: str,
 	out_png: str | Path,
 ) -> Path:
-	"""S - P の水平スライス差分。"""
 	if grid_p.shape != grid_s.shape:
 		raise ValueError('P/S grid shape mismatch')
 	if not (0 <= iz < meta.nz):
 		raise ValueError(f'iz out of range: {iz} (nz={meta.nz})')
 
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	x = meta.x_axis_km()
 	y = meta.y_axis_km()
-	z_km = meta.z_axis_km()[iz]
+	z_km = float(meta.z_axis_km()[iz])
 
 	diff = grid_s[iz, :, :] - grid_p[iz, :, :]
 
-	return _plot_tt_slice(
+	from viz.nonlinloc.traveltime import plot_tt_ps_difference_slice as viz_plot
+
+	return viz_plot(
 		diff,
-		extent=[x[0], x[-1], y[0], y[-1]],
-		xlabel='x East (km)',
-		ylabel='y North (km)',
-		title=f'{title} | z={z_km:.2f} km',
-		colorbar_label='S - P (s)',
-		figsize=(7, 6),
+		x,
+		y,
+		z_km=z_km,
+		title=title,
 		out_png=out_png,
 	)
 
