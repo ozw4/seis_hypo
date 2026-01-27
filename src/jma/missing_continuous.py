@@ -95,40 +95,22 @@ def run_make_missing_continuous(
 	for event_dir in list_event_dirs(
 		win_event_dir, date_min=dmin, date_max=dmax, invalid_name='keep'
 	):
+		try:
+			for evt_path in sorted(event_dir.glob('*.evt')):
+				txt_path = evt_path.with_suffix('.txt')
+				active_ch_path = evt_path.with_name(f'{evt_path.stem}_active.ch')
 
-		for evt_path in sorted(event_dir.glob('*.evt')):
-			txt_path = evt_path.with_suffix('.txt')
-			active_ch_path = evt_path.with_name(f'{evt_path.stem}_active.ch')
-
-			if not txt_path.is_file():
-				print(f'[warn] skip (no .txt): {evt_path}')
-				continue
-
-			if not active_ch_path.is_file():
-				if skip_if_no_active_ch:
-					print(f'[warn] skip (no _active.ch): {evt_path}')
-					continue
-				raise FileNotFoundError(active_ch_path)
-
-			# イベント単位skip（doneマーカー）
-			done_path = (
-				event_dir / f'{evt_path.stem}_missing_continuous_done_{run_tag2}.json'
-			)
-			if skip_if_done and done_path.is_file():
-				print(f'[skip] already done: {evt_path.name} -> {done_path.name}')
-				continue
-
-			origin_iso = read_origin_jst_iso(txt_path)
-			origin_ts = pd.to_datetime(origin_iso, format='ISO8601')
-
-			# 厳密フィルタ（ORIGIN_JST）
-			if dmin is not None or dmax is not None:
-				if not in_date_range(origin_ts, date_min=dmin, date_max=dmax):
+				if not txt_path.is_file():
+					print(f'[warn] skip (no .txt): {evt_path}')
 					continue
 
-			event_month = origin_iso[:7]
-			event_id = find_event_id_by_origin(epi_df, origin_iso)
+				if not active_ch_path.is_file():
+					if skip_if_no_active_ch:
+						print(f'[warn] skip (no _active.ch): {evt_path}')
+						continue
+					raise FileNotFoundError(active_ch_path)
 
+<<<<<<< HEAD
 			pick_by_ch, map_log = build_pick_table_for_event(
 				meas_df,
 				event_id=event_id,
@@ -138,67 +120,99 @@ def run_make_missing_continuous(
 				p_phases=P_PHASES,
 				s_phases=S_PHASES,
 			)
+=======
+				# イベント単位skip（doneマーカー）
+				done_path = (
+					event_dir
+					/ f'{evt_path.stem}_missing_continuous_done_{run_tag2}.json'
+				)
+				if skip_if_done and done_path.is_file():
+					print(f'[skip] already done: {evt_path.name} -> {done_path.name}')
+					continue
+>>>>>>> 3c65044 (Add date filtering and error handling to run_make_missing_continuous function)
 
-			station_df = read_hinet_channel_table(active_ch_path)
-			st_keys = set(
-				station_df['station'].astype(str).map(normalize_code).tolist()
-			)
+				origin_iso = read_origin_jst_iso(txt_path)
+				origin_ts = pd.to_datetime(origin_iso, format='ISO8601')
 
-			pick_idx = pick_by_ch.copy()
-			pick_idx.index = pick_idx.index.astype(str).map(normalize_code)
-			missing_keys = sorted(set(pick_idx.index.tolist()) - st_keys)
+				# 厳密フィルタ（ORIGIN_JST）
+				if dmin is not None or dmax is not None:
+					if not in_date_range(origin_ts, date_min=dmin, date_max=dmax):
+						continue
 
-			out_txt = event_dir / f'{evt_path.stem}_missing_continuous.txt'
-			n_missing = len(missing_keys)
+				event_month = origin_iso[:7]
+				event_id = find_event_id_by_origin(epi_df, origin_iso)
 
-			if missing_keys:
-				lines: list[str] = []
-				for k in missing_keys:
-					r = pick_idx.loc[k]
-					net = pick_one_network_code(r.get('preferred_network_code'))
-					lines.append(f'{k}\t{net}')
-					missing_rows.append(
-						{
-							'event_dir': str(event_dir),
-							'evt_file': evt_path.name,
-							'event_id': int(event_id),
-							'origin_time': origin_iso,
-							'event_month': event_month,
-							'ch_station': k,
-							'network_code': net,
-							'p_time': r.get('p_time'),
-							's_time': r.get('s_time'),
-						}
+				pick_by_ch, map_log = build_pick_table_for_event(
+					meas_df,
+					event_id=event_id,
+					event_month=event_month,
+					mdb=mdb,
+					pdb=pdb,
+				)
+
+				station_df = read_hinet_channel_table(active_ch_path)
+				st_keys = set(
+					station_df['station'].astype(str).map(normalize_code).tolist()
+				)
+
+				pick_idx = pick_by_ch.copy()
+				pick_idx.index = pick_idx.index.astype(str).map(normalize_code)
+				missing_keys = sorted(set(pick_idx.index.tolist()) - st_keys)
+
+				out_txt = event_dir / f'{evt_path.stem}_missing_continuous.txt'
+				n_missing = len(missing_keys)
+
+				if missing_keys:
+					lines: list[str] = []
+					for k in missing_keys:
+						r = pick_idx.loc[k]
+						net = pick_one_network_code(r.get('preferred_network_code'))
+						lines.append(f'{k}\t{net}')
+						missing_rows.append(
+							{
+								'event_dir': str(event_dir),
+								'evt_file': evt_path.name,
+								'event_id': int(event_id),
+								'origin_time': origin_iso,
+								'event_month': event_month,
+								'ch_station': k,
+								'network_code': net,
+								'p_time': r.get('p_time'),
+								's_time': r.get('s_time'),
+							}
+						)
+					out_txt.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+					print(
+						f'[missing] {evt_path.name}: n_missing={n_missing} -> {out_txt.name}'
 					)
-				out_txt.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-				print(
-					f'[missing] {evt_path.name}: n_missing={n_missing} -> {out_txt.name}'
-				)
-			else:
-				if out_txt.is_file():
-					out_txt.unlink()
-				print(f'[missing] {evt_path.name}: n_missing=0')
+				else:
+					if out_txt.is_file():
+						out_txt.unlink()
+					print(f'[missing] {evt_path.name}: n_missing=0')
 
-			if map_log:
-				pd.DataFrame(map_log).to_csv(
-					event_dir / f'{evt_path.stem}_mapping_log.csv',
-					index=False,
-				)
+				if map_log:
+					pd.DataFrame(map_log).to_csv(
+						event_dir / f'{evt_path.stem}_mapping_log.csv',
+						index=False,
+					)
 
-			# doneマーカー（missing=0でも必ず作る）
-			done_obj = {
-				'evt_file': evt_path.name,
-				'origin_time': origin_iso,
-				'event_id': int(event_id),
-				'event_month': event_month,
-				'n_missing': n_missing,
-				'run_tag': run_tag2,
-				'created_at_utc': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-			}
-			done_path.write_text(
-				json.dumps(done_obj, ensure_ascii=False, indent=2) + '\n',
-				encoding='utf-8',
-			)
+				# doneマーカー（missing=0でも必ず作る）
+				done_obj = {
+					'evt_file': evt_path.name,
+					'origin_time': origin_iso,
+					'event_id': int(event_id),
+					'event_month': event_month,
+					'n_missing': n_missing,
+					'run_tag': run_tag2,
+					'created_at_utc': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+				}
+				done_path.write_text(
+					json.dumps(done_obj, ensure_ascii=False, indent=2) + '\n',
+					encoding='utf-8',
+				)
+		except Exception as e:
+			print(f'Error in make_missing_continuous: {e}')
+			continue
 
 	out_df = pd.DataFrame(missing_rows)
 	out_missing_csv.parent.mkdir(parents=True, exist_ok=True)
