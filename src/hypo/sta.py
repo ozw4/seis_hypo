@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from common.core import validate_columns
 
+from common.core import validate_columns
 from hypo.station_meta import parse_station_code
 
 
@@ -45,6 +45,7 @@ def format_station_line(
 	lon_deg: int,
 	lon_min: float,
 	lon_hemi: str,
+	elevation_m: int = 0,
 	comp1: str = 'Z',
 	chan: str = 'HHZ',
 	weight_code: str = ' ',
@@ -78,8 +79,8 @@ def format_station_line(
 	line += f'{lon_deg:3d} '
 	# 31-37: lon minutes F7.4, 38: E/W
 	line += f'{lon_min:7.4f}{lon_hemi:1s}'
-	# 39-42: reserved (4X)
-	line += ' ' * 4
+	# 39-42: elevation (I4)
+	line += f'{int(elevation_m):4d}'
 	# 43-45: default period F3.1, 46-47: spaces
 	line += f'{default_period:3.1f}  '
 	# 48: alternate crust model flag
@@ -118,21 +119,21 @@ def write_hypoinverse_sta(
 	"""station.csv から Hypoinverse #2 station file (.sta) を生成する。
 
 	前提カラム:
-	  - station_code      (例: 'N.KKGH', 'ABASH2', 'S4N04' など)
-	  - Latitude_deg      (10進度)
-	  - Longitude_deg     (10進度)
+	- station_code      (例: 'N.KKGH', 'ABASH2', 'S4N04' など)
+	- Latitude_deg      (10進度)
+	- Longitude_deg     (10進度)
 
 	任意カラム（あれば補正量として使用する。無い/NaN は 0 or 空文字）:
-	  - pdelay1, pdelay2        : P delay set1/set2 [s]
-	  - amag_corr, amag_w       : 振幅マグニチュード補正と重み
-	  - dmag_corr, dmag_w       : 継続時間マグニチュード補正と重み
-	  - inst_type               : 計器種別コード (int)
-	  - cal_factor              : キャリブレーション係数
-	  - weight_code             : ステーション重みコード (col 15)
-	  - loc_code                : ロケーションコード (2文字)
-	  - channel                 : チャンネル名（例 'HHZ'）※あれば default_channel を上書き
-	  - comp1                   : comp1（例 'Z'）※あれば default_comp1 を上書き
-	  - default_period          : ステーションごとの default period（あれば引数を上書き）
+	- pdelay1, pdelay2        : P delay set1/set2 [s]
+	- amag_corr, amag_w       : 振幅マグニチュード補正と重み
+	- dmag_corr, dmag_w       : 継続時間マグニチュード補正と重み
+	- inst_type               : 計器種別コード (int)
+	- cal_factor              : キャリブレーション係数
+	- weight_code             : ステーション重みコード (col 15)
+	- loc_code                : ロケーションコード (2文字)
+	- channel                 : チャンネル名（例 'HHZ'）※あれば default_channel を上書き
+	- comp1                   : comp1（例 'Z'）※あれば default_comp1 を上書き
+	- default_period          : ステーションごとの default period（あれば引数を上書き）
 	"""
 	df = pd.read_csv(station_csv)
 
@@ -228,6 +229,12 @@ def write_hypoinverse_sta(
 			else '  '
 		)
 
+		elevation_m = (
+			int(row['Elevation_m'])
+			if 'Elevation_m' in row and pd.notna(row['Elevation_m'])
+			else 0
+		)
+
 		line = format_station_line(
 			site=site,
 			net=net or '',
@@ -237,6 +244,7 @@ def write_hypoinverse_sta(
 			lon_deg=lon_deg,
 			lon_min=lon_min,
 			lon_hemi=lon_hemi,
+			elevation_m=elevation_m,
 			comp1=comp1,
 			chan=chan,
 			weight_code=weight_code,
