@@ -11,6 +11,7 @@ from matplotlib.collections import LineCollection
 
 from .validation import require_abs, require_dirname_only
 
+
 @dataclass(frozen=True)
 class Config:
 	dataset_dir: str
@@ -132,7 +133,8 @@ def run_qc(config_path: Path) -> None:
 	require_abs(dataset_dir, 'dataset_dir')
 	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
 
-	run_dir = config_path.resolve().parent / 'runs' / cfg.outputs_dir
+	runs_root = config_path.resolve().parent.parent / 'runs'
+	run_dir = runs_root / cfg.outputs_dir
 	if not run_dir.is_dir():
 		raise FileNotFoundError(f'run_dir not found: {run_dir}')
 
@@ -219,4 +221,3 @@ def run_qc(config_path: Path) -> None:
 	xy_png = run_dir / 'xy_true_vs_hyp.png'
 	plot_xy_true_vs_hyp(df, xy_png)
 	print(f'[OK] wrote: {xy_png}')
-
