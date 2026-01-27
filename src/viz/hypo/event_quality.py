@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from viz.core.fig_io import save_current_figure
+
 
 def _plot_histograms(
 	df: pd.DataFrame,
@@ -56,8 +58,7 @@ def _plot_histograms(
 		plt.ylabel('Count')
 		plt.title(f'Histogram of {col}')
 		plt.tight_layout()
-		plt.savefig(out_dir / f'{col}_hist.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / f'{col}_hist.png', dpi=200)
 
 
 def _plot_vs_nwr(
@@ -80,8 +81,7 @@ def _plot_vs_nwr(
 		plt.ylabel(col)
 		plt.title(f'{col} vs {nwr_col}')
 		plt.tight_layout()
-		plt.savefig(out_dir / f'{col}_vs_{nwr_col}.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / f'{col}_vs_{nwr_col}.png', dpi=200)
 
 
 def _plot_rms_vs_geometry(
@@ -99,8 +99,7 @@ def _plot_rms_vs_geometry(
 		plt.ylabel(rms_col)
 		plt.title(f'{rms_col} vs {dmin_col}')
 		plt.tight_layout()
-		plt.savefig(out_dir / f'{rms_col}_vs_{dmin_col}.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / f'{rms_col}_vs_{dmin_col}.png', dpi=200)
 
 	if gap_col in df.columns and rms_col in df.columns:
 		plt.figure()
@@ -109,8 +108,7 @@ def _plot_rms_vs_geometry(
 		plt.ylabel(rms_col)
 		plt.title(f'{rms_col} vs {gap_col}')
 		plt.tight_layout()
-		plt.savefig(out_dir / f'{rms_col}_vs_{gap_col}.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / f'{rms_col}_vs_{gap_col}.png', dpi=200)
 
 
 def _plot_metrics_vs_depth(
@@ -133,8 +131,7 @@ def _plot_metrics_vs_depth(
 		plt.ylabel(col)
 		plt.title(f'{col} vs {depth_col}')
 		plt.tight_layout()
-		plt.savefig(out_dir / f'{col}_vs_{depth_col}.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / f'{col}_vs_{depth_col}.png', dpi=200)
 
 
 def _plot_spatial_rms(
@@ -159,8 +156,7 @@ def _plot_spatial_rms(
 	plt.title(f'Spatial distribution of {rms_col}')
 	plt.colorbar(sc, label=rms_col)
 	plt.tight_layout()
-	plt.savefig(out_dir / f'{rms_col}_spatial.png', dpi=200)
-	plt.close()
+	save_current_figure(out_dir / f'{rms_col}_spatial.png', dpi=200)
 
 
 def _plot_coord_misfit(
@@ -224,8 +220,7 @@ def _plot_coord_misfit(
 	plt.ylabel('Count')
 	plt.title('Histogram of horizontal hypocenter misfit')
 	plt.tight_layout()
-	plt.savefig(out_dir / 'coordmisfit_horizontal_hist.png', dpi=200)
-	plt.close()
+	save_current_figure(out_dir / 'coordmisfit_horizontal_hist.png', dpi=200)
 
 	# 深さミスフィットのヒストグラム
 	if np.any(mask_depth):
@@ -235,8 +230,7 @@ def _plot_coord_misfit(
 		plt.ylabel('Count')
 		plt.title('Histogram of depth misfit')
 		plt.tight_layout()
-		plt.savefig(out_dir / 'coordmisfit_depth_hist.png', dpi=200)
-		plt.close()
+		save_current_figure(out_dir / 'coordmisfit_depth_hist.png', dpi=200)
 
 	# RMS vs 水平ミスフィット
 	if rms_col in df.columns:
@@ -250,8 +244,7 @@ def _plot_coord_misfit(
 			plt.ylabel(rms_col)
 			plt.title(f'{rms_col} vs horizontal misfit')
 			plt.tight_layout()
-			plt.savefig(out_dir / 'coordmisfit_RMS_vs_horizontal.png', dpi=200)
-			plt.close()
+			save_current_figure(out_dir / 'coordmisfit_RMS_vs_horizontal.png', dpi=200)
 
 	# 空間分布（JMA 位置をプロットしつつ色で水平ミスフィット）
 	plt.figure()
@@ -266,8 +259,7 @@ def _plot_coord_misfit(
 	plt.title('Spatial distribution of JMA–HYPOINV horizontal misfit')
 	plt.colorbar(sc, label='Horizontal misfit (km)')
 	plt.tight_layout()
-	plt.savefig(out_dir / 'coordmisfit_horizontal_spatial.png', dpi=200)
-	plt.close()
+	save_current_figure(out_dir / 'coordmisfit_horizontal_spatial.png', dpi=200)
 
 	# マグニチュード vs 水平ミスフィット（JMA マグを想定）
 	if mag_col_jma is not None and mag_col_jma in df.columns:
@@ -281,8 +273,7 @@ def _plot_coord_misfit(
 			plt.ylabel('Horizontal distance |JMA - HYPOINV| (km)')
 			plt.title(f'Horizontal misfit vs {mag_col_jma}')
 			plt.tight_layout()
-			plt.savefig(out_dir / 'coordmisfit_horizontal_vs_mag_jma.png', dpi=200)
-			plt.close()
+			save_current_figure(out_dir / 'coordmisfit_horizontal_vs_mag_jma.png', dpi=200)
 
 
 def plot_event_quality(

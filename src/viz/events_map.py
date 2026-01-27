@@ -15,6 +15,8 @@ import pandas as pd
 from matplotlib import colors
 from shapely.geometry import Point
 
+from viz.core.fig_io import save_figure
+
 
 def plot_events_map_and_sections(
 	df: pd.DataFrame,
@@ -612,8 +614,7 @@ def plot_events_map_and_sections(
 
 	if out_png is not None:
 		out_png = Path(out_png)
-		out_png.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(out_png, dpi=300, bbox_inches='tight')
+		save_figure(fig, out_png, dpi=300, bbox_inches='tight', close=False)
 	else:
 		plt.show()
 

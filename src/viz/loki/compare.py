@@ -5,6 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from viz.core.fig_io import save_figure
+
 
 def _finite_1d(x: np.ndarray) -> np.ndarray:
 	a = np.asarray(x, dtype=float).ravel()
@@ -54,11 +56,7 @@ def plot_hist_overlay(
 	ax.legend()
 	fig.tight_layout()
 
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=200)
 
 
 def save_scatter(
@@ -81,7 +79,6 @@ def save_scatter(
 	y2 = y[mask]
 
 	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
 
 	fig = plt.figure(figsize=(9, 4.8))
 	ax = fig.add_subplot(111)
@@ -90,6 +87,4 @@ def save_scatter(
 	ax.set_xlabel(xlabel)
 	ax.set_ylabel(ylabel)
 	fig.tight_layout()
-	fig.savefig(out_png, dpi=int(dpi))
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=int(dpi))

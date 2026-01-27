@@ -7,6 +7,8 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
+from viz.core.fig_io import save_figure
+
 
 def _annotate_source_location_xy(
 	ax: Any,
@@ -42,9 +44,6 @@ def _plot_tt_slice(
 	annotate: Callable[[Any], Any] | None = None,
 ) -> Path:
 	"""走時スライスの共通描画ユーティリティ。"""
-	out_png = Path(out_png)
-	out_png.parent.mkdir(parents=True, exist_ok=True)
-
 	fig, ax = plt.subplots(figsize=figsize)
 	im = ax.imshow(
 		data_2d,
@@ -61,9 +60,7 @@ def _plot_tt_slice(
 	ax.set_title(title)
 
 	fig.tight_layout()
-	fig.savefig(out_png, dpi=200)
-	plt.close(fig)
-	return out_png
+	return save_figure(fig, out_png, dpi=200)
 
 
 def plot_tt_horizontal_slice(
