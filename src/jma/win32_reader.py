@@ -21,14 +21,6 @@ from waveform.preprocess import resample_window_poly
 
 
 @numba.jit(nopython=True, cache=True)
-def _number_BCD(mm, length):
-	out = 0
-	for i in range(length):
-		out += (mm[i] // 16 * 10 + (mm[i] % 16)) * 100 ** (length - 1 - i)
-	return out
-
-
-@numba.jit(nopython=True, cache=True)
 def _sampling_rate(mm):
 	return ((mm[0] & 0x0F) << 4) | mm[1]
 
