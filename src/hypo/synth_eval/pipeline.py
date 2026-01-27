@@ -10,6 +10,7 @@ import yaml
 from hypo.arc import write_hypoinverse_arc
 from hypo.crh import write_crh
 from hypo.sta import write_hypoinverse_sta
+from hypo.synth_eval.config import PipelineConfig, load_pipeline_config
 
 from .builders import (
 	build_epic_df,
@@ -19,63 +20,13 @@ from .builders import (
 )
 from .hypoinverse_runner import run_hypoinverse, write_cmd_from_template
 from .metrics import evaluate
-from .validation import (
-	require_abs,
-	require_dirname_only,
-	require_filename_only,
-)
-
-
-@dataclass(frozen=True)
-class Config:
-	dataset_dir: str
-	sim_yaml: str
-	outputs_dir: str
-	template_cmd: str
-	hypoinverse_exe: str
-	receiver_geometry: str
-
-	station_set: str
-	lat0: float
-	lon0: float
-	origin0: str
-	dt_sec: float
-	max_events: int
-	default_depth_km: float
-	fix_depth: bool
-
-	arc_use_jma_flag: bool
-	arc_p_centroid_top_n: int
-	arc_origin_time_offset_sec: float
+from .validation import require_abs, require_dirname_only, require_filename_only
 
 
 @dataclass(frozen=True)
 class SimParams:
 	vp_kms: float
 	vs_kms: float
-
-
-def load_config(path: Path) -> Config:
-	obj = yaml.safe_load(path.read_text(encoding='utf-8'))
-	return Config(
-		dataset_dir=str(obj['dataset_dir']),
-		sim_yaml=str(obj['sim_yaml']),
-		outputs_dir=str(obj['outputs_dir']),
-		template_cmd=str(obj['template_cmd']),
-		hypoinverse_exe=str(obj['hypoinverse_exe']),
-		receiver_geometry=str(obj['receiver_geometry']),
-		station_set=str(obj['station_set']),
-		lat0=float(obj['lat0']),
-		lon0=float(obj['lon0']),
-		origin0=str(obj['origin0']),
-		dt_sec=float(obj['dt_sec']),
-		max_events=int(obj['max_events']),
-		default_depth_km=float(obj['default_depth_km']),
-		fix_depth=bool(obj['fix_depth']),
-		arc_use_jma_flag=bool(obj['arc_use_jma_flag']),
-		arc_p_centroid_top_n=int(obj['arc_p_centroid_top_n']),
-		arc_origin_time_offset_sec=float(obj['arc_origin_time_offset_sec']),
-	)
 
 
 def _read_sim_yaml(sim_yaml: Path) -> SimParams:
@@ -93,7 +44,7 @@ def run_synth_eval(
 	if not config_path.is_file():
 		raise FileNotFoundError(f'config not found: {config_path}')
 
-	cfg = load_config(config_path)
+	cfg: PipelineConfig = load_pipeline_config(config_path)
 
 	dataset_dir = Path(cfg.dataset_dir)
 	template_cmd = Path(cfg.template_cmd)

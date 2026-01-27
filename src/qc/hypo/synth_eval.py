@@ -1,34 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
-import yaml
 
+from hypo.synth_eval.config import QcConfig, load_qc_config
 from hypo.synth_eval.validation import require_abs, require_dirname_only
 from viz.hypo.synth_eval import plot_xy_true_vs_hyp, save_dxdy_scatter, save_hist
-
-
-@dataclass(frozen=True)
-class Config:
-	dataset_dir: str
-	outputs_dir: str
-
-
-def load_config(path: Path) -> Config:
-	obj = yaml.safe_load(path.read_text(encoding='utf-8'))
-	return Config(
-		dataset_dir=str(obj['dataset_dir']),
-		outputs_dir=str(obj['outputs_dir']),
-	)
 
 
 def run_qc(config_path: Path) -> None:
 	if not config_path.is_file():
 		raise FileNotFoundError(f'config not found: {config_path}')
 
-	cfg = load_config(config_path)
+	cfg: QcConfig = load_qc_config(config_path)
 
 	dataset_dir = Path(cfg.dataset_dir)
 	require_abs(dataset_dir, 'dataset_dir')
