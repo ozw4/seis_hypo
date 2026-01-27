@@ -10,6 +10,7 @@ from seisbench.models import EQTransformer
 
 from pick.eqt_io import station_zne_from_stream
 from pick.overlap import stack_overlap_1d
+from pick.probs_common import extract_station_probs, iterate_overlapping_windows, normalize_zne
 from pick.weights_util import _extract_state_dict, _is_local_weights_spec
 from waveform.filters import zscore_tracewise
 
@@ -106,20 +107,7 @@ def backend_eqt_probs(
 	  - delay: 0
 	  - meta['probs']: {'P','S','D'}（いずれも length N_eff）
 	"""
-	if zne.ndim != 2:
-		raise ValueError(f'zne must be 2D, got shape={zne.shape}')
-
-	C, N = zne.shape
-	if C != 3 and zne.shape[1] == 3:
-		zne = zne.T
-		C, N = zne.shape
-
-	if C == 1:
-		zne = np.vstack([zne, np.zeros((2, N), dtype=zne.dtype)])
-		C, N = zne.shape
-
-	if C != 3:
-		raise ValueError(f'expected 3 components, got C={C} shape={zne.shape}')
+	zne = normalize_zne(zne)
 
 	if int(fs) != int(target_fs):
 		zne = resample_poly(zne, up=int(target_fs), down=int(fs), axis=1)
@@ -146,21 +134,14 @@ def backend_eqt_probs(
 		return zscore_tracewise(t, axis=-1, eps=1e-6)
 
 	with torch.no_grad():
-		buf: list[tuple[int, torch.Tensor]] = []
-
-		if N_eff < L:
-			w = np.zeros((3, L), dtype=np.float32)
-			w[:, :N_eff] = zne[:, :N_eff].astype(np.float32, copy=False)
-			buf.append((0, _to_tensor(w)))
-			_stitch_eqt_batch(buf, model, det, probP, probS)
-		else:
-			for s in range(0, N_eff - L + 1, H):
-				w = zne[:, s : s + L].astype(np.float32, copy=False)
-				buf.append((int(s), _to_tensor(w)))
-				if len(buf) >= int(batch_size):
-					_stitch_eqt_batch(buf, model, det, probP, probS)
-			if buf:
-				_stitch_eqt_batch(buf, model, det, probP, probS)
+		iterate_overlapping_windows(
+			zne,
+			window_len=L,
+			hop_len=H,
+			batch_size=int(batch_size),
+			to_tensor=_to_tensor,
+			process_batch=lambda b: _stitch_eqt_batch(b, model, det, probP, probS),
+		)
 
 	det = np.nan_to_num(det, nan=0.0)
 	probP = np.nan_to_num(probP, nan=0.0)
@@ -215,25 +196,7 @@ def build_probs_by_station(
 			batch_size=int(eqt_batch_size),
 		)
 
-		probs = meta.get('probs', None)
-		if not isinstance(probs, dict):
-			raise ValueError("meta['probs'] missing or invalid")
-
-		p = probs.get('P', None)
-		s = probs.get('S', None)
-		if p is None or s is None:
-			raise ValueError(f'missing P/S probs: station={sta}')
-
-		p = np.asarray(p, dtype=np.float32)
-		s = np.asarray(s, dtype=np.float32)
-		if p.ndim != 1 or s.ndim != 1:
-			raise ValueError(f'P/S probs must be 1D: station={sta}')
-		if int(p.shape[0]) != npts or int(s.shape[0]) != npts:
-			raise ValueError(
-				f'P/S probs length mismatch: station={sta} got={(p.shape[0], s.shape[0])} expected={npts}'
-			)
-
-		probs_by_sta[sta] = {'P': p, 'S': s}
+		probs_by_sta[sta] = extract_station_probs(meta, sta, npts)
 
 	if not probs_by_sta:
 		raise ValueError('no station probs built')
