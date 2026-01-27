@@ -57,7 +57,7 @@ model_weight
 **/hypoinverse_run.prt
 **/hypoinverse_run.sum
 **/hypoinverse_run_out.arc
-
+**/runs/
 # backup scripts
 **/bak_*.py
 # compiled コード
