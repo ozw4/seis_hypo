@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qc.jma_qc_arrival import run_jma_arrivetime_qc
+from qc.jma.arrivetime import run_jma_arrivetime_qc
 
 MEAS_CSV = Path('/workspace/data/arrivetime/JMA/arrivetime_measurements_1month.csv')
 EPIC_CSV = Path('/workspace/data/arrivetime/JMA/arrivetime_epicenters_1month.csv')
