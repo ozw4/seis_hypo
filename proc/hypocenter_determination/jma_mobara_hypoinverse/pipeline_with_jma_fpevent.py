@@ -22,7 +22,7 @@ pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
 scrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_S.crh')
 exe_file = Path('/workspace/external_source/hyp1.40/hypoinverse.exe')
 cmd_file = Path(
-	'/workspace/proc/hypocenter_determination/template/jma2001a_with_das.cmd'
+	'/workspace/proc/hypocenter_determination/jma_mobara_hypoinverse/template/jma2001a_with_das.cmd'
 )
 measurement_csv = Path(
 	'/home/dcuser/mobara2025/proc/proc_continuous/outputs/hinet_gather_events_mobaranet1/eqt_picks_hinet_eqt_for_hypoinverse.csv'
@@ -67,7 +67,7 @@ target_start = pd.Timestamp('2020-02-15 00:00:00')
 target_end = pd.Timestamp('2020-03-02 00:00:00')  # target_end は「未満」比較
 
 # 作業フォルダ（Hypoinverse の PHS / PRT / ARC などはここにまとめる）
-run_dir = Path('./test_mobara2020_jma_fpevent')
+run_dir = Path('./result/test_mobara2020_jma_fpevent')
 run_dir.mkdir(parents=True, exist_ok=True)
 
 # この pipeline.py 自身のスナップショットを作業フォルダに保存（再現用）

@@ -20,12 +20,14 @@ pcrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
 scrh_file = Path('/workspace/data/velocity/jma_crh/JMA2001A_S.crh')
 exe_file = Path('/workspace/external_source/hyp1.40/hypoinverse.exe')
 cmd_file = Path(
-	'/workspace/proc/hypocenter_determination/template/jma2001a_with_das.cmd'
+	'/workspace/proc/hypocenter_determination/jma_mobara_hypoinverse/template/jma2001a_with_das.cmd'
 )
 
-epicenter_csv = Path('/workspace/data/arrivetime/arrivetime_epicenters_mobara2020.csv')
+epicenter_csv = Path(
+	'/workspace/data/arrivetime/NIED/arrivetime_epicenters_mobara2020.csv'
+)
 measurement_csv = Path(
-	'/workspace/data/arrivetime/arrivetime_measurements_mobara2020.csv'
+	'/workspace/data/arrivetime/NIED/arrivetime_measurements_mobara2020.csv'
 )
 das_measurment_csv = Path(
 	'/home/dcuser/mobara2025/proc/proc_continuous_das/das_picks_20200215_20200301.csv'

@@ -11,7 +11,7 @@
 * ---- station / phase フォーマットとマッチング設定 ----
 H71 1 1 3      * station format #2 を使用
 LES 3          * 3文字チャンネル（HHZなど）でマッチ
-LET 5 1 0      * SITE 5文字 + NET 1文字 + CHAN 3文字
+LET 5 1 3      * SITE 5文字 + NET 1文字 + CHAN 3文字
 
 * ==========================================================
 *  TUNE_BLOCK: ここから下のブロックの行をパイプラインで置換してよい
@@ -27,7 +27,7 @@ CRH 2 '/workspace/data/velocity/jma_crh/JMA2001A_S.crh'
 SAL 1 2
 
 * ---- 観測点リスト ----
-STA '/workspace/data/station/stations_hypoinverse_with_das.sta'
+STA '/workspace/data/station/jma/stations_hypoinverse.sta'
 
 * ---- 出力ファイル設定（作業フォルダ相対パス）----
 PRT 'hypoinverse_run.prt'
@@ -36,7 +36,7 @@ ARC 'hypoinverse_run_out.arc'
 
 * ---- 入力位相ファイル（作業フォルダ相対パス）----
 PHS 'hypoinverse_input.arc'
-WET 1.0 0.5 0.3 0.2
+
 * ==========================================================
 *  TUNE_BLOCK: ここまで
 * ==========================================================
