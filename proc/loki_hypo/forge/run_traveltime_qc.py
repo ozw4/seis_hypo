@@ -5,7 +5,7 @@ from pathlib import Path
 
 from common.config import QcConfig
 from common.load_config import load_config
-from qc.traveltime_pipelines_qc import run_traveltime_tables_qc
+from qc.nonlinloc.traveltime_tables import run_traveltime_tables_qc
 
 YAML_PATH = Path('/workspace/data/config/traveltime_config.yaml')
 
