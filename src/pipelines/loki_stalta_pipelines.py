@@ -9,6 +9,7 @@ from obspy import Stream
 
 from common.config import LokiWaveformStackingInputs, LokiWaveformStackingPipelineConfig
 from common.json_io import write_json
+from common.stride import normalize_channel_stride
 from io_util.stream import build_stream_from_forge_event_npy
 from loki_tools.build_loki import build_loki_with_header
 from loki_tools.loki_parse import read_phs_token_by_station
@@ -21,17 +22,6 @@ from pipelines.loki_waveform_stacking_pipelines import (
 	list_event_dirs_filtered_forge_das,
 )
 from waveform.preprocess import preprocess_stream_detrend_bandpass, spec_from_inputs
-
-
-def _normalize_channel_stride(channel_stride: int | None) -> int | None:
-	if channel_stride is None:
-		return None
-	stride = int(channel_stride)
-	if stride <= 0:
-		raise ValueError(f'channel_stride must be >= 1 when set, got {stride}')
-	if stride <= 1:
-		return None
-	return stride
 
 
 def _subsample_stream_by_stride(st: Stream, *, stride: int) -> tuple[Stream, list[int]]:
@@ -314,7 +304,7 @@ def pipeline_loki_waveform_stacking_stalta_pass1(
 		'npr': int(getattr(inputs, 'npr', 2)),
 		'model': str(getattr(inputs, 'model', 'jma2001')),
 	}
-	stride = _normalize_channel_stride(channel_stride)
+	stride = normalize_channel_stride(channel_stride)
 
 	pick_json_by_event: dict[str, Path] = {}
 
