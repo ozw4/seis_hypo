@@ -1,7 +1,7 @@
 # ---- path系（ルール通り）----
 dataset_dir: "/workspace/data/synthe/example1_das1_surface9_well1000m"     # 絶対パス
 sim_yaml: "pipeline_example_das1_surface9_well1000m.yaml"
-outputs_dir: "example_surface"
+outputs_dir: "example_surface_das"
 template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd" # 絶対パス
 hypoinverse_exe: "/workspace/external_source/hyp1.40/hypoinverse.exe"          # 絶対パス
 receiver_geometry: "recv_das1_geo9_0001.npy"
@@ -12,7 +12,7 @@ apply_station_elevation_delay: true
 
 
 # ---- 非path（ここは自由に残す）----
-station_set: "surface"   # surface | all
+station_set: "all"   # surface | all
 
 lat0: 35.0
 lon0: 140.0

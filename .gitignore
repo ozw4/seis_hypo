@@ -42,7 +42,8 @@ Thumbs.db
 *.cnt
 *.in
 *.evt
-*.yaml
+*effective.yaml
+*source.yaml
 *.crh
 *.cmd
 *.sta
