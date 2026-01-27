@@ -8,6 +8,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from common.core import validate_columns
+from jma.stationcode_common import month_columns
+
 # =========================
 # CONFIG (edit here)
 # =========================
@@ -160,12 +163,6 @@ _DONET_RE = re.compile(r'^M(\.\d{2}DO|\d{3}DO)$')
 # =========================
 # Utilities
 # =========================
-def _require_columns(df: pd.DataFrame, cols: Sequence[str], label: str) -> None:
-	missing = [c for c in cols if c not in df.columns]
-	if missing:
-		raise ValueError(
-			f'{label} missing columns: {missing}. Found: {list(df.columns)}'
-		)
 
 
 def normalize_code(x: object) -> str:
@@ -180,12 +177,6 @@ def parse_date_series(s: pd.Series) -> pd.Series:
 	# station.csv uses YYYY/MM/DD (some blank)
 	ss = s.astype(str).str.strip().replace({'': pd.NA, 'nan': pd.NA})
 	return pd.to_datetime(ss, errors='coerce')
-
-
-def month_columns(df: pd.DataFrame) -> list[str]:
-	cols = [c for c in df.columns if _MONTH_COL_RE.fullmatch(str(c))]
-	cols.sort()
-	return cols
 
 
 def haversine_km(
@@ -403,13 +394,13 @@ def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 	sta = pd.read_csv(STA_CSV)
 	ch = pd.read_csv(CH_CSV)
 
-	_require_columns(mea, [MEA_STATION_COL], 'station_measurement.csv')
-	_require_columns(
+	validate_columns(mea, [MEA_STATION_COL], 'station_measurement.csv')
+	validate_columns(
 		sta,
 		[STA_STATION_COL, STA_LAT_COL, STA_LON_COL, STA_FROM_COL, STA_TO_COL],
 		'station.csv',
 	)
-	_require_columns(
+	validate_columns(
 		ch,
 		[CH_STATION_COL, CH_NETWORK_COL, CH_LAT_COL, CH_LON_COL],
 		'monthly_presence_update.csv',
