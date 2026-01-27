@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from jma.picks import build_pick_table_for_event
 from jma.prepare.event_dirs import (
 	in_date_range,
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
 from jma.prepare.event_txt import read_origin_jst_iso
-from jma.picks import build_pick_table_for_event
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, pick_one_network_code
 from jma.stationcode_mappingdb import load_mapping_db
@@ -110,15 +110,13 @@ def run_make_missing_continuous(
 						continue
 					raise FileNotFoundError(active_ch_path)
 
-			pick_by_ch, map_log = build_pick_table_for_event(
-				meas_df,
-				event_id=event_id,
-				event_month=event_month,
-				mdb=mdb,
-				pdb=pdb,
-				p_phases=P_PHASES,
-				s_phases=S_PHASES,
-			)
+				done_path = (
+					event_dir
+					/ f'{evt_path.stem}_missing_continuous_done_{run_tag2}.json'
+				)
+				if skip_if_done and done_path.is_file():
+					print(f'[skip] already done: {evt_path.name} -> {done_path.name}')
+					continue
 
 				origin_iso = read_origin_jst_iso(txt_path)
 				origin_ts = pd.to_datetime(origin_iso, format='ISO8601')
@@ -137,6 +135,8 @@ def run_make_missing_continuous(
 					event_month=event_month,
 					mdb=mdb,
 					pdb=pdb,
+					p_phases=P_PHASES,
+					s_phases=S_PHASES,
 				)
 
 				station_df = read_hinet_channel_table(active_ch_path)
