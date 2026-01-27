@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from common.core import validate_columns
+from common.geo import haversine_distance_km
+from common.geo import haversine_distance_pair_km as haversine_km
 from jma.stationcode_common import month_columns, normalize_code
 
 # =========================
@@ -168,24 +170,6 @@ def parse_date_series(s: pd.Series) -> pd.Series:
 	# station.csv uses YYYY/MM/DD (some blank)
 	ss = s.astype(str).str.strip().replace({'': pd.NA, 'nan': pd.NA})
 	return pd.to_datetime(ss, errors='coerce')
-
-
-def haversine_km(
-	lat1: np.ndarray, lon1: np.ndarray, lat2: np.ndarray, lon2: np.ndarray
-) -> np.ndarray:
-	r = 6371.0
-	lat1r = np.radians(lat1)
-	lon1r = np.radians(lon1)
-	lat2r = np.radians(lat2)
-	lon2r = np.radians(lon2)
-	dlat = lat2r - lat1r
-	dlon = lon2r - lon1r
-	a = (
-		np.sin(dlat / 2.0) ** 2
-		+ np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2.0) ** 2
-	)
-	c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
-	return r * c
 
 
 def months_between_inclusive(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> set[str]:
@@ -637,9 +621,9 @@ def nearest_ch_for_unmatched(
 		best_j = -1
 		for j0 in range(0, len(ch_station_rep), NEAREST_CH_CHUNK):
 			j1 = min(len(ch_station_rep), j0 + NEAREST_CH_CHUNK)
-			d = haversine_km(
-				np.full(j1 - j0, lat0, dtype=float),
-				np.full(j1 - j0, lon0, dtype=float),
+			d = haversine_distance_km(
+				lat0,
+				lon0,
 				ch_lat[j0:j1].astype(float),
 				ch_lon[j0:j1].astype(float),
 			)
