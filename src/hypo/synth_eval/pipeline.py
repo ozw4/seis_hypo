@@ -19,6 +19,11 @@ from .builders import (
 )
 from .hypoinverse_runner import run_hypoinverse, write_cmd_from_template
 from .metrics import evaluate
+from .validation import (
+	require_abs,
+	require_dirname_only,
+	require_filename_only,
+)
 
 
 @dataclass(frozen=True)
@@ -73,25 +78,6 @@ def load_config(path: Path) -> Config:
 	)
 
 
-def _require_abs(p: Path, key: str) -> None:
-	if not p.is_absolute():
-		raise ValueError(f'{key} must be an absolute path: {p}')
-
-
-def _require_filename_only(name: str, key: str) -> None:
-	if '/' in name or '\\' in name:
-		raise ValueError(f'{key} must be filename only (no directory): {name}')
-
-
-def _require_dirname_only(name: str, key: str) -> None:
-	if '/' in name or '\\' in name:
-		raise ValueError(
-			f'{key} must be directory name only (no path separators): {name}'
-		)
-	if name.strip() == '':
-		raise ValueError(f'{key} must be non-empty')
-
-
 def _read_sim_yaml(sim_yaml: Path) -> SimParams:
 	obj = yaml.safe_load(sim_yaml.read_text(encoding='utf-8'))
 	model = obj['model']
@@ -113,13 +99,13 @@ def run_synth_eval(
 	template_cmd = Path(cfg.template_cmd)
 	hypoinverse_exe = Path(cfg.hypoinverse_exe)
 
-	_require_abs(dataset_dir, 'dataset_dir')
-	_require_abs(template_cmd, 'template_cmd')
-	_require_abs(hypoinverse_exe, 'hypoinverse_exe')
+	require_abs(dataset_dir, 'dataset_dir')
+	require_abs(template_cmd, 'template_cmd')
+	require_abs(hypoinverse_exe, 'hypoinverse_exe')
 
-	_require_filename_only(cfg.sim_yaml, 'sim_yaml')
-	_require_filename_only(cfg.receiver_geometry, 'receiver_geometry')
-	_require_dirname_only(cfg.outputs_dir, 'outputs_dir')
+	require_filename_only(cfg.sim_yaml, 'sim_yaml')
+	require_filename_only(cfg.receiver_geometry, 'receiver_geometry')
+	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
 
 	sim_yaml = dataset_dir / cfg.sim_yaml
 	receiver_geometry = dataset_dir / 'geometry' / cfg.receiver_geometry
