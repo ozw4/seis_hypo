@@ -57,7 +57,7 @@ for das_total_weight, use_das_channels in param_combinations:
 
 	# 作業フォルダ（Hypoinverse の PHS / PRT / ARC などはここにまとめる）
 	run_dir = Path(
-		'./test_mobara2020_jma_with_das_wet_'
+		'./result/test_mobara2020_jma_with_das_wet_'
 		+ str(das_total_weight)
 		+ '_ch_'
 		+ str(use_das_channels)
