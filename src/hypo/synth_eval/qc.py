@@ -9,6 +9,7 @@ import pandas as pd
 import yaml
 from matplotlib.collections import LineCollection
 
+from .validation import require_abs, require_dirname_only
 
 @dataclass(frozen=True)
 class Config:
@@ -128,8 +129,8 @@ def run_qc(config_path: Path) -> None:
 	cfg = load_config(config_path)
 
 	dataset_dir = Path(cfg.dataset_dir)
-	_require_abs(dataset_dir, 'dataset_dir')
-	_require_dirname_only(cfg.outputs_dir, 'outputs_dir')
+	require_abs(dataset_dir, 'dataset_dir')
+	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
 
 	run_dir = config_path.resolve().parent / 'runs' / cfg.outputs_dir
 	if not run_dir.is_dir():
@@ -219,14 +220,3 @@ def run_qc(config_path: Path) -> None:
 	plot_xy_true_vs_hyp(df, xy_png)
 	print(f'[OK] wrote: {xy_png}')
 
-
-def _require_abs(p: Path, key: str) -> None:
-	if not p.is_absolute():
-		raise ValueError(f'{key} must be an absolute path: {p}')
-
-
-def _require_dirname_only(name: str, key: str) -> None:
-	if '/' in name or '\\' in name:
-		raise ValueError(f'{key} must be directory name only: {name}')
-	if name.strip() == '':
-		raise ValueError(f'{key} must be non-empty')
