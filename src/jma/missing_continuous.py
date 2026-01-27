@@ -11,11 +11,11 @@ from jma.prepare.event_dirs import (
 	parse_date_yyyy_mm_dd,
 )
 from jma.prepare.event_txt import read_origin_jst_iso
+from jma.picks import build_pick_table_for_event
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, pick_one_network_code
 from jma.stationcode_mappingdb import load_mapping_db
 from jma.stationcode_presence import load_presence_db
-from jma.stationcode_resolve import decide_mea_to_ch_for_month
 
 P_PHASES = {'P', 'EP', 'IP'}
 S_PHASES = {'S', 'ES', 'IS'}
@@ -37,94 +37,6 @@ def find_event_id_by_origin(epi_df: pd.DataFrame, origin_iso: str) -> int:
 			f'no close event_id for origin_time={origin_iso} (closest={float(dt_s.iloc[i]):.3f}s)'
 		)
 	return int(epi_df.loc[i, 'event_id'])
-
-
-def build_pick_table_for_event(
-	meas_df: pd.DataFrame,
-	*,
-	event_id: int,
-	event_month: str,
-	mdb,
-	pdb,
-) -> tuple[pd.DataFrame, list[dict[str, object]]]:
-	m = meas_df[meas_df['event_id'] == event_id].copy()
-	out = pd.DataFrame(columns=['p_time', 's_time', 'preferred_network_code'])
-	out.index.name = 'ch_station'
-	if m.empty:
-		return out, []
-
-	ph1 = m['phase_name_1'].astype(str).str.upper()
-	ph2 = m['phase_name_2'].astype(str).str.upper()
-
-	t1 = pd.to_datetime(m['phase1_time'], format='ISO8601', errors='raise')
-	t2 = pd.to_datetime(m['phase2_time'], format='ISO8601', errors='raise')
-
-	p_time = pd.Series(pd.NaT, index=m.index, dtype='datetime64[ns]')
-	s_time = pd.Series(pd.NaT, index=m.index, dtype='datetime64[ns]')
-
-	p_time.loc[ph1.isin(P_PHASES)] = t1.loc[ph1.isin(P_PHASES)]
-	s_time.loc[ph1.isin(S_PHASES)] = t1.loc[ph1.isin(S_PHASES)]
-	s_time.loc[ph2.isin(S_PHASES)] = t2.loc[ph2.isin(S_PHASES)]
-
-	acc_p: dict[str, pd.Timestamp | pd.NaT] = {}
-	acc_s: dict[str, pd.Timestamp | pd.NaT] = {}
-	acc_nc: dict[str, set[str]] = {}
-	log_rows: list[dict[str, object]] = []
-
-	for i, row in m.iterrows():
-		sta_raw = row.get('station_code')
-		mea_norm = normalize_code(sta_raw)
-
-		dec = decide_mea_to_ch_for_month(
-			mea_norm, event_month=event_month, mdb=mdb, pdb=pdb
-		)
-
-		log_rows.append(
-			{
-				'event_id': int(event_id),
-				'event_month': event_month,
-				'mea_station_code': '' if sta_raw is None else str(sta_raw),
-				'mea_norm': mea_norm,
-				'map_status': dec.status,
-				'ch_station': '' if dec.ch_key is None else dec.ch_key,
-				'network_code': '' if dec.network_code is None else dec.network_code,
-				'map_rule': '' if dec.rule is None else dec.rule,
-				'candidates_in_month': '|'.join(
-					[f'{c}:{r}' for c, r in dec.candidates_in_month]
-				),
-			}
-		)
-
-		if dec.ch_key is None or not dec.network_code:
-			continue
-
-		pt = p_time.loc[i]
-		st = s_time.loc[i]
-
-		curp = acc_p.get(dec.ch_key, pd.NaT)
-		curs = acc_s.get(dec.ch_key, pd.NaT)
-
-		if pd.notna(pt):
-			curp = pt if pd.isna(curp) else min(curp, pt)
-		if pd.notna(st):
-			curs = st if pd.isna(curs) else min(curs, st)
-
-		acc_p[dec.ch_key] = curp
-		acc_s[dec.ch_key] = curs
-		acc_nc.setdefault(dec.ch_key, set()).add(dec.network_code)
-
-	keys = sorted(acc_p.keys())
-	out = pd.DataFrame(
-		{
-			'p_time': [acc_p.get(k, pd.NaT) for k in keys],
-			's_time': [acc_s.get(k, pd.NaT) for k in keys],
-			'preferred_network_code': [
-				';'.join(sorted(acc_nc.get(k, set()))) for k in keys
-			],
-		},
-		index=pd.Index(keys, name='ch_station'),
-	)
-	return out, log_rows
 
 
 def run_make_missing_continuous(
@@ -223,6 +135,8 @@ def run_make_missing_continuous(
 				event_month=event_month,
 				mdb=mdb,
 				pdb=pdb,
+				p_phases=P_PHASES,
+				s_phases=S_PHASES,
 			)
 
 			station_df = read_hinet_channel_table(active_ch_path)
