@@ -1,4 +1,4 @@
-# src/qc/jma_arrivetime_qc.py
+# src/viz/jma/arrivetime.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,12 +6,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from viz.core.fig_io import save_current_figure
 
 
 def _savefig(path: Path) -> None:
-	plt.tight_layout()
-	plt.savefig(path, dpi=160)
-	plt.close()
+	save_current_figure(path, dpi=160, tight_layout=True, close=True)
 
 
 def _plot_hist_logy(
