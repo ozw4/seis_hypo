@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from jma.picks import _iso_to_ns
+from common.time_util import iso_to_ns
 from jma.prepare.event_paths import resolve_evt_and_txt
 from jma.prepare.event_txt import read_origin_jst_iso
 
@@ -79,7 +79,7 @@ def main() -> None:
 	for event_dir in event_dirs:
 		evt_path, txt_path = resolve_evt_and_txt(event_dir)
 		origin_iso = read_origin_jst_iso(txt_path)
-		origin_ns = _iso_to_ns(origin_iso)
+		origin_ns = iso_to_ns(origin_iso)
 
 		n_total += 1
 

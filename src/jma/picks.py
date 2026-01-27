@@ -2,25 +2,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from common.time_util import iso_to_ns
 from jma.stationcode_common import normalize_code
 from jma.stationcode_mappingdb import MappingDB
 from jma.stationcode_presence import PresenceDB
 from jma.stationcode_resolve import decide_mea_to_ch_for_month
 
-
 P_PHASES_DEFAULT = {'P', 'EP', 'IP'}
 S_PHASES_DEFAULT = {'S', 'ES', 'IS'}
-
-
-def _iso_to_ns(origin_iso: str) -> int:
-	t = pd.to_datetime(origin_iso, format='ISO8601', errors='raise')
-	dt64 = np.datetime64(t.to_datetime64())
-	return int(dt64.astype('datetime64[ns]').astype('int64'))
 
 
 def build_epicenters_origin_index(epi_df: pd.DataFrame) -> dict[int, int]:
@@ -53,7 +46,7 @@ def find_event_id_by_origin_exact(
 	origin_iso: str,
 ) -> int:
 	"""origin_iso を timestamp(ns) にして完全一致検索。無ければエラー（フォールバック無し）。"""
-	ns = _iso_to_ns(origin_iso)
+	ns = iso_to_ns(origin_iso)
 	if ns not in epi_origin_ns_to_event_id:
 		raise ValueError(f'event_id not found by exact origin_time: {origin_iso}')
 	return int(epi_origin_ns_to_event_id[ns])
@@ -74,8 +67,8 @@ def build_pick_table_for_event(
 	- station_code(measurement) -> ch_station(presence/.ch側) は現行ルール（MappingDB+PresenceDB）で解決
 	- 同一 ch_station に複数行が来たら、p_time/s_time は最も早いものを採用
 	- 返り値
-	  - pick_df: index=ch_station, columns=[p_time, s_time, preferred_network_code]
-	  - log_rows: mapping判定ログ（学習前の整合チェック用）
+	- pick_df: index=ch_station, columns=[p_time, s_time, preferred_network_code]
+	- log_rows: mapping判定ログ（学習前の整合チェック用）
 	"""
 	p_ph = P_PHASES_DEFAULT if p_phases is None else set(p_phases)
 	s_ph = S_PHASES_DEFAULT if s_phases is None else set(s_phases)

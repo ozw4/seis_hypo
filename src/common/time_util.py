@@ -6,7 +6,14 @@ from collections.abc import Iterator
 from datetime import timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+
+
+def iso_to_ns(origin_iso: str) -> int:
+	t = pd.to_datetime(origin_iso, format='ISO8601', errors='raise')
+	dt64 = np.datetime64(t.to_datetime64())
+	return int(dt64.astype('datetime64[ns]').astype('int64'))
 
 
 def floor_minute(t: dt.datetime) -> dt.datetime:
