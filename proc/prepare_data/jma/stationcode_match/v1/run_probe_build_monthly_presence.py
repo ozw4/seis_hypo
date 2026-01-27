@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.time_util import month_label
+
 # ==========================
 # 設定（ここだけ直に編集）
 # ==========================
@@ -62,10 +64,6 @@ def _month_range(start: dt.date, end_inclusive: dt.date) -> list[dt.date]:
 		out.append(cur)
 		cur = _add_months(cur, 1)
 	return out
-
-
-def _month_label(m: dt.date) -> str:
-	return f'{m.year:04d}-{m.month:02d}'
 
 
 def _canon_network_code(x: object) -> str:
@@ -380,7 +378,7 @@ def main() -> None:
 		max_month = max_anchor_month
 
 	months = _month_range(min_month, max_month)
-	month_labels = [_month_label(m) for m in months]
+	month_labels = [month_label(m) for m in months]
 
 	all_keys, net_to_indices, key_to_idx = _build_all_keys(yearly_sets, monthly_sets)
 	if not all_keys:
@@ -501,7 +499,7 @@ def main() -> None:
 							'network_code': net,
 							'station': sta,
 							'start_month': _month_label(start_m),
-							'end_month': _month_label(_add_months(end_excl, -1)),
+							'end_month': month_label(_add_months(end_excl, -1)),
 							'start_date': start_m.isoformat(),
 							'end_date': end_excl.isoformat(),
 						}
@@ -519,8 +517,8 @@ def main() -> None:
 					{
 						'network_code': net,
 						'station': sta,
-						'start_month': _month_label(start_m),
-						'end_month': _month_label(_add_months(end_excl, -1)),
+						'start_month': month_label(start_m),
+						'end_month': month_label(_add_months(end_excl, -1)),
 						'start_date': start_m.isoformat(),
 						'end_date': end_excl.isoformat(),
 					}
@@ -533,7 +531,7 @@ def main() -> None:
 				{
 					'network_code': net,
 					'station': sta,
-					'start_month': _month_label(start_m),
+					'start_month': month_label(start_m),
 					'end_month': '',
 					'start_date': start_m.isoformat(),
 					'end_date': '',

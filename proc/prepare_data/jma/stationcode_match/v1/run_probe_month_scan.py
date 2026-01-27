@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.time_util import month_label
 from jma.chk_network_station import (
 	export_channels_from_probe_ch_dirs,
 	export_station_summary_from_channels,
@@ -152,14 +153,10 @@ def build_month_to_networks(cand: pd.DataFrame) -> dict[dt.date, set[str]]:
 	return m2n
 
 
-def month_key(m: dt.date) -> str:
-	return f'{m.year:04d}-{m.month:02d}'
-
-
 def snapshot_dir_for(m: dt.date) -> tuple[dt.datetime, Path]:
 	when = dt.datetime(m.year, m.month, 1, int(CHECK_HOUR), int(CHECK_MINUTE))
 	stamp = when.strftime('%Y%m%d%H%M')
-	return when, OUT_ROOT / month_key(m) / stamp
+	return when, OUT_ROOT / month_label(m) / stamp
 
 
 def main() -> None:
@@ -239,7 +236,7 @@ def main() -> None:
 
 		summary_rows.append(
 			{
-				'month': month_key(m),
+				'month': month_label(m),
 				'when': when.strftime('%Y-%m-%d %H:%M'),
 				'n_network_target': len(codes),
 				'n_network_total_in_probe_df': n_all,
@@ -251,7 +248,7 @@ def main() -> None:
 		)
 
 		print(
-			f'[INFO] done: {month_key(m)}  networks ok={n_ok}/{n_all}  stations={n_station}'
+			f'[INFO] done: {month_label(m)}  networks ok={n_ok}/{n_all}  stations={n_station}'
 		)
 
 	if summary_rows:

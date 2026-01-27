@@ -10,6 +10,10 @@ import numpy as np
 import pandas as pd
 
 
+def month_label(m: dt.date) -> str:
+	return f'{m.year:04d}-{m.month:02d}'
+
+
 def iso_to_ns(origin_iso: str) -> int:
 	t = pd.to_datetime(origin_iso, format='ISO8601', errors='raise')
 	dt64 = np.datetime64(t.to_datetime64())
