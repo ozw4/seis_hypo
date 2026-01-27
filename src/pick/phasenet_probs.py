@@ -11,6 +11,7 @@ from scipy.signal import resample_poly
 from seisbench.models import PhaseNet
 
 from pick.overlap import stack_overlap_1d
+from pick.probs_common import extract_station_probs, iterate_overlapping_windows, normalize_zne
 from pick.stream_io import station_zne_from_stream
 from pick.weights_util import _extract_state_dict, _is_local_weights_spec
 
@@ -126,20 +127,7 @@ def backend_phasenet_probs(
 	  - delay: 0
 	  - meta['probs']: {'P','S','N'}（いずれも length N_eff）
 	"""
-	if zne.ndim != 2:
-		raise ValueError(f'zne must be 2D, got shape={zne.shape}')
-
-	C, N = zne.shape
-	if C != 3 and zne.shape[1] == 3:
-		zne = zne.T
-		C, N = zne.shape
-
-	if C == 1:
-		zne = np.vstack([zne, np.zeros((2, N), dtype=zne.dtype)])
-		C, N = zne.shape
-
-	if C != 3:
-		raise ValueError(f'expected 3 components, got C={C} shape={zne.shape}')
+	zne = normalize_zne(zne)
 
 	fs_i = int(round(float(fs)))
 	if fs_i <= 0:
@@ -171,14 +159,14 @@ def backend_phasenet_probs(
 		return model.annotate_batch_pre(t, {})
 
 	with torch.no_grad():
-		buf: list[tuple[int, torch.Tensor]] = []
-
-		if N_eff < L:
-			w = np.zeros((3, L), dtype=np.float32)
-			w[:, :N_eff] = zne[:, :N_eff].astype(np.float32, copy=False)
-			buf.append((0, _to_tensor(w)))
-			_stitch_phasenet_batch(
-				buf,
+		iterate_overlapping_windows(
+			zne,
+			window_len=L,
+			hop_len=H,
+			batch_size=int(batch_size),
+			to_tensor=_to_tensor,
+			process_batch=lambda b: _stitch_phasenet_batch(
+				b,
 				model,
 				probN,
 				probP,
@@ -187,35 +175,8 @@ def backend_phasenet_probs(
 				idx_p,
 				idx_s,
 				overlap_mode=overlap_mode,
-			)
-		else:
-			for s in range(0, N_eff - L + 1, H):
-				w = zne[:, s : s + L].astype(np.float32, copy=False)
-				buf.append((int(s), _to_tensor(w)))
-				if len(buf) >= int(batch_size):
-					_stitch_phasenet_batch(
-						buf,
-						model,
-						probN,
-						probP,
-						probS,
-						idx_n,
-						idx_p,
-						idx_s,
-						overlap_mode=overlap_mode,
-					)
-			if buf:
-				_stitch_phasenet_batch(
-					buf,
-					model,
-					probN,
-					probP,
-					probS,
-					idx_n,
-					idx_p,
-					idx_s,
-					overlap_mode=overlap_mode,
-				)
+			),
+		)
 
 	probN = np.nan_to_num(probN, nan=0.0)
 	probP = np.nan_to_num(probP, nan=0.0)
@@ -275,25 +236,7 @@ def build_probs_by_station(
 			overlap_mode=overlap_mode,
 		)
 
-		probs = meta.get('probs', None)
-		if not isinstance(probs, dict):
-			raise ValueError("meta['probs'] missing or invalid")
-
-		p = probs.get('P', None)
-		s = probs.get('S', None)
-		if p is None or s is None:
-			raise ValueError(f'missing P/S probs: station={sta}')
-
-		p = np.asarray(p, dtype=np.float32)
-		s = np.asarray(s, dtype=np.float32)
-		if p.ndim != 1 or s.ndim != 1:
-			raise ValueError(f'P/S probs must be 1D: station={sta}')
-		if int(p.shape[0]) != npts or int(s.shape[0]) != npts:
-			raise ValueError(
-				f'P/S probs length mismatch: station={sta} got={(p.shape[0], s.shape[0])} expected={npts}'
-			)
-
-		probs_by_sta[sta] = {'P': p, 'S': s}
+		probs_by_sta[sta] = extract_station_probs(meta, sta, npts)
 
 	if not probs_by_sta:
 		raise ValueError('no station probs built')
