@@ -1,6 +1,5 @@
 # %%
 import re
-import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from common.core import validate_columns
-from jma.stationcode_common import month_columns
+from jma.stationcode_common import month_columns, normalize_code
 
 # =========================
 # CONFIG (edit here)
@@ -163,14 +162,6 @@ _DONET_RE = re.compile(r'^M(\.\d{2}DO|\d{3}DO)$')
 # =========================
 # Utilities
 # =========================
-
-
-def normalize_code(x: object) -> str:
-	if pd.isna(x):
-		return ''
-	s = unicodedata.normalize('NFKC', str(x))
-	s = re.sub(r'\s+', '', s.strip())
-	return s.upper()
 
 
 def parse_date_series(s: pd.Series) -> pd.Series:

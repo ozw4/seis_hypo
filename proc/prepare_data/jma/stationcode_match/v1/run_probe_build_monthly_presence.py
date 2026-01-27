@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from common.time_util import month_label
+from jma.stationcode_common import canon_network_code
 
 # ==========================
 # 設定（ここだけ直に編集）
@@ -66,32 +67,6 @@ def _month_range(start: dt.date, end_inclusive: dt.date) -> list[dt.date]:
 	return out
 
 
-def _canon_network_code(x: object) -> str:
-	s = '' if x is None else str(x).strip()
-	if s == '' or s.lower() == 'nan':
-		raise ValueError('empty network_code')
-
-	# "801.0" みたいなのが紛れた場合だけ救う（本来は文字列で来るのが正）
-	m = re.fullmatch(r'(\d+)\.0+', s)
-	if m:
-		s = m.group(1)
-
-	# 英字入り（0103Aなど）は触らない
-	if not re.fullmatch(r'\d+', s):
-		return s
-
-	# 数字だけはゼロ埋めで正規化
-	if len(s) <= 3:
-		return s.zfill(4)  # 801 -> 0801
-	if len(s) == 4:
-		return s
-	if len(s) == 5:
-		return s.zfill(6)  # 10501 -> 010501
-	if len(s) == 6:
-		return s
-	return s
-
-
 def _load_station_sets(csv_path: Path) -> dict[str, set[str]]:
 	if not csv_path.is_file():
 		raise FileNotFoundError(f'missing stations csv: {csv_path}')
@@ -104,7 +79,7 @@ def _load_station_sets(csv_path: Path) -> dict[str, set[str]]:
 		)
 
 	d = df[[COL_NETWORK, COL_STATION]].copy()
-	d[COL_NETWORK] = d[COL_NETWORK].map(_canon_network_code)
+	d[COL_NETWORK] = d[COL_NETWORK].map(canon_network_code)
 	d[COL_STATION] = d[COL_STATION].astype(str).str.strip()
 	d = d[(d[COL_NETWORK] != '') & (d[COL_STATION] != '')]
 
@@ -137,7 +112,7 @@ def _load_station_meta(csv_path: Path) -> dict[str, dict[str, object]]:
 		usecols.append(COL_ELEV_M)
 
 	df = pd.read_csv(csv_path, usecols=usecols, dtype=str)
-	df[COL_NETWORK] = df[COL_NETWORK].map(_canon_network_code)
+	df[COL_NETWORK] = df[COL_NETWORK].map(canon_network_code)
 	df[COL_STATION] = df[COL_STATION].astype(str).str.strip()
 
 	if COL_STATION_NAME in df.columns:

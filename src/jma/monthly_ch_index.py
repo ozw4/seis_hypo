@@ -9,42 +9,13 @@ import pandas as pd
 
 from jma.chk_network_station import parse_station_names_from_ch
 from jma.station_reader import read_hinet_channel_table
+from jma.stationcode_common import canon_network_code
 
 _RE_NET_IN_NAME = re.compile(
 	r'(?:^|[_-])(probe|win)_(?P<net>[0-9]{4,6}[A-Za-z]?)(?:[_-]|$)'
 )
 _RE_NET_DIR = re.compile(r'^[0-9]{4,6}[A-Za-z]?$')
 _RE_MONTH_DIR = re.compile(r'^\d{4}-\d{2}$')
-
-
-def _canon_network_code(x: object) -> str:
-	s = '' if x is None else str(x).strip()
-	if s == '' or s.lower() == 'nan':
-		raise ValueError('empty network_code')
-
-	m = re.fullmatch(r'(\d+)\.0+', s)
-	if m:
-		s = m.group(1)
-
-	if not re.fullmatch(r'\d+[A-Za-z]?', s):
-		return s
-
-	m2 = re.fullmatch(r'(\d+)([A-Za-z]?)', s)
-	if not m2:
-		return s
-
-	num = m2.group(1)
-	suf = m2.group(2)
-
-	if len(num) <= 3:
-		return num.zfill(4) + suf
-	if len(num) == 4:
-		return num + suf
-	if len(num) == 5:
-		return num.zfill(6) + suf
-	if len(num) == 6:
-		return num + suf
-	return s
 
 
 def _canon_station(x: object) -> str:
@@ -68,11 +39,11 @@ def _infer_network_code_from_ch_path(ch_path: Path) -> str:
 
 	m = _RE_NET_IN_NAME.search(p.stem)
 	if m:
-		return _canon_network_code(m.group('net'))
+		return canon_network_code(m.group('net'))
 
 	for part in p.parts[::-1]:
 		if _RE_NET_DIR.fullmatch(part) and not re.fullmatch(r'\d{12}', part):
-			return _canon_network_code(part)
+			return canon_network_code(part)
 
 	raise ValueError(f'cannot infer network_code from ch_path: {p}')
 
@@ -124,7 +95,7 @@ def scan_channels_from_ch_files(
 
 	out = pd.concat(rows, ignore_index=True)
 
-	out['network_code'] = out['network_code'].map(_canon_network_code)
+	out['network_code'] = out['network_code'].map(canon_network_code)
 	out['station'] = out['station'].map(_canon_station)
 	out = out[(out['network_code'] != '') & (out['station'] != '')].reset_index(
 		drop=True
@@ -155,7 +126,7 @@ def build_station_summary_from_channels(channels_df: pd.DataFrame) -> pd.DataFra
 		raise ValueError(f'channels_df missing columns: {missing}')
 
 	df = channels_df.copy()
-	df['network_code'] = df['network_code'].map(_canon_network_code)
+	df['network_code'] = df['network_code'].map(canon_network_code)
 	df['station'] = df['station'].map(_canon_station)
 
 	g = (
@@ -219,7 +190,7 @@ def update_station_network_map_csv(
 	out_csv.parent.mkdir(parents=True, exist_ok=True)
 
 	new = stations_df.copy()
-	new['network_code'] = new['network_code'].map(_canon_network_code)
+	new['network_code'] = new['network_code'].map(canon_network_code)
 	new['station'] = new['station'].map(_canon_station)
 	new['first_seen_month'] = month_label
 	new['last_seen_month'] = month_label
@@ -252,7 +223,7 @@ def update_station_network_map_csv(
 	if missing_old:
 		raise ValueError(f'{out_csv} missing required columns: {missing_old}')
 
-	old['network_code'] = old['network_code'].map(_canon_network_code)
+	old['network_code'] = old['network_code'].map(canon_network_code)
 	old['station'] = old['station'].map(_canon_station)
 	old['lat'] = pd.to_numeric(old['lat'], errors='raise')
 	old['lon'] = pd.to_numeric(old['lon'], errors='raise')
@@ -327,7 +298,7 @@ def update_monthly_presence_csv(
 	out_csv.parent.mkdir(parents=True, exist_ok=True)
 
 	new = stations_df.copy()
-	new['network_code'] = new['network_code'].map(_canon_network_code)
+	new['network_code'] = new['network_code'].map(canon_network_code)
 	new['station'] = new['station'].map(_canon_station)
 	new['lat'] = pd.to_numeric(new['lat'], errors='raise')
 	new['lon'] = pd.to_numeric(new['lon'], errors='raise')
@@ -376,7 +347,7 @@ def update_monthly_presence_csv(
 	if missing_old:
 		raise ValueError(f'{out_csv} missing required columns: {missing_old}')
 
-	old['network_code'] = old['network_code'].map(_canon_network_code)
+	old['network_code'] = old['network_code'].map(canon_network_code)
 	old['station'] = old['station'].map(_canon_station)
 	old['lat'] = pd.to_numeric(old['lat'], errors='raise')
 	old['lon'] = pd.to_numeric(old['lon'], errors='raise')
