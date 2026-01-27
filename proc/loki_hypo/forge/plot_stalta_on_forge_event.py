@@ -10,6 +10,7 @@ from obspy import UTCDateTime
 
 from common.config import LokiWaveformStackingInputs
 from common.load_config import load_config
+from common.stride import normalize_channel_stride
 from io_util.stream import build_stream_from_forge_event_npy
 from pick.stalta_probs import StaltaProbSpec, build_probs_by_station_stalta
 from waveform.preprocess import preprocess_stream_detrend_bandpass, spec_from_inputs
@@ -82,16 +83,6 @@ for event_id in range(1, 51):
 				seen.add(i)
 				out.append(i)
 		return np.asarray(out, dtype=int)
-
-	def _normalize_channel_stride(channel_stride: int | None) -> int | None:
-		if channel_stride is None:
-			return None
-		stride = int(channel_stride)
-		if stride <= 0:
-			raise ValueError(f'channel_stride must be >= 1 when set, got {stride}')
-		if stride <= 1:
-			return None
-		return stride
 
 	def _decimate_for_plot(x: np.ndarray, *, max_len: int) -> tuple[np.ndarray, int]:
 		if x.ndim != 2:
@@ -180,7 +171,7 @@ for event_id in range(1, 51):
 	if len(st) == 0:
 		raise ValueError(f'empty stream: {event_dir}')
 
-	stride = _normalize_channel_stride(CHANNEL_STRIDE)
+	stride = normalize_channel_stride(CHANNEL_STRIDE)
 	if stride is not None:
 		orig_n_channels = len(st)
 		kept_indices = list(range(0, orig_n_channels, stride))
