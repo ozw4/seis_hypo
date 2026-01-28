@@ -9,6 +9,7 @@ import yaml
 
 from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.crh import write_crh
+from hypo.cre import write_cre_from_layer_tops
 from hypo.phase_jma import extract_phase_records
 from hypo.phase_weights import override_phase_weight_by_station_prefix
 from hypo.sta import write_hypoinverse_sta
@@ -98,6 +99,41 @@ def _read_sim_yaml(sim_yaml: Path) -> SimParams:
 	return SimParams(
 		vp_kms=float(model['vp_mps']) / 1000.0,
 		vs_kms=float(model['vs_mps']) / 1000.0,
+	)
+
+
+def build_synth_layer_tops_km(n_layers: int) -> list[float]:
+	"""Build base synthetic layer tops (km) for n_layers.
+
+	Returns:
+		[0.0, 1.0, 2.0, ..., n_layers-1]
+	"""
+	n = int(n_layers)
+	if n < 1:
+		raise ValueError('n_layers must be >= 1')
+	return [0.0] + [float(i) for i in range(1, n)]
+
+
+def write_synth_cre_models(
+	run_dir: Path,
+	*,
+	vp_kms: float,
+	vs_kms: float,
+	shift_km: float,
+	n_layers: int,
+) -> tuple[Path, Path]:
+	"""Write P/S CRE model files for synthetic evaluation.
+
+	This function only generates base synthetic layer tops and delegates file
+	output to write_cre_from_layer_tops().
+	"""
+	layer_tops_km = build_synth_layer_tops_km(n_layers)
+	return write_cre_from_layer_tops(
+		run_dir,
+		vp_kms=float(vp_kms),
+		vs_kms=float(vs_kms),
+		layer_tops_km=layer_tops_km,
+		shift_km=float(shift_km),
 	)
 
 
