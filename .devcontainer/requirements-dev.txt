@@ -28,3 +28,5 @@ shapely
 python-dateutil
 git+https://github.com/AI4EPS/GaMMA.git@zenodo
 
+pytest
+pytest-cov
