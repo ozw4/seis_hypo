@@ -104,6 +104,10 @@ def load_config(
 		val = params[f.name]
 		ann = type_hints.get(f.name, f.type)
 
+		if val is None:
+			kwargs[f.name] = None
+			continue
+
 		if _ann_allows_path(ann):
 			kwargs[f.name] = val if isinstance(val, Path) else Path(str(val))
 		else:
