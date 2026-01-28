@@ -165,6 +165,8 @@ def write_hypoinverse_sta(
 	default_channel: str = 'HHZ',
 	default_comp1: str = 'Z',
 	default_period: float = 1.0,
+	*,
+	force_zero_pdelays: bool = False,
 ) -> None:
 	"""station.csv から Hypoinverse #2 station file (.sta) を生成する。
 
@@ -184,6 +186,9 @@ def write_hypoinverse_sta(
 	- channel                 : チャンネル名（例 'HHZ'）※あれば default_channel を上書き
 	- comp1                   : comp1（例 'Z'）※あれば default_comp1 を上書き
 	- default_period          : ステーションごとの default period（あれば引数を上書き）
+
+	force_zero_pdelays=True の場合、CSV 内の pdelay1/pdelay2 を無視して 0.0 を出力する。
+	(CRE で station elevation を travel-time 計算に含める場合など、station delay の二重補正を避けたい用途向け)
 	"""
 	df = pd.read_csv(station_csv)
 
@@ -229,16 +234,20 @@ def write_hypoinverse_sta(
 			else float(default_period)
 		)
 
-		pdelay1 = (
-			float(row['pdelay1'])
-			if 'pdelay1' in row and pd.notna(row['pdelay1'])
-			else 0.0
-		)
-		pdelay2 = (
-			float(row['pdelay2'])
-			if 'pdelay2' in row and pd.notna(row['pdelay2'])
-			else 0.0
-		)
+		if force_zero_pdelays:
+			pdelay1 = 0.0
+			pdelay2 = 0.0
+		else:
+			pdelay1 = (
+				float(row['pdelay1'])
+				if 'pdelay1' in row and pd.notna(row['pdelay1'])
+				else 0.0
+			)
+			pdelay2 = (
+				float(row['pdelay2'])
+				if 'pdelay2' in row and pd.notna(row['pdelay2'])
+				else 0.0
+			)
 
 		amag_corr = (
 			float(row['amag_corr'])
