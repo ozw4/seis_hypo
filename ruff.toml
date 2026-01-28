@@ -49,3 +49,10 @@ ignore = [
 docstring-code-format = true
 indent-style = "tab"
 quote-style = "single"
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+	"ANN",
+	"D",
+	"S101",
+]
