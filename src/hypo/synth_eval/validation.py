@@ -20,3 +20,22 @@ def require_dirname_only(name: str, key: str) -> None:
 		)
 	if name.strip() == '':
 		raise ValueError(f'{key} must be non-empty')
+
+
+def validate_elevation_correction_config(
+	*,
+	model_type: str,
+	use_station_elev: bool,
+	apply_station_elevation_delay: bool,
+) -> None:
+	mt = str(model_type).strip().upper()
+	if mt not in ('CRE', 'CRH'):
+		raise ValueError(f"model_type must be 'CRE' or 'CRH', got: {model_type!r}")
+
+	if mt != 'CRE' and bool(use_station_elev):
+		raise ValueError("use_station_elev is only supported when model_type='CRE'")
+
+	if mt == 'CRE' and bool(use_station_elev) and bool(apply_station_elevation_delay):
+		raise ValueError(
+			'apply_station_elevation_delay must be False when use_station_elev=True'
+		)

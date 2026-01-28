@@ -9,7 +9,13 @@ import yaml
 
 from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.crh import write_crh
-from hypo.cre import write_cre_from_layer_tops
+from hypo.cre import (
+	compute_cre_layer_top_shift_km,
+	compute_reference_elevation_km,
+	compute_typical_station_elevation_km,
+	write_cre_from_layer_tops,
+	write_cre_meta,
+)
 from hypo.phase_jma import extract_phase_records
 from hypo.phase_weights import override_phase_weight_by_station_prefix
 from hypo.sta import write_hypoinverse_sta
@@ -22,12 +28,17 @@ from .builders import (
 	build_truth_df,
 )
 from .io import write_station_csv
-from .hypoinverse_runner import run_hypoinverse, write_cmd_from_template
+from .hypoinverse_runner import (
+	patch_cmd_template_for_cre,
+	run_hypoinverse,
+	write_cmd_from_template,
+)
 from .metrics import evaluate
 from .validation import (
 	require_abs,
 	require_dirname_only,
 	require_filename_only,
+	validate_elevation_correction_config,
 )
 
 
@@ -53,6 +64,13 @@ class Config:
 	arc_p_centroid_top_n: int
 	arc_origin_time_offset_sec: float
 
+	model_type: str
+	use_station_elev: bool
+	cre_reference_margin_m: float
+	cre_typical_station_elevation_m: float | None
+	cre_n_layers: int
+	z_is_depth_positive: bool
+
 	apply_station_elevation_delay: bool
 
 	das_station_prefix: str
@@ -67,6 +85,13 @@ class SimParams:
 
 def load_config(path: Path) -> Config:
 	obj = yaml.safe_load(path.read_text(encoding='utf-8'))
+	mt = str(obj.get('model_type', 'CRH')).strip().upper()
+	if mt not in ('CRE', 'CRH'):
+		raise ValueError(f"model_type must be 'CRE' or 'CRH', got: {mt!r}")
+
+	typ_m = obj.get('cre_typical_station_elevation_m', None)
+	typical_m = float(typ_m) if typ_m is not None else None
+
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),
 		sim_yaml=str(obj['sim_yaml']),
@@ -85,6 +110,12 @@ def load_config(path: Path) -> Config:
 		arc_use_jma_flag=bool(obj['arc_use_jma_flag']),
 		arc_p_centroid_top_n=int(obj['arc_p_centroid_top_n']),
 		arc_origin_time_offset_sec=float(obj['arc_origin_time_offset_sec']),
+		model_type=mt,
+		use_station_elev=bool(obj.get('use_station_elev', mt == 'CRE')),
+		cre_reference_margin_m=float(obj.get('cre_reference_margin_m', 0.0)),
+		cre_typical_station_elevation_m=typical_m,
+		cre_n_layers=int(obj.get('cre_n_layers', 1)),
+		z_is_depth_positive=bool(obj.get('z_is_depth_positive', True)),
 		apply_station_elevation_delay=bool(
 			obj.get('apply_station_elevation_delay', True)
 		),
@@ -144,6 +175,11 @@ def run_synth_eval(
 		raise FileNotFoundError(f'config not found: {config_path}')
 
 	cfg = load_config(config_path)
+	validate_elevation_correction_config(
+		model_type=str(cfg.model_type),
+		use_station_elev=bool(cfg.use_station_elev),
+		apply_station_elevation_delay=bool(cfg.apply_station_elevation_delay),
+	)
 
 	dataset_dir = Path(cfg.dataset_dir)
 	template_cmd = Path(cfg.template_cmd)
@@ -198,7 +234,7 @@ def run_synth_eval(
 		cfg.station_set,
 		cfg.lat0,
 		cfg.lon0,
-		z_is_depth_positive=True,
+		z_is_depth_positive=bool(cfg.z_is_depth_positive),
 	)
 	if cfg.apply_station_elevation_delay:
 		station_df = add_p_and_s_delays_from_elevation(
@@ -214,7 +250,14 @@ def run_synth_eval(
 	meas_df = build_meas_df(events_dir, truth_df, station_df, cfg.station_set)
 
 	write_station_csv(station_df, station_csv)
-	write_hypoinverse_sta(station_csv, sta_file)
+	write_hypoinverse_sta(
+		station_csv,
+		sta_file,
+		force_zero_pdelays=(
+			str(cfg.model_type).strip().upper() == 'CRE'
+			and bool(cfg.use_station_elev)
+		),
+	)
 
 	phases = extract_phase_records(meas_df)
 	phases = override_phase_weight_by_station_prefix(
@@ -235,10 +278,44 @@ def run_synth_eval(
 		fix_depth=bool(cfg.fix_depth),
 	)
 
-	write_crh(p_crh, 'SYNTH_P', [(float(sim.vp_kms), 0.0)])
-	write_crh(s_crh, 'SYNTH_S', [(float(sim.vs_kms), 0.0)])
+	mt = str(cfg.model_type).strip().upper()
+	if mt == 'CRE':
+		ref_elev_km = compute_reference_elevation_km(
+			station_df,
+			elevation_col='Elevation_m',
+			margin_m=float(cfg.cre_reference_margin_m),
+		)
+		typical_elev_km = compute_typical_station_elevation_km(
+			explicit_m=cfg.cre_typical_station_elevation_m,
+		)
+		shift_km = compute_cre_layer_top_shift_km(ref_elev_km, typical_elev_km)
+		write_cre_meta(
+			run_dir,
+			ref_elev_km=ref_elev_km,
+			typical_elev_km=typical_elev_km,
+			shift_km=shift_km,
+		)
 
-	write_cmd_from_template(template_cmd, cmd_file)
+		p_cre, s_cre = write_synth_cre_models(
+			run_dir,
+			vp_kms=float(sim.vp_kms),
+			vs_kms=float(sim.vs_kms),
+			shift_km=shift_km,
+			n_layers=int(cfg.cre_n_layers),
+		)
+		patch_cmd_template_for_cre(
+			template_cmd,
+			cmd_file,
+			sta_file=str(sta_file.name),
+			p_model=str(p_cre.name),
+			s_model=str(s_cre.name),
+			ref_elev_km=ref_elev_km,
+			use_station_elev=bool(cfg.use_station_elev),
+		)
+	else:
+		write_crh(p_crh, 'SYNTH_P', [(float(sim.vp_kms), 0.0)])
+		write_crh(s_crh, 'SYNTH_S', [(float(sim.vs_kms), 0.0)])
+		write_cmd_from_template(template_cmd, cmd_file)
 	run_hypoinverse(hypoinverse_exe, cmd_file, run_dir)
 
 	if not prt_file.is_file():

@@ -169,6 +169,15 @@ def write_cmd_from_template(template_cmd: Path, out_cmd: Path) -> None:
 	out_cmd.write_text('\n'.join(patched) + '\n', encoding='utf-8', newline='\n')
 
 
-def run_hypoinverse(exe: Path, cmd: Path, run_dir: Path) -> None:
-	with cmd.open('rb') as stdin:
-		subprocess.run([str(exe)], stdin=stdin, cwd=run_dir, check=True)
+def run_hypoinverse(
+	exe_path: Path,
+	cmd_path: Path,
+	run_dir: Path,
+) -> subprocess.CompletedProcess:
+	with cmd_path.open('rb') as stdin:
+		return subprocess.run(
+			[str(exe_path)],
+			stdin=stdin,
+			cwd=run_dir,
+			check=True,
+		)
