@@ -136,3 +136,22 @@ def write_cre_from_layer_tops(
 	write_crh(s_cre, 'CRE_S', [(float(vs_kms), float(z)) for z in tops_km])
 
 	return p_cre, s_cre
+
+
+def format_cre_cmd_line(
+	model_id: int,
+	model_file: str,
+	ref_elev_km: float,
+	*,
+	use_station_elev: bool = True,
+) -> str:
+	"""Format a HypoInverse CRE command line.
+
+	Example:
+		CRE 1 'P.cre' 0.000000 T
+	"""
+	mid = int(model_id)
+	if mid not in (1, 2):
+		raise ValueError(f'model_id must be 1 or 2, got {model_id}')
+	flag = 'T' if bool(use_station_elev) else 'F'
+	return f"CRE {mid:d} '{str(model_file)}' {float(ref_elev_km):.6f} {flag}"
