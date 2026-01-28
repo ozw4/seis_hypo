@@ -20,6 +20,7 @@ from .builders import (
 	build_station_df,
 	build_truth_df,
 )
+from .io import write_station_csv
 from .hypoinverse_runner import run_hypoinverse, write_cmd_from_template
 from .metrics import evaluate
 from .validation import (
@@ -156,7 +157,13 @@ def run_synth_eval(
 	origin0 = pd.to_datetime(cfg.origin0)
 
 	recv_xyz_m = np.load(receiver_geometry).astype(float)
-	station_df = build_station_df(recv_xyz_m, cfg.station_set, cfg.lat0, cfg.lon0)
+	station_df = build_station_df(
+		recv_xyz_m,
+		cfg.station_set,
+		cfg.lat0,
+		cfg.lon0,
+		z_is_depth_positive=True,
+	)
 	if cfg.apply_station_elevation_delay:
 		station_df = add_p_and_s_delays_from_elevation(
 			station_df,
@@ -170,7 +177,7 @@ def run_synth_eval(
 	epic_df = build_epic_df(truth_df, cfg.default_depth_km)
 	meas_df = build_meas_df(events_dir, truth_df, station_df, cfg.station_set)
 
-	station_df.to_csv(station_csv, index=False)
+	write_station_csv(station_df, station_csv)
 	write_hypoinverse_sta(station_csv, sta_file)
 
 	phases = extract_phase_records(meas_df)

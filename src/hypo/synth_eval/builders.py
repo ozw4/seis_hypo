@@ -23,6 +23,8 @@ def build_station_df(
 	station_set: str,
 	lat0: float,
 	lon0: float,
+	*,
+	z_is_depth_positive: bool,
 ) -> pd.DataFrame:
 	if recv_xyz_m.ndim != 2 or recv_xyz_m.shape[1] != 3:
 		raise ValueError(f'recv geometry must be (N,3), got {recv_xyz_m.shape}')
@@ -43,10 +45,13 @@ def build_station_df(
 	y_km = xyz[:, 1] / 1000.0
 	z_m = xyz[:, 2].astype(float)
 
-	# 合成データの座標系は (x,y,z)=(E,N,depth[+down]) を想定。
-	# Hypoinverse station file の Elevation は「標高 (positive up)」なので
-	# Elevation_m = -depth_m として与える。
-	elevation_m = (-z_m).round().astype(int)
+	# Hypoinverse station file の Elevation は「標高 (positive up)」。
+	# 合成データが (x,y,z)=(E,N,depth[+down]) の場合は Elevation_m = -depth_m。
+	# (x,y,z)=(E,N,up[+up]) の場合は Elevation_m = +z_m。
+	if z_is_depth_positive:
+		elevation_m = (-z_m).round().astype(int)
+	else:
+		elevation_m = (z_m).round().astype(int)
 
 	lat_deg, lon_deg = local_xy_km_to_latlon(x_km, y_km, lat0_deg=lat0, lon0_deg=lon0)
 
