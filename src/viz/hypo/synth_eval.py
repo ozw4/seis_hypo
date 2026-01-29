@@ -232,16 +232,16 @@ def save_true_pred_xyz_3view(
 	)
 
 	ax_yz.scatter(
-		true_xyz[:, 1],
 		true_xyz[:, 2],
+		true_xyz[:, 1],
 		s=marker_size,
 		marker='o',
 		alpha=0.8,
 		zorder=z_true,
 	)
 	ax_yz.scatter(
-		pred_xyz[:, 1],
 		pred_xyz[:, 2],
+		pred_xyz[:, 1],
 		s=marker_size,
 		marker='x',
 		alpha=0.8,
@@ -266,7 +266,7 @@ def save_true_pred_xyz_3view(
 				x=st_xyz[:, 0],
 				y=st_xyz[:, 1],
 				z=st_xyz[:, 2],
-				yz_mode='y-z',
+				yz_mode='z-y',
 				label='Stations',
 				alpha=0.8,
 				**kw,
@@ -295,7 +295,7 @@ def save_true_pred_xyz_3view(
 					x=geo_xyz[:, 0],
 					y=geo_xyz[:, 1],
 					z=geo_xyz[:, 2],
-					yz_mode='y-z',
+					yz_mode='z-y',
 					label='Geophone',
 					alpha=0.8,
 					**kw_geo,
@@ -316,7 +316,7 @@ def save_true_pred_xyz_3view(
 					x=das_xyz[:, 0],
 					y=das_xyz[:, 1],
 					z=das_xyz[:, 2],
-					yz_mode='y-z',
+					yz_mode='z-y',
 					label='DAS',
 					alpha=0.8,
 					**kw_das,
@@ -338,7 +338,7 @@ def save_true_pred_xyz_3view(
 			alpha=0.35,
 			linestyle=':',
 			zorder=z_link,
-			yz_mode='y-z',
+			yz_mode='z-y',
 		)
 
 	xr, yr, zr = ranges_from_xyz(
@@ -352,24 +352,24 @@ def save_true_pred_xyz_3view(
 		y_range=yr,
 		z_range=zr,
 		invert_z=True,
-		yz_mode='y-z',
+		yz_mode='z-y',
 	)
 
 	ax_xy.set_xlabel('X (km)')
 	ax_xy.set_ylabel('Y (km)')
 	ax_xy.set_aspect('equal', adjustable='box')
-	ax_xy.grid(True)
+	ax_xy.grid(True, linewidth=0.5, alpha=0.7)
 
 	ax_xz.set_xlabel('X (km)')
 	ax_xz.set_ylabel('Depth (km)')
-	ax_xz.grid(True)
+	ax_xz.grid(True, linewidth=0.5, alpha=0.7)
 
-	ax_yz.set_xlabel('Y (km)')
-	ax_yz.set_ylabel('Depth (km)')
-	ax_yz.grid(True)
+	ax_yz.set_xlabel('Depth (km)')
+	ax_yz.set_ylabel('Y (km)')
+	ax_yz.grid(True, linewidth=0.5, alpha=0.7)
 
 	if title:
-		fig.suptitle(title)
+		fig.suptitle(title, y=0.985)
 
 	handles: list[object] = [h_true, h_pred]
 	if mask_is_das is None:
@@ -383,5 +383,12 @@ def save_true_pred_xyz_3view(
 	labels = [h.get_label() for h in handles]
 	ax_empty.legend(handles, labels, loc='center')
 
-	fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96])
+	fig.subplots_adjust(
+		left=0.07,
+		right=0.98,
+		bottom=0.07,
+		top=0.95,
+		wspace=0.28,
+		hspace=0.28,
+	)
 	save_figure(fig, out_png, dpi=200)
