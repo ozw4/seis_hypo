@@ -186,6 +186,15 @@ def save_true_pred_xyz_3view(
 
 	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(figsize=(10.0, 10.0))
 
+	# Draw order (top -> bottom): Pred > True > Geophone > DAS
+	# Links should stay behind all points.
+	z_link = 5.0
+	z_das = 10.0
+	z_geo = 20.0
+	z_sta = 20.0
+	z_true = 30.0
+	z_pred = 40.0
+
 	h_true = ax_xy.scatter(
 		true_xyz[:, 0],
 		true_xyz[:, 1],
@@ -193,6 +202,7 @@ def save_true_pred_xyz_3view(
 		marker='o',
 		label='True',
 		alpha=0.8,
+		zorder=z_true,
 	)
 	h_pred = ax_xy.scatter(
 		pred_xyz[:, 0],
@@ -201,13 +211,42 @@ def save_true_pred_xyz_3view(
 		marker='x',
 		label='Pred',
 		alpha=0.8,
+		zorder=z_pred,
 	)
 
-	ax_xz.scatter(true_xyz[:, 0], true_xyz[:, 2], s=marker_size, marker='o', alpha=0.8)
-	ax_xz.scatter(pred_xyz[:, 0], pred_xyz[:, 2], s=marker_size, marker='x', alpha=0.8)
+	ax_xz.scatter(
+		true_xyz[:, 0],
+		true_xyz[:, 2],
+		s=marker_size,
+		marker='o',
+		alpha=0.8,
+		zorder=z_true,
+	)
+	ax_xz.scatter(
+		pred_xyz[:, 0],
+		pred_xyz[:, 2],
+		s=marker_size,
+		marker='x',
+		alpha=0.8,
+		zorder=z_pred,
+	)
 
-	ax_yz.scatter(true_xyz[:, 1], true_xyz[:, 2], s=marker_size, marker='o', alpha=0.8)
-	ax_yz.scatter(pred_xyz[:, 1], pred_xyz[:, 2], s=marker_size, marker='x', alpha=0.8)
+	ax_yz.scatter(
+		true_xyz[:, 1],
+		true_xyz[:, 2],
+		s=marker_size,
+		marker='o',
+		alpha=0.8,
+		zorder=z_true,
+	)
+	ax_yz.scatter(
+		pred_xyz[:, 1],
+		pred_xyz[:, 2],
+		s=marker_size,
+		marker='x',
+		alpha=0.8,
+		zorder=z_pred,
+	)
 
 	h_sta = None
 	h_geo = None
@@ -217,6 +256,7 @@ def save_true_pred_xyz_3view(
 			kw: dict[str, object] = {
 				's': float(station_size),
 				'marker': '^',
+				'zorder': z_sta,
 			}
 			# Keep matplotlib default color cycle (do not pass color=None)
 			h_sta = scatter_points_3view(
@@ -244,6 +284,7 @@ def save_true_pred_xyz_3view(
 				kw_geo: dict[str, object] = {
 					's': geo_size,
 					'marker': str(geophone_marker),
+					'zorder': z_geo,
 				}
 				if geophone_color is not None:
 					kw_geo['color'] = str(geophone_color)
@@ -264,6 +305,7 @@ def save_true_pred_xyz_3view(
 				kw_das: dict[str, object] = {
 					's': das_size_val,
 					'marker': str(das_marker),
+					'zorder': z_das,
 				}
 				if das_color is not None:
 					kw_das['color'] = str(das_color)
@@ -295,6 +337,7 @@ def save_true_pred_xyz_3view(
 			linewidth=0.6,
 			alpha=0.35,
 			linestyle=':',
+			zorder=z_link,
 			yz_mode='y-z',
 		)
 
