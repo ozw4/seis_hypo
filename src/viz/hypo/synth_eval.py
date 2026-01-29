@@ -243,16 +243,16 @@ def _build_true_pred_xyz_3view_figure(
 	)
 
 	ax_yz.scatter(
-		true_xyz[:, 1],
 		true_xyz[:, 2],
+		true_xyz[:, 1],
 		s=marker_size,
 		marker='o',
 		alpha=0.8,
 		zorder=z_true,
 	)
 	ax_yz.scatter(
-		pred_xyz[:, 1],
 		pred_xyz[:, 2],
+		pred_xyz[:, 1],
 		s=marker_size,
 		marker='x',
 		alpha=0.8,
@@ -277,7 +277,7 @@ def _build_true_pred_xyz_3view_figure(
 				x=st_xyz[:, 0],
 				y=st_xyz[:, 1],
 				z=st_xyz[:, 2],
-				yz_mode='y-z',
+				yz_mode='z-y',
 				label='Stations',
 				alpha=0.8,
 				**kw,
@@ -306,7 +306,7 @@ def _build_true_pred_xyz_3view_figure(
 					x=geo_xyz[:, 0],
 					y=geo_xyz[:, 1],
 					z=geo_xyz[:, 2],
-					yz_mode='y-z',
+					yz_mode='z-y',
 					label='Geophone',
 					alpha=0.8,
 					**kw_geo,
@@ -327,7 +327,7 @@ def _build_true_pred_xyz_3view_figure(
 					x=das_xyz[:, 0],
 					y=das_xyz[:, 1],
 					z=das_xyz[:, 2],
-					yz_mode='y-z',
+					yz_mode='z-y',
 					label='DAS',
 					alpha=0.8,
 					**kw_das,
@@ -349,7 +349,7 @@ def _build_true_pred_xyz_3view_figure(
 			alpha=0.35,
 			linestyle=':',
 			zorder=z_link,
-			yz_mode='y-z',
+			yz_mode='z-y',
 		)
 
 	handles: list[object] = [h_true, h_pred]
@@ -398,7 +398,7 @@ def _finalize_true_pred_xyz_3view(
 		y_range=y_range,
 		z_range=z_range,
 		invert_z=True,
-		yz_mode='y-z',
+		yz_mode='z-y',
 	)
 
 	ax_xy.set_xlabel('X (km)')
@@ -655,8 +655,8 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		cy_xy = float(pred_xyz[i, 1])
 		cx_xz = float(pred_xyz[i, 0])
 		cy_xz = float(pred_xyz[i, 2])
-		cx_yz = float(pred_xyz[i, 2])
-		cy_yz = float(pred_xyz[i, 1])
+		cx_yz = float(pred_xyz[i, 1])
+		cy_yz = float(pred_xyz[i, 2])
 
 		poly_xy = _ellipse_polyline(
 			cx=cx_xy,
