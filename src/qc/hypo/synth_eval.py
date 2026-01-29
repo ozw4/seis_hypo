@@ -12,7 +12,12 @@ from hypo.synth_eval.validation import (
 	require_dirname_only,
 	require_filename_only,
 )
-from viz.hypo.synth_eval import save_dxdy_scatter, save_hist, save_true_pred_xyz_3view
+from viz.hypo.synth_eval import (
+	save_dxdy_scatter,
+	save_hist,
+	save_true_pred_xyz_3view,
+	save_true_pred_xyz_3view_with_uncertainty,
+)
 
 
 @dataclass(frozen=True)
@@ -203,6 +208,7 @@ def run_qc(config_path: Path) -> None:
 	mask = np.isfinite(true_xyz_m).all(axis=1) & np.isfinite(pred_xyz_m).all(axis=1)
 	true_xyz_m = true_xyz_m[mask]
 	pred_xyz_m = pred_xyz_m[mask]
+	df_plot = df.loc[mask].reset_index(drop=True)
 
 	stations_xyz_m, stations_is_das = _load_stations_from_run_output(
 		run_dir=run_dir,
@@ -220,3 +226,31 @@ def run_qc(config_path: Path) -> None:
 		title='True vs HypoInverse (3-view)',
 	)
 	print(f'[OK] wrote: {xy_png}')
+
+	# --- True vs HypoInverse (3-view) + 1σ uncertainty ellipses ---
+	need_ell = [
+		'ell_s1_km',
+		'ell_az1_deg',
+		'ell_dip1_deg',
+		'ell_s2_km',
+		'ell_az2_deg',
+		'ell_dip2_deg',
+		'ell_s3_km',
+		'ell_az3_deg',
+		'ell_dip3_deg',
+	]
+	missing_ell = [c for c in need_ell if c not in df_plot.columns]
+	if missing_ell:
+		print(f'[WARN] skip uncertainty plot (missing columns): {missing_ell}')
+	else:
+		xy_unc_png = run_dir / 'xy_true_vs_hyp_uncertainty.png'
+		save_true_pred_xyz_3view_with_uncertainty(
+			true_xyz_m,
+			pred_xyz_m,
+			df_plot,
+			xy_unc_png,
+			stations_xyz_m=stations_xyz_m,
+			stations_is_das=stations_is_das,
+			title='True vs HypoInverse (3-view) + 1σ ellipses',
+		)
+		print(f'[OK] wrote: {xy_unc_png}')

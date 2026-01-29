@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
+from matplotlib.lines import Line2D
 
 from viz.core.fig_io import save_current_figure, save_figure
 
@@ -134,23 +135,32 @@ from viz.core.sections3 import (
 )
 
 
-def save_true_pred_xyz_3view(
+def _build_true_pred_xyz_3view_figure(
 	true_xyz_m: np.ndarray,
 	pred_xyz_m: np.ndarray,
-	out_png: Path,
 	*,
-	stations_xyz_m: np.ndarray | None = None,
-	stations_is_das: np.ndarray | None = None,
-	title: str | None = None,
-	marker_size: float = 110.0,
-	station_size: float = 100.0,
-	geophone_size: float | None = None,
-	das_size: float | None = 5,
-	geophone_color: str | None = None,
-	das_color: str | None = 'gray',
-	geophone_marker: str = '^',
-	das_marker: str = 's',
-) -> None:
+	stations_xyz_m: np.ndarray | None,
+	stations_is_das: np.ndarray | None,
+	marker_size: float,
+	station_size: float,
+	geophone_size: float | None,
+	das_size: float | None,
+	geophone_color: str | None,
+	das_color: str | None,
+	geophone_marker: str,
+	das_marker: str,
+) -> tuple[
+	plt.Figure,
+	plt.Axes,
+	plt.Axes,
+	plt.Axes,
+	plt.Axes,
+	np.ndarray,
+	np.ndarray,
+	np.ndarray | None,
+	np.ndarray | None,
+	list[object],
+]:
 	true_xyz = np.asarray(true_xyz_m, float).reshape(-1, 3) / 1000.0
 	pred_xyz = np.asarray(pred_xyz_m, float).reshape(-1, 3) / 1000.0
 	if true_xyz.shape != pred_xyz.shape:
@@ -232,16 +242,16 @@ def save_true_pred_xyz_3view(
 	)
 
 	ax_yz.scatter(
-		true_xyz[:, 2],
 		true_xyz[:, 1],
+		true_xyz[:, 2],
 		s=marker_size,
 		marker='o',
 		alpha=0.8,
 		zorder=z_true,
 	)
 	ax_yz.scatter(
-		pred_xyz[:, 2],
 		pred_xyz[:, 1],
+		pred_xyz[:, 2],
 		s=marker_size,
 		marker='x',
 		alpha=0.8,
@@ -266,7 +276,7 @@ def save_true_pred_xyz_3view(
 				x=st_xyz[:, 0],
 				y=st_xyz[:, 1],
 				z=st_xyz[:, 2],
-				yz_mode='z-y',
+				yz_mode='y-z',
 				label='Stations',
 				alpha=0.8,
 				**kw,
@@ -275,7 +285,9 @@ def save_true_pred_xyz_3view(
 			geo_size = (
 				float(station_size) if geophone_size is None else float(geophone_size)
 			)
-			das_size_val = float(station_size) if das_size is None else float(das_size)
+			das_size_val = (
+				float(station_size) if das_size is None else float(das_size)
+			)
 
 			geo_xyz = st_xyz[~mask_is_das]
 			das_xyz = st_xyz[mask_is_das]
@@ -295,7 +307,7 @@ def save_true_pred_xyz_3view(
 					x=geo_xyz[:, 0],
 					y=geo_xyz[:, 1],
 					z=geo_xyz[:, 2],
-					yz_mode='z-y',
+					yz_mode='y-z',
 					label='Geophone',
 					alpha=0.8,
 					**kw_geo,
@@ -316,7 +328,7 @@ def save_true_pred_xyz_3view(
 					x=das_xyz[:, 0],
 					y=das_xyz[:, 1],
 					z=das_xyz[:, 2],
-					yz_mode='z-y',
+					yz_mode='y-z',
 					label='DAS',
 					alpha=0.8,
 					**kw_das,
@@ -338,38 +350,8 @@ def save_true_pred_xyz_3view(
 			alpha=0.35,
 			linestyle=':',
 			zorder=z_link,
-			yz_mode='z-y',
+			yz_mode='y-z',
 		)
-
-	xr, yr, zr = ranges_from_xyz(
-		[true_xyz, pred_xyz, st_xyz] if st_xyz is not None else [true_xyz, pred_xyz]
-	)
-	sync_xyz_ranges(
-		ax_xy,
-		ax_xz,
-		ax_yz,
-		x_range=xr,
-		y_range=yr,
-		z_range=zr,
-		invert_z=True,
-		yz_mode='z-y',
-	)
-
-	ax_xy.set_xlabel('X (km)')
-	ax_xy.set_ylabel('Y (km)')
-	ax_xy.set_aspect('equal', adjustable='box')
-	ax_xy.grid(True, linewidth=0.5, alpha=0.7)
-
-	ax_xz.set_xlabel('X (km)')
-	ax_xz.set_ylabel('Depth (km)')
-	ax_xz.grid(True, linewidth=0.5, alpha=0.7)
-
-	ax_yz.set_xlabel('Depth (km)')
-	ax_yz.set_ylabel('Y (km)')
-	ax_yz.grid(True, linewidth=0.5, alpha=0.7)
-
-	if title:
-		fig.suptitle(title, y=0.985)
 
 	handles: list[object] = [h_true, h_pred]
 	if mask_is_das is None:
@@ -380,15 +362,427 @@ def save_true_pred_xyz_3view(
 			handles.append(h_geo)
 		if h_das is not None:
 			handles.append(h_das)
+
+	return (
+		fig,
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		ax_empty,
+		true_xyz,
+		pred_xyz,
+		st_xyz,
+		mask_is_das,
+		handles,
+	)
+
+
+def _finalize_true_pred_xyz_3view(
+	fig: plt.Figure,
+	ax_xy: plt.Axes,
+	ax_xz: plt.Axes,
+	ax_yz: plt.Axes,
+	ax_empty: plt.Axes,
+	*,
+	x_range: tuple[float, float],
+	y_range: tuple[float, float],
+	z_range: tuple[float, float],
+	handles: list[object],
+	title: str | None,
+	out_png: Path,
+) -> None:
+	sync_xyz_ranges(
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		x_range=x_range,
+		y_range=y_range,
+		z_range=z_range,
+		invert_z=True,
+		yz_mode='y-z',
+	)
+
+	ax_xy.set_xlabel('X (km)')
+	ax_xy.set_ylabel('Y (km)')
+	ax_xy.set_aspect('equal', adjustable='box')
+	ax_xy.grid(True)
+
+	ax_xz.set_xlabel('X (km)')
+	ax_xz.set_ylabel('Depth (km)')
+	ax_xz.grid(True)
+
+	ax_yz.set_xlabel('Y (km)')
+	ax_yz.set_ylabel('Depth (km)')
+	ax_yz.grid(True)
+
+	if title:
+		fig.suptitle(title)
 	labels = [h.get_label() for h in handles]
 	ax_empty.legend(handles, labels, loc='center')
 
-	fig.subplots_adjust(
-		left=0.07,
-		right=0.98,
-		bottom=0.07,
-		top=0.95,
-		wspace=0.28,
-		hspace=0.28,
-	)
+	fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96])
 	save_figure(fig, out_png, dpi=200)
+
+
+def save_true_pred_xyz_3view(
+	true_xyz_m: np.ndarray,
+	pred_xyz_m: np.ndarray,
+	out_png: Path,
+	*,
+	stations_xyz_m: np.ndarray | None = None,
+	stations_is_das: np.ndarray | None = None,
+	title: str | None = None,
+	marker_size: float = 110.0,
+	station_size: float = 100.0,
+	geophone_size: float | None = None,
+	das_size: float | None = 5,
+	geophone_color: str | None = None,
+	das_color: str | None = 'gray',
+	geophone_marker: str = '^',
+	das_marker: str = 's',
+) -> None:
+	(
+		fig,
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		ax_empty,
+		true_xyz,
+		pred_xyz,
+		st_xyz,
+		_,
+		handles,
+	) = _build_true_pred_xyz_3view_figure(
+		true_xyz_m,
+		pred_xyz_m,
+		stations_xyz_m=stations_xyz_m,
+		stations_is_das=stations_is_das,
+		marker_size=marker_size,
+		station_size=station_size,
+		geophone_size=geophone_size,
+		das_size=das_size,
+		geophone_color=geophone_color,
+		das_color=das_color,
+		geophone_marker=geophone_marker,
+		das_marker=das_marker,
+	)
+
+	xr, yr, zr = ranges_from_xyz(
+		[true_xyz, pred_xyz, st_xyz] if st_xyz is not None else [true_xyz, pred_xyz]
+	)
+	_finalize_true_pred_xyz_3view(
+		fig,
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		ax_empty,
+		x_range=(float(xr[0]), float(xr[1])),
+		y_range=(float(yr[0]), float(yr[1])),
+		z_range=(float(zr[0]), float(zr[1])),
+		handles=handles,
+		title=title,
+		out_png=out_png,
+	)
+
+
+def _ellipse_axis_aligned_halfwidth(
+	a_km: float, b_km: float, theta_rad: float
+) -> tuple[float, float]:
+	ct = float(np.cos(theta_rad))
+	st = float(np.sin(theta_rad))
+	hx = float(np.sqrt((a_km * ct) ** 2 + (b_km * st) ** 2))
+	hy = float(np.sqrt((a_km * st) ** 2 + (b_km * ct) ** 2))
+	if not np.isfinite(hx) or not np.isfinite(hy):
+		raise ValueError(f'non-finite ellipse halfwidths: hx={hx}, hy={hy}')
+	return hx, hy
+
+
+def _ellipse_polyline(
+	*,
+	cx: float,
+	cy: float,
+	a_km: float,
+	b_km: float,
+	theta_rad: float,
+	n_points: int,
+) -> np.ndarray:
+	if n_points < 20:
+		raise ValueError('n_points must be >= 20')
+	t = np.linspace(0.0, 2.0 * np.pi, int(n_points), endpoint=True)
+	ct = float(np.cos(theta_rad))
+	st = float(np.sin(theta_rad))
+	x = cx + a_km * np.cos(t) * ct - b_km * np.sin(t) * st
+	y = cy + a_km * np.cos(t) * st + b_km * np.sin(t) * ct
+	xy = np.column_stack([x, y]).astype(float, copy=False)
+	if not np.isfinite(xy).all():
+		raise ValueError('ellipse polyline contains non-finite values')
+	return xy
+
+
+def _clip_ab(a_km: float, b_km: float, clip_km: float) -> tuple[float, float]:
+	m = float(max(a_km, b_km))
+	if m <= float(clip_km):
+		return float(a_km), float(b_km)
+	scale = float(clip_km) / m
+	return float(a_km) * scale, float(b_km) * scale
+
+
+def save_true_pred_xyz_3view_with_uncertainty(
+	true_xyz_m: np.ndarray,
+	pred_xyz_m: np.ndarray,
+	df_eval: pd.DataFrame,
+	out_png: Path,
+	*,
+	stations_xyz_m: np.ndarray | None = None,
+	stations_is_das: np.ndarray | None = None,
+	title: str | None = None,
+	marker_size: float = 110.0,
+	station_size: float = 100.0,
+	geophone_size: float | None = None,
+	das_size: float | None = 5,
+	geophone_color: str | None = None,
+	das_color: str | None = 'gray',
+	geophone_marker: str = '^',
+	das_marker: str = 's',
+	sigma_scale_sec: float = 1.0,
+	poor_thresh_km: float = 5.0,
+	clip_km: float = 10.0,
+	n_ellipse_points: int = 100,
+	ellipse_lw: float = 0.8,
+	ellipse_alpha: float = 0.85,
+	ellipse_color_ok: str = 'tab:orange',
+	ellipse_color_poor: str = 'tab:red',
+) -> None:
+	from hypo.uncertainty_ellipsoid import projected_ellipses_from_record
+
+	if sigma_scale_sec <= 0.0 or not np.isfinite(float(sigma_scale_sec)):
+		raise ValueError(f'invalid sigma_scale_sec: {sigma_scale_sec!r}')
+	if poor_thresh_km <= 0.0 or not np.isfinite(float(poor_thresh_km)):
+		raise ValueError(f'invalid poor_thresh_km: {poor_thresh_km!r}')
+	if clip_km <= 0.0 or not np.isfinite(float(clip_km)):
+		raise ValueError(f'invalid clip_km: {clip_km!r}')
+
+	need_ell = [
+		'ell_s1_km',
+		'ell_az1_deg',
+		'ell_dip1_deg',
+		'ell_s2_km',
+		'ell_az2_deg',
+		'ell_dip2_deg',
+		'ell_s3_km',
+		'ell_az3_deg',
+		'ell_dip3_deg',
+	]
+	missing = [c for c in need_ell if c not in df_eval.columns]
+	if missing:
+		raise KeyError(
+			f'missing uncertainty columns for ellipse plotting: {missing}. '
+			f'available={list(df_eval.columns)}'
+		)
+
+	(
+		fig,
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		ax_empty,
+		true_xyz,
+		pred_xyz,
+		st_xyz,
+		_,
+		handles,
+	) = _build_true_pred_xyz_3view_figure(
+		true_xyz_m,
+		pred_xyz_m,
+		stations_xyz_m=stations_xyz_m,
+		stations_is_das=stations_is_das,
+		marker_size=marker_size,
+		station_size=station_size,
+		geophone_size=geophone_size,
+		das_size=das_size,
+		geophone_color=geophone_color,
+		das_color=das_color,
+		geophone_marker=geophone_marker,
+		das_marker=das_marker,
+	)
+
+	if len(df_eval) != true_xyz.shape[0]:
+		raise ValueError(
+			'len(df_eval) must match number of events in true/pred arrays: '
+			f'{len(df_eval)} vs {true_xyz.shape[0]}'
+		)
+
+	z_ell = 25.0
+	segs_xy_ok: list[np.ndarray] = []
+	segs_xy_poor: list[np.ndarray] = []
+	segs_xz_ok: list[np.ndarray] = []
+	segs_xz_poor: list[np.ndarray] = []
+	segs_yz_ok: list[np.ndarray] = []
+	segs_yz_poor: list[np.ndarray] = []
+
+	pad_x = 0.0
+	pad_y = 0.0
+	pad_z = 0.0
+
+	for i in range(len(df_eval)):
+		rec = df_eval.iloc[i]
+		ell = projected_ellipses_from_record(rec, sigma_scale_sec=float(sigma_scale_sec))
+
+		a_xy, b_xy = _clip_ab(
+			float(ell['a_xy_km']), float(ell['b_xy_km']), float(clip_km)
+		)
+		a_xz, b_xz = _clip_ab(
+			float(ell['a_xz_km']), float(ell['b_xz_km']), float(clip_km)
+		)
+		a_yz, b_yz = _clip_ab(
+			float(ell['a_yz_km']), float(ell['b_yz_km']), float(clip_km)
+		)
+
+		th_xy = float(ell['theta_xy_rad'])
+		th_xz = float(ell['theta_xz_rad'])
+		th_yz = float(ell['theta_yz_rad'])
+
+		hx_xy, hy_xy = _ellipse_axis_aligned_halfwidth(a_xy, b_xy, th_xy)
+		hx_xz, hz_xz = _ellipse_axis_aligned_halfwidth(a_xz, b_xz, th_xz)
+		hz_yz, hy_yz = _ellipse_axis_aligned_halfwidth(a_yz, b_yz, th_yz)
+
+		pad_x = float(max(pad_x, hx_xy, hx_xz))
+		pad_y = float(max(pad_y, hy_xy, hy_yz))
+		pad_z = float(max(pad_z, hz_xz, hz_yz))
+
+		cx_xy = float(pred_xyz[i, 0])
+		cy_xy = float(pred_xyz[i, 1])
+		cx_xz = float(pred_xyz[i, 0])
+		cy_xz = float(pred_xyz[i, 2])
+		cx_yz = float(pred_xyz[i, 2])
+		cy_yz = float(pred_xyz[i, 1])
+
+		poly_xy = _ellipse_polyline(
+			cx=cx_xy,
+			cy=cy_xy,
+			a_km=a_xy,
+			b_km=b_xy,
+			theta_rad=th_xy,
+			n_points=int(n_ellipse_points),
+		)
+		poly_xz = _ellipse_polyline(
+			cx=cx_xz,
+			cy=cy_xz,
+			a_km=a_xz,
+			b_km=b_xz,
+			theta_rad=th_xz,
+			n_points=int(n_ellipse_points),
+		)
+		poly_yz = _ellipse_polyline(
+			cx=cx_yz,
+			cy=cy_yz,
+			a_km=a_yz,
+			b_km=b_yz,
+			theta_rad=th_yz,
+			n_points=int(n_ellipse_points),
+		)
+		poly_yz = poly_yz[:, [1, 0]]
+
+		is_poor = float(ell['ell_3d_max_km']) > float(poor_thresh_km)
+		if is_poor:
+			segs_xy_poor.append(poly_xy)
+			segs_xz_poor.append(poly_xz)
+			segs_yz_poor.append(poly_yz)
+		else:
+			segs_xy_ok.append(poly_xy)
+			segs_xz_ok.append(poly_xz)
+			segs_yz_ok.append(poly_yz)
+
+	if segs_xy_ok:
+		ax_xy.add_collection(
+			LineCollection(
+				segs_xy_ok,
+				colors=str(ellipse_color_ok),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+		ax_xz.add_collection(
+			LineCollection(
+				segs_xz_ok,
+				colors=str(ellipse_color_ok),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+		ax_yz.add_collection(
+			LineCollection(
+				segs_yz_ok,
+				colors=str(ellipse_color_ok),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+
+	if segs_xy_poor:
+		ax_xy.add_collection(
+			LineCollection(
+				segs_xy_poor,
+				colors=str(ellipse_color_poor),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+		ax_xz.add_collection(
+			LineCollection(
+				segs_xz_poor,
+				colors=str(ellipse_color_poor),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+		ax_yz.add_collection(
+			LineCollection(
+				segs_yz_poor,
+				colors=str(ellipse_color_poor),
+				linewidths=float(ellipse_lw),
+				alpha=float(ellipse_alpha),
+				zorder=z_ell,
+			)
+		)
+
+	xr, yr, zr = ranges_from_xyz(
+		[true_xyz, pred_xyz, st_xyz] if st_xyz is not None else [true_xyz, pred_xyz]
+	)
+	xr2 = (float(xr[0]) - float(pad_x), float(xr[1]) + float(pad_x))
+	yr2 = (float(yr[0]) - float(pad_y), float(yr[1]) + float(pad_y))
+	zr2 = (float(zr[0]) - float(pad_z), float(zr[1]) + float(pad_z))
+
+	if segs_xy_ok:
+		handles.append(
+			Line2D([0.0], [0.0], color=str(ellipse_color_ok), lw=1.2, label='1σ ellipse')
+		)
+	if segs_xy_poor:
+		handles.append(
+			Line2D(
+				[0.0],
+				[0.0],
+				color=str(ellipse_color_poor),
+				lw=1.2,
+				label='1σ ellipse (poor)',
+			)
+		)
+
+	_finalize_true_pred_xyz_3view(
+		fig,
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		ax_empty,
+		x_range=xr2,
+		y_range=yr2,
+		z_range=zr2,
+		handles=handles,
+		title=title,
+		out_png=out_png,
+	)
