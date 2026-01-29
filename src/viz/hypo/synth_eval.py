@@ -8,8 +8,8 @@ import pandas as pd
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
-from viz.core.fig_io import save_current_figure, save_figure
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
+from viz.core.fig_io import save_current_figure, save_figure
 
 
 def save_dxdy_scatter(
@@ -53,7 +53,7 @@ def save_true_pred_xy_plot(
 
 	segs = np.stack([true_xy, pred_xy], axis=1)  # (N, 2, 2)
 
-	fig, ax = plt.subplots(figsize=(7, 7))
+	fig, ax = plt.subplots(figsize=(8, 8))
 
 	ax.scatter(true_xy[:, 0], true_xy[:, 1], s=marker_size, marker='o', label='True')
 	ax.scatter(pred_xy[:, 0], pred_xy[:, 1], s=marker_size, marker='x', label='Pred')
@@ -195,7 +195,7 @@ def _build_true_pred_xyz_3view_figure(
 				f'got dtype={mask.dtype!s}'
 			)
 
-	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(figsize=(10.0, 10.0))
+	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(figsize=(12.0, 12.0))
 
 	# Draw order (top -> bottom): Pred > True > Geophone > DAS
 	# Links should stay behind all points.
@@ -286,9 +286,7 @@ def _build_true_pred_xyz_3view_figure(
 			geo_size = (
 				float(station_size) if geophone_size is None else float(geophone_size)
 			)
-			das_size_val = (
-				float(station_size) if das_size is None else float(das_size)
-			)
+			das_size_val = float(station_size) if das_size is None else float(das_size)
 
 			geo_xyz = st_xyz[~mask_is_das]
 			das_xyz = st_xyz[mask_is_das]
@@ -416,12 +414,23 @@ def _finalize_true_pred_xyz_3view(
 	ax_yz.set_ylabel('Depth (km)')
 	ax_yz.grid(True)
 
+	for ax in (ax_xy, ax_xz, ax_yz):
+		ax.xaxis.labelpad = 2
+		ax.yaxis.labelpad = 2
+		ax.tick_params(axis='both', which='major', pad=2)
 	if title:
-		fig.suptitle(title)
+		fig.suptitle(title, y=0.985)
 	labels = [h.get_label() for h in handles]
 	ax_empty.legend(handles, labels, loc='center')
 
-	fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.96])
+	fig.subplots_adjust(
+		left=0.06,
+		right=0.99,
+		bottom=0.07,
+		top=0.95,
+		wspace=0.32,
+		hspace=0.32,
+	)
 	save_figure(fig, out_png, dpi=200)
 
 
@@ -616,7 +625,9 @@ def save_true_pred_xyz_3view_with_uncertainty(
 
 	for i in range(len(df_eval)):
 		rec = df_eval.iloc[i]
-		ell = projected_ellipses_from_record(rec, sigma_scale_sec=float(sigma_scale_sec))
+		ell = projected_ellipses_from_record(
+			rec, sigma_scale_sec=float(sigma_scale_sec)
+		)
 
 		a_xy, b_xy = _clip_ab(
 			float(ell['a_xy_km']), float(ell['b_xy_km']), float(clip_km)
@@ -689,6 +700,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				segs_xy_ok,
 				colors=str(ellipse_color_ok),
 				linewidths=float(ellipse_lw),
+				linestyles='dashed',
 				alpha=float(ellipse_alpha),
 				zorder=z_ell,
 			)
@@ -698,6 +710,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				segs_xz_ok,
 				colors=str(ellipse_color_ok),
 				linewidths=float(ellipse_lw),
+				linestyles='dashed',
 				alpha=float(ellipse_alpha),
 				zorder=z_ell,
 			)
@@ -707,6 +720,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				segs_yz_ok,
 				colors=str(ellipse_color_ok),
 				linewidths=float(ellipse_lw),
+				linestyles='dashed',
 				alpha=float(ellipse_alpha),
 				zorder=z_ell,
 			)
@@ -750,7 +764,9 @@ def save_true_pred_xyz_3view_with_uncertainty(
 
 	if segs_xy_ok:
 		handles.append(
-			Line2D([0.0], [0.0], color=str(ellipse_color_ok), lw=1.2, label='1σ ellipse')
+			Line2D(
+				[0.0], [0.0], color=str(ellipse_color_ok), lw=1.2, label='1σ ellipse'
+			)
 		)
 	if segs_xy_poor:
 		handles.append(
