@@ -129,6 +129,7 @@ from viz.core.sections3 import (
 	make_3view_axes,
 	plot_links_3view,
 	ranges_from_xyz,
+	scatter_points_3view,
 	sync_xyz_ranges,
 )
 
@@ -139,9 +140,16 @@ def save_true_pred_xyz_3view(
 	out_png: Path,
 	*,
 	stations_xyz_m: np.ndarray | None = None,
+	stations_is_das: np.ndarray | None = None,
 	title: str | None = None,
-	marker_size: float = 20.0,
-	station_size: float = 16.0,
+	marker_size: float = 110.0,
+	station_size: float = 100.0,
+	geophone_size: float | None = None,
+	das_size: float | None = 5,
+	geophone_color: str | None = None,
+	das_color: str | None = 'gray',
+	geophone_marker: str = '^',
+	das_marker: str = 's',
 ) -> None:
 	true_xyz = np.asarray(true_xyz_m, float).reshape(-1, 3) / 1000.0
 	pred_xyz = np.asarray(pred_xyz_m, float).reshape(-1, 3) / 1000.0
@@ -154,28 +162,123 @@ def save_true_pred_xyz_3view(
 	if stations_xyz_m is not None:
 		st_xyz = np.asarray(stations_xyz_m, float).reshape(-1, 3) / 1000.0
 
+	mask_is_das = None
+	if stations_is_das is not None:
+		if st_xyz is None:
+			raise ValueError('stations_is_das was provided but stations_xyz_m is None')
+
+		mask = np.asarray(stations_is_das).reshape(-1)
+		if mask.size != st_xyz.shape[0]:
+			raise ValueError(
+				'len(stations_is_das) must match stations_xyz_m rows: '
+				f'{mask.size} vs {st_xyz.shape[0]}'
+			)
+
+		if mask.dtype == bool:
+			mask_is_das = mask
+		elif mask.dtype.kind in ('b', 'i', 'u'):
+			mask_is_das = mask.astype(bool)
+		else:
+			raise TypeError(
+				'stations_is_das must be a bool array or integer array (0/1). '
+				f'got dtype={mask.dtype!s}'
+			)
+
 	fig, ax_xy, ax_xz, ax_yz, ax_empty = make_3view_axes(figsize=(10.0, 10.0))
 
 	h_true = ax_xy.scatter(
-		true_xyz[:, 0], true_xyz[:, 1], s=marker_size, marker='o', label='True'
+		true_xyz[:, 0],
+		true_xyz[:, 1],
+		s=marker_size,
+		marker='o',
+		label='True',
+		alpha=0.8,
 	)
 	h_pred = ax_xy.scatter(
-		pred_xyz[:, 0], pred_xyz[:, 1], s=marker_size, marker='x', label='Pred'
+		pred_xyz[:, 0],
+		pred_xyz[:, 1],
+		s=marker_size,
+		marker='x',
+		label='Pred',
+		alpha=0.8,
 	)
 
-	ax_xz.scatter(true_xyz[:, 0], true_xyz[:, 2], s=marker_size, marker='o')
-	ax_xz.scatter(pred_xyz[:, 0], pred_xyz[:, 2], s=marker_size, marker='x')
+	ax_xz.scatter(true_xyz[:, 0], true_xyz[:, 2], s=marker_size, marker='o', alpha=0.8)
+	ax_xz.scatter(pred_xyz[:, 0], pred_xyz[:, 2], s=marker_size, marker='x', alpha=0.8)
 
-	ax_yz.scatter(true_xyz[:, 1], true_xyz[:, 2], s=marker_size, marker='o')
-	ax_yz.scatter(pred_xyz[:, 1], pred_xyz[:, 2], s=marker_size, marker='x')
+	ax_yz.scatter(true_xyz[:, 1], true_xyz[:, 2], s=marker_size, marker='o', alpha=0.8)
+	ax_yz.scatter(pred_xyz[:, 1], pred_xyz[:, 2], s=marker_size, marker='x', alpha=0.8)
 
 	h_sta = None
+	h_geo = None
+	h_das = None
 	if st_xyz is not None and st_xyz.size > 0:
-		h_sta = ax_xy.scatter(
-			st_xyz[:, 0], st_xyz[:, 1], s=station_size, marker='^', label='Stations'
-		)
-		ax_xz.scatter(st_xyz[:, 0], st_xyz[:, 2], s=station_size, marker='^')
-		ax_yz.scatter(st_xyz[:, 1], st_xyz[:, 2], s=station_size, marker='^')
+		if mask_is_das is None:
+			kw: dict[str, object] = {
+				's': float(station_size),
+				'marker': '^',
+			}
+			# Keep matplotlib default color cycle (do not pass color=None)
+			h_sta = scatter_points_3view(
+				ax_xy,
+				ax_xz,
+				ax_yz,
+				x=st_xyz[:, 0],
+				y=st_xyz[:, 1],
+				z=st_xyz[:, 2],
+				yz_mode='y-z',
+				label='Stations',
+				alpha=0.8,
+				**kw,
+			)
+		else:
+			geo_size = (
+				float(station_size) if geophone_size is None else float(geophone_size)
+			)
+			das_size_val = float(station_size) if das_size is None else float(das_size)
+
+			geo_xyz = st_xyz[~mask_is_das]
+			das_xyz = st_xyz[mask_is_das]
+
+			if geo_xyz.shape[0] > 0:
+				kw_geo: dict[str, object] = {
+					's': geo_size,
+					'marker': str(geophone_marker),
+				}
+				if geophone_color is not None:
+					kw_geo['color'] = str(geophone_color)
+				h_geo = scatter_points_3view(
+					ax_xy,
+					ax_xz,
+					ax_yz,
+					x=geo_xyz[:, 0],
+					y=geo_xyz[:, 1],
+					z=geo_xyz[:, 2],
+					yz_mode='y-z',
+					label='Geophone',
+					alpha=0.8,
+					**kw_geo,
+				)
+
+			if das_xyz.shape[0] > 0:
+				kw_das: dict[str, object] = {
+					's': das_size_val,
+					'marker': str(das_marker),
+				}
+				if das_color is not None:
+					kw_das['color'] = str(das_color)
+				h_das = scatter_points_3view(
+					ax_xy,
+					ax_xz,
+					ax_yz,
+					x=das_xyz[:, 0],
+					y=das_xyz[:, 1],
+					z=das_xyz[:, 2],
+					yz_mode='y-z',
+					label='DAS',
+					alpha=0.8,
+					**kw_das,
+				)
 
 	pairs = [
 		((a[0], a[1], a[2]), (b[0], b[1], b[2]))
@@ -225,7 +328,15 @@ def save_true_pred_xyz_3view(
 	if title:
 		fig.suptitle(title)
 
-	handles = [h_true, h_pred] + ([h_sta] if h_sta is not None else [])
+	handles: list[object] = [h_true, h_pred]
+	if mask_is_das is None:
+		if h_sta is not None:
+			handles.append(h_sta)
+	else:
+		if h_geo is not None:
+			handles.append(h_geo)
+		if h_das is not None:
+			handles.append(h_das)
 	labels = [h.get_label() for h in handles]
 	ax_empty.legend(handles, labels, loc='center')
 

@@ -333,13 +333,31 @@ def scatter_points_3view(
 	if not (xv.size == yv.size == zv.size):
 		raise ValueError('x,y,z length mismatch')
 
+	# color が指定されていない場合、ax_xy 側で自動色を決めさせ、
+	# 採用色(RGBA)を xz/yz にも反映して 3view の見た目を揃える。
+	use_auto_color = ('color' not in scatter_kwargs) and ('c' not in scatter_kwargs)
+
 	h_xy = ax_xy.scatter(xv, yv, label=label, **scatter_kwargs)
-	ax_xz.scatter(xv, zv, label=None, **scatter_kwargs)
+
+	kw_other = dict(scatter_kwargs)
+	if use_auto_color:
+		rgba = None
+		fc = h_xy.get_facecolors()
+		if fc is not None and len(fc) > 0:
+			rgba = fc[0]
+		else:
+			ec = h_xy.get_edgecolors()
+			if ec is not None and len(ec) > 0:
+				rgba = ec[0]
+		if rgba is not None:
+			kw_other['color'] = tuple(float(v) for v in rgba)
+
+	ax_xz.scatter(xv, zv, label=None, **kw_other)
 
 	if yz_mode == 'y-z':
-		ax_yz.scatter(yv, zv, label=None, **scatter_kwargs)
+		ax_yz.scatter(yv, zv, label=None, **kw_other)
 	elif yz_mode == 'z-y':
-		ax_yz.scatter(zv, yv, label=None, **scatter_kwargs)
+		ax_yz.scatter(zv, yv, label=None, **kw_other)
 	else:
 		raise ValueError(f'unknown yz_mode: {yz_mode}')
 

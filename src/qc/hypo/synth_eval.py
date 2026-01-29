@@ -20,7 +20,6 @@ class Config:
 	dataset_dir: str
 	outputs_dir: str
 	receiver_geometry: str
-	station_set: str  # surface | all
 
 
 def load_config(path: Path) -> Config:
@@ -29,18 +28,55 @@ def load_config(path: Path) -> Config:
 		dataset_dir=str(obj['dataset_dir']),
 		outputs_dir=str(obj['outputs_dir']),
 		receiver_geometry=str(obj['receiver_geometry']),
-		station_set=str(obj['station_set']),
 	)
 
 
-def _load_station_xyz_m(
+def _load_stations_from_run_output(
 	*,
+	run_dir: Path,
 	dataset_dir: Path,
 	receiver_geometry: str,
-	station_set: str,
-) -> np.ndarray:
-	require_filename_only(receiver_geometry, 'receiver_geometry')
+) -> tuple[np.ndarray, np.ndarray]:
+	"""Load station xyz and DAS mask based on run output station_synth.csv.
 
+	Stations are sourced from run_dir/station_synth.csv to ensure QC follows the
+	actual station selection used in the run.
+	"""
+	station_csv = run_dir / 'station_synth.csv'
+	if not station_csv.is_file():
+		raise FileNotFoundError(f'missing: {station_csv}')
+
+	df_sta = pd.read_csv(station_csv)
+	for c in ['station_code', 'receiver_index']:
+		if c not in df_sta.columns:
+			raise ValueError(f'station_synth.csv missing column: {c}')
+
+	s_code = df_sta['station_code']
+	if s_code.isna().any():
+		raise ValueError('station_synth.csv has missing station_code')
+	codes = s_code.astype(str).map(str.strip)
+	if (codes == '').any():
+		raise ValueError('station_synth.csv has empty station_code')
+
+	stations_is_das = codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
+
+	ri = pd.to_numeric(df_sta['receiver_index'], errors='raise')
+	if ri.isna().any():
+		raise ValueError('station_synth.csv has missing receiver_index')
+
+	vals = ri.to_numpy(float)
+	if not np.isfinite(vals).all():
+		raise ValueError('receiver_index has non-finite values')
+	if not np.equal(vals, np.round(vals)).all():
+		raise ValueError('receiver_index must be integer-valued')
+	idx = vals.astype(int)
+
+	if idx.size == 0:
+		raise ValueError('station_synth.csv has no stations')
+	if np.unique(idx).size != idx.size:
+		raise ValueError('receiver_index has duplicates')
+
+	require_filename_only(receiver_geometry, 'receiver_geometry')
 	geom_path = dataset_dir / 'geometry' / receiver_geometry
 	if not geom_path.is_file():
 		raise FileNotFoundError(f'missing: {geom_path}')
@@ -49,18 +85,16 @@ def _load_station_xyz_m(
 	if recv_xyz_m.ndim != 2 or recv_xyz_m.shape[1] != 3:
 		raise ValueError(f'receiver geometry must be (N,3), got {recv_xyz_m.shape}')
 
-	n = recv_xyz_m.shape[0]
-	if n < 9:
-		raise ValueError(f'receiver count too small: {n}')
+	min_i = int(idx.min())
+	max_i = int(idx.max())
+	if min_i < 0 or max_i >= recv_xyz_m.shape[0]:
+		raise IndexError(
+			'receiver_index out of range: '
+			f'min={min_i} max={max_i} receivers={recv_xyz_m.shape[0]}'
+		)
 
-	if station_set == 'surface':
-		idx = np.arange(0, 9, dtype=int)
-	elif station_set == 'all':
-		idx = np.arange(0, n, dtype=int)
-	else:
-		raise ValueError(f"station_set must be 'surface' or 'all', got: {station_set}")
-
-	return recv_xyz_m[idx]
+	stations_xyz_m = recv_xyz_m[idx]
+	return stations_xyz_m, stations_is_das
 
 
 def run_qc(config_path: Path) -> None:
@@ -170,10 +204,10 @@ def run_qc(config_path: Path) -> None:
 	true_xyz_m = true_xyz_m[mask]
 	pred_xyz_m = pred_xyz_m[mask]
 
-	stations_xyz_m = _load_station_xyz_m(
+	stations_xyz_m, stations_is_das = _load_stations_from_run_output(
+		run_dir=run_dir,
 		dataset_dir=dataset_dir,
 		receiver_geometry=cfg.receiver_geometry,
-		station_set=cfg.station_set,
 	)
 
 	xy_png = run_dir / 'xy_true_vs_hyp.png'
@@ -182,6 +216,7 @@ def run_qc(config_path: Path) -> None:
 		pred_xyz_m,
 		xy_png,
 		stations_xyz_m=stations_xyz_m,
+		stations_is_das=stations_is_das,
 		title='True vs HypoInverse (3-view)',
 	)
 	print(f'[OK] wrote: {xy_png}')

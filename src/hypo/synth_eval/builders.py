@@ -40,6 +40,15 @@ def build_station_df(
 	else:
 		raise ValueError(f"station_set must be 'surface' or 'all', got: {station_set}")
 
+	if idx.size == 0:
+		raise ValueError('no stations selected')
+	if idx.min() < 0 or idx.max() >= n:
+		raise ValueError(
+			f'receiver index out of range: min={idx.min()} max={idx.max()} n={n}'
+		)
+	if np.unique(idx).size != idx.size:
+		raise ValueError('receiver index has duplicates')
+
 	xyz = recv_xyz_m[idx]
 	x_km = xyz[:, 0] / 1000.0
 	y_km = xyz[:, 1] / 1000.0
@@ -65,6 +74,7 @@ def build_station_df(
 	return pd.DataFrame(
 		{
 			'station_code': codes,
+			'receiver_index': idx.astype(int),
 			'Latitude_deg': lat_deg.astype(float),
 			'Longitude_deg': lon_deg.astype(float),
 			'Elevation_m': elevation_m.astype(int),
