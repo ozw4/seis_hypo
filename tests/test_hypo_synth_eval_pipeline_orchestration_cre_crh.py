@@ -92,6 +92,15 @@ def _stub_eval_df() -> pd.DataFrame:
 			'RMS': [0.1],
 			'ERH': [0.2],
 			'ERZ': [0.3],
+			'ell_s1_km': [0.1],
+			'ell_az1_deg': [90],
+			'ell_dip1_deg': [0],
+			'ell_s2_km': [0.1],
+			'ell_az2_deg': [0],
+			'ell_dip2_deg': [0],
+			'ell_s3_km': [0.1],
+			'ell_az3_deg': [0],
+			'ell_dip3_deg': [90],
 		}
 	)
 
@@ -211,6 +220,8 @@ def test_run_synth_eval_passes_z_is_depth_positive_to_build_station_df(
 
 	def _run_hyp(_exe: Path, _cmd: Path, run_dir: Path) -> object:
 		(run_dir / 'hypoinverse_run.prt').write_text('prt', encoding='utf-8')
+		(run_dir / 'hypoinverse_run.sum').write_text('sum', encoding='utf-8')
+		(run_dir / 'hypoinverse_run_out.arc').write_text('arc', encoding='utf-8')
 		return object()
 
 	monkeypatch.setattr(pl, 'run_hypoinverse', _run_hyp)
@@ -375,6 +386,8 @@ def test_run_synth_eval_cre_branch_calls_expected_functions_and_force_zero_pdela
 
 	def _run_hyp(_exe: Path, _cmd: Path, run_dir: Path) -> object:
 		(Path(run_dir) / 'hypoinverse_run.prt').write_text('prt', encoding='utf-8')
+		(Path(run_dir) / 'hypoinverse_run.sum').write_text('sum', encoding='utf-8')
+		(Path(run_dir) / 'hypoinverse_run_out.arc').write_text('arc', encoding='utf-8')
 		return object()
 
 	monkeypatch.setattr(pl, 'run_hypoinverse', _run_hyp)
@@ -488,6 +501,8 @@ def test_run_synth_eval_crh_branch_calls_expected_functions(
 
 	def _run_hyp(_exe: Path, _cmd: Path, run_dir: Path) -> object:
 		(Path(run_dir) / 'hypoinverse_run.prt').write_text('prt', encoding='utf-8')
+		(Path(run_dir) / 'hypoinverse_run.sum').write_text('sum', encoding='utf-8')
+		(Path(run_dir) / 'hypoinverse_run_out.arc').write_text('arc', encoding='utf-8')
 		return object()
 
 	monkeypatch.setattr(pl, 'run_hypoinverse', _run_hyp)
