@@ -1,14 +1,29 @@
 # ---- path系（ルール通り）----
 dataset_dir: "/workspace/data/synthe/example1_das1_surface9_well1000m"     # 絶対パス
 sim_yaml: "pipeline_example_das1_surface9_well1000m.yaml"
-outputs_dir: "example_surface"
+outputs_dir: "example_surface_cre"
 template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd" # 絶対パス
 hypoinverse_exe: "/workspace/external_source/hyp1.40/hypoinverse.exe"          # 絶対パス
 receiver_geometry: "recv_das1_geo9_0001.npy"
 
-# CRH 等の flat-earth モデルで receiver の深さ(標高)を近似的に反映させるため、
-# station Elevation_m から pdelay1[s] を計算して .sta に書き込む。
-apply_station_elevation_delay: true
+# ---- CRE運用（station elevation を travel-time 計算へ委譲）----
+model_type: "CRE"
+use_station_elev: true
+
+# receiver_geometry の z は depth(+down) 前提（Elevation_m = -z_m）
+z_is_depth_positive: true
+
+# CRE の参照標高（ref = (max(Elevation_m)+margin)/1000）
+cre_reference_margin_m: 0.0
+
+# CRH資産の typical elevation（未指定/ null は 0.0 km 扱い）
+cre_typical_station_elevation_m: null
+
+# 合成の層境界（[0,1,2,...] km）生成用
+cre_n_layers: 1
+
+# CRH + station delay 近似は使わない（CRE + use_station_elev と同時有効は二重補正になるため）
+apply_station_elevation_delay: false
 
 
 # ---- 非path（ここは自由に残す）----
@@ -31,4 +46,9 @@ arc_origin_time_offset_sec: 1.0
 # DAS を 1ch=1観測点として扱うと過剰に効くので、Hypoinverse のフェーズ weight で低重み化する。
 # weight は 0〜4 想定（0が最大重み、数字が大きいほど低重み）。
 das_station_prefix: "D"
-das_phase_weight_code: 4
+das_phase_weight_code: 3
+
+uncertainty_plot:
+  sigma_scale_sec: 0.05
+  poor_thresh_km: 5.0
+  clip_km: 10.0

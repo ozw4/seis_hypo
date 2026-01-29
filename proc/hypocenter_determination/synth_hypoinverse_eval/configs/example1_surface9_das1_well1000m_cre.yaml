@@ -47,3 +47,8 @@ arc_origin_time_offset_sec: 1.0
 # weight は 0〜4 想定（0が最大重み、数字が大きいほど低重み）。
 das_station_prefix: "D"
 das_phase_weight_code: 3
+
+uncertainty_plot:
+  sigma_scale_sec: 0.05
+  poor_thresh_km: 5.0
+  clip_km: 10.0
