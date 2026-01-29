@@ -9,6 +9,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 from viz.core.fig_io import save_current_figure, save_figure
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 
 
 def save_dxdy_scatter(
@@ -562,18 +563,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 	if clip_km <= 0.0 or not np.isfinite(float(clip_km)):
 		raise ValueError(f'invalid clip_km: {clip_km!r}')
 
-	need_ell = [
-		'ell_s1_km',
-		'ell_az1_deg',
-		'ell_dip1_deg',
-		'ell_s2_km',
-		'ell_az2_deg',
-		'ell_dip2_deg',
-		'ell_s3_km',
-		'ell_az3_deg',
-		'ell_dip3_deg',
-	]
-	missing = [c for c in need_ell if c not in df_eval.columns]
+	missing = [c for c in ELLIPSE_COLS if c not in df_eval.columns]
 	if missing:
 		raise KeyError(
 			f'missing uncertainty columns for ellipse plotting: {missing}. '

@@ -12,6 +12,7 @@ from hypo.synth_eval.validation import (
 	require_dirname_only,
 	require_filename_only,
 )
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 from viz.hypo.synth_eval import (
 	save_dxdy_scatter,
 	save_hist,
@@ -25,14 +26,37 @@ class Config:
 	dataset_dir: str
 	outputs_dir: str
 	receiver_geometry: str
+	uncertainty_plot: 'UncertaintyPlotConfig'
+
+
+@dataclass(frozen=True)
+class UncertaintyPlotConfig:
+	enabled: bool
+	sigma_scale_sec: float
+	poor_thresh_km: float
+	clip_km: float
+	n_ellipse_points: int
+	ellipse_lw: float
+	ellipse_alpha: float
 
 
 def load_config(path: Path) -> Config:
 	obj = yaml.safe_load(path.read_text(encoding='utf-8'))
+	up = obj.get('uncertainty_plot') or {}
+	up_cfg = UncertaintyPlotConfig(
+		enabled=bool(up.get('enabled', True)),
+		sigma_scale_sec=float(up.get('sigma_scale_sec', 1.0)),
+		poor_thresh_km=float(up.get('poor_thresh_km', 5.0)),
+		clip_km=float(up.get('clip_km', 10.0)),
+		n_ellipse_points=int(up.get('n_ellipse_points', 100)),
+		ellipse_lw=float(up.get('ellipse_lw', 0.8)),
+		ellipse_alpha=float(up.get('ellipse_alpha', 0.85)),
+	)
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),
 		outputs_dir=str(obj['outputs_dir']),
 		receiver_geometry=str(obj['receiver_geometry']),
+		uncertainty_plot=up_cfg,
 	)
 
 
@@ -167,23 +191,22 @@ def run_qc(config_path: Path) -> None:
 	outliers.to_csv(outliers_path, index=False)
 
 	# プロット（各図1枚、色指定なし）
-	save_hist(
-		df['err3d_m'], run_dir / 'qc_err3d_hist.png', '3D error histogram', 'err3d_m'
-	)
-	save_hist(
-		df['horiz_m'],
-		run_dir / 'qc_horiz_hist.png',
-		'Horizontal error histogram',
-		'horiz_m',
-	)
-	save_hist(df['dz_m'], run_dir / 'qc_dz_hist.png', 'Depth error histogram', 'dz_m')
+	p_err3d = run_dir / 'qc_err3d_hist.png'
+	save_hist(df['err3d_m'], p_err3d, '3D error histogram', 'err3d_m')
+	print(f'[OK] wrote: {p_err3d}')
+
+	p_horiz = run_dir / 'qc_horiz_hist.png'
+	save_hist(df['horiz_m'], p_horiz, 'Horizontal error histogram', 'horiz_m')
+	print(f'[OK] wrote: {p_horiz}')
+
+	p_dz = run_dir / 'qc_dz_hist.png'
+	save_hist(df['dz_m'], p_dz, 'Depth error histogram', 'dz_m')
+	print(f'[OK] wrote: {p_dz}')
 
 	if 'dx_m' in df.columns and 'dy_m' in df.columns:
-		save_dxdy_scatter(
-			df['dx_m'].to_numpy(),
-			df['dy_m'].to_numpy(),
-			run_dir / 'qc_dxdy_scatter.png',
-		)
+		p_dxdy = run_dir / 'qc_dxdy_scatter.png'
+		save_dxdy_scatter(df['dx_m'].to_numpy(), df['dy_m'].to_numpy(), p_dxdy)
+		print(f'[OK] wrote: {p_dxdy}')
 
 	# テキスト要約
 	qc_txt = run_dir / 'qc_summary.txt'
@@ -228,29 +251,54 @@ def run_qc(config_path: Path) -> None:
 	print(f'[OK] wrote: {xy_png}')
 
 	# --- True vs HypoInverse (3-view) + 1σ uncertainty ellipses ---
-	need_ell = [
-		'ell_s1_km',
-		'ell_az1_deg',
-		'ell_dip1_deg',
-		'ell_s2_km',
-		'ell_az2_deg',
-		'ell_dip2_deg',
-		'ell_s3_km',
-		'ell_az3_deg',
-		'ell_dip3_deg',
-	]
-	missing_ell = [c for c in need_ell if c not in df_plot.columns]
+	up = cfg.uncertainty_plot
+	if not up.enabled:
+		print('[WARN] skip uncertainty plot (disabled)')
+		return
+
+	print(
+		'[INFO] uncertainty_plot: '
+		f'sigma_scale_sec={up.sigma_scale_sec} '
+		f'poor_thresh_km={up.poor_thresh_km} '
+		f'clip_km={up.clip_km} '
+		f'n_ellipse_points={up.n_ellipse_points} '
+		f'ellipse_lw={up.ellipse_lw} '
+		f'ellipse_alpha={up.ellipse_alpha}'
+	)
+
+	missing_ell = [c for c in ELLIPSE_COLS if c not in df_plot.columns]
 	if missing_ell:
 		print(f'[WARN] skip uncertainty plot (missing columns): {missing_ell}')
-	else:
-		xy_unc_png = run_dir / 'xy_true_vs_hyp_uncertainty.png'
-		save_true_pred_xyz_3view_with_uncertainty(
-			true_xyz_m,
-			pred_xyz_m,
-			df_plot,
-			xy_unc_png,
-			stations_xyz_m=stations_xyz_m,
-			stations_is_das=stations_is_das,
-			title='True vs HypoInverse (3-view) + 1σ ellipses',
-		)
-		print(f'[OK] wrote: {xy_unc_png}')
+		return
+
+	xy_unc_png = run_dir / 'xy_true_vs_hyp_uncertainty.png'
+	save_true_pred_xyz_3view_with_uncertainty(
+		true_xyz_m,
+		pred_xyz_m,
+		df_plot,
+		xy_unc_png,
+		stations_xyz_m=stations_xyz_m,
+		stations_is_das=stations_is_das,
+		title='True vs HypoInverse (3-view) + 1σ ellipses',
+		sigma_scale_sec=float(up.sigma_scale_sec),
+		poor_thresh_km=float(up.poor_thresh_km),
+		clip_km=float(up.clip_km),
+		n_ellipse_points=int(up.n_ellipse_points),
+		ellipse_lw=float(up.ellipse_lw),
+		ellipse_alpha=float(up.ellipse_alpha),
+	)
+	print(f'[OK] wrote: {xy_unc_png}')
+
+	meta_path = run_dir / 'uncertainty_plot_meta.txt'
+	meta_lines = [
+		f'sigma_scale_sec: {up.sigma_scale_sec}',
+		f'poor_thresh_km: {up.poor_thresh_km}',
+		f'clip_km: {up.clip_km}',
+		f'n_ellipse_points: {up.n_ellipse_points}',
+		f'ellipse_lw: {up.ellipse_lw}',
+		f'ellipse_alpha: {up.ellipse_alpha}',
+		'ERR: 1.0',
+		'ERC: 0',
+	]
+	meta_path.write_text('\n'.join(meta_lines) + '\n', encoding='utf-8')
+	print(f'[OK] wrote: {meta_path}')

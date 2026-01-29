@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import copy2
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ from hypo.cre import (
 	write_cre_from_layer_tops,
 	write_cre_meta,
 )
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 from hypo.phase_jma import extract_phase_records
 from hypo.phase_weights import override_phase_weight_by_station_prefix
 from hypo.sta import write_hypoinverse_sta
@@ -133,6 +135,12 @@ def _read_sim_yaml(sim_yaml: Path) -> SimParams:
 	)
 
 
+def _write_config_snapshot(config_path: Path, run_dir: Path) -> Path:
+	out = run_dir / 'config_used.yaml'
+	copy2(config_path, out)
+	return out
+
+
 def build_synth_layer_tops_km(n_layers: int) -> list[float]:
 	"""Build base synthetic layer tops (km) for n_layers.
 
@@ -214,6 +222,9 @@ def run_synth_eval(
 	run_dir = runs_root / cfg.outputs_dir
 	run_dir.mkdir(parents=True, exist_ok=True)
 
+	config_snapshot = _write_config_snapshot(config_path, run_dir)
+	print(f'[OK] wrote: {config_snapshot}')
+
 	station_csv = run_dir / 'station_synth.csv'
 	sta_file = run_dir / 'stations_synth.sta'
 	arc_file = run_dir / 'hypoinverse_input.arc'
@@ -222,6 +233,8 @@ def run_synth_eval(
 	cmd_file = run_dir / 'synth.cmd'
 
 	prt_file = run_dir / 'hypoinverse_run.prt'
+	sum_file = run_dir / 'hypoinverse_run.sum'
+	out_arc_file = run_dir / 'hypoinverse_run_out.arc'
 	eval_csv = run_dir / 'eval_metrics.csv'
 	eval_stats_csv = run_dir / 'eval_stats.csv'
 
@@ -250,6 +263,7 @@ def run_synth_eval(
 	meas_df = build_meas_df(events_dir, truth_df, station_df, cfg.station_set)
 
 	write_station_csv(station_df, station_csv)
+	print(f'[OK] wrote: {station_csv}')
 	write_hypoinverse_sta(
 		station_csv,
 		sta_file,
@@ -258,6 +272,7 @@ def run_synth_eval(
 			and bool(cfg.use_station_elev)
 		),
 	)
+	print(f'[OK] wrote: {sta_file}')
 
 	phases = extract_phase_records(meas_df)
 	phases = override_phase_weight_by_station_prefix(
@@ -277,6 +292,7 @@ def run_synth_eval(
 		origin_time_offset_sec=float(cfg.arc_origin_time_offset_sec),
 		fix_depth=bool(cfg.fix_depth),
 	)
+	print(f'[OK] wrote: {arc_file}')
 
 	mt = str(cfg.model_type).strip().upper()
 	if mt == 'CRE':
@@ -295,6 +311,9 @@ def run_synth_eval(
 			typical_elev_km=typical_elev_km,
 			shift_km=shift_km,
 		)
+		print(f'[OK] wrote: {run_dir / "cre_ref_elev_km.txt"}')
+		print(f'[OK] wrote: {run_dir / "cre_typical_station_elev_km.txt"}')
+		print(f'[OK] wrote: {run_dir / "cre_layer_top_shift_km.txt"}')
 
 		p_cre, s_cre = write_synth_cre_models(
 			run_dir,
@@ -303,6 +322,8 @@ def run_synth_eval(
 			shift_km=shift_km,
 			n_layers=int(cfg.cre_n_layers),
 		)
+		print(f'[OK] wrote: {p_cre}')
+		print(f'[OK] wrote: {s_cre}')
 		patch_cmd_template_for_cre(
 			template_cmd,
 			cmd_file,
@@ -312,17 +333,38 @@ def run_synth_eval(
 			ref_elev_km=ref_elev_km,
 			use_station_elev=bool(cfg.use_station_elev),
 		)
+		print(f'[OK] wrote: {cmd_file}')
 	else:
 		write_crh(p_crh, 'SYNTH_P', [(float(sim.vp_kms), 0.0)])
 		write_crh(s_crh, 'SYNTH_S', [(float(sim.vs_kms), 0.0)])
+		print(f'[OK] wrote: {p_crh}')
+		print(f'[OK] wrote: {s_crh}')
 		write_cmd_from_template(template_cmd, cmd_file)
+		print(f'[OK] wrote: {cmd_file}')
 	run_hypoinverse(hypoinverse_exe, cmd_file, run_dir)
 
 	if not prt_file.is_file():
 		raise FileNotFoundError(f'missing: {prt_file}')
+	if not sum_file.is_file():
+		raise FileNotFoundError(f'missing: {sum_file}')
+	if not out_arc_file.is_file():
+		raise FileNotFoundError(f'missing: {out_arc_file}')
+	print(f'[OK] wrote: {prt_file}')
+	print(f'[OK] wrote: {sum_file}')
+	print(f'[OK] wrote: {out_arc_file}')
 
 	df_eval = evaluate(truth_df, prt_file, cfg.lat0, cfg.lon0)
 	df_eval.to_csv(eval_csv, index=False)
+	if not eval_csv.is_file():
+		raise FileNotFoundError(f'missing: {eval_csv}')
+	print(f'[OK] wrote: {eval_csv}')
+
+	missing_ell = [c for c in ELLIPSE_COLS if c not in df_eval.columns]
+	if missing_ell:
+		raise ValueError(
+			'ell_* columns missing from eval_metrics.csv (ERROR ELLIPSE not parsed): '
+			f'{missing_ell}'
+		)
 
 	metrics_cols = ['horiz_m', 'dz_m', 'err3d_m', 'RMS', 'ERH', 'ERZ']
 	missing = [c for c in metrics_cols if c not in df_eval.columns]
@@ -331,5 +373,6 @@ def run_synth_eval(
 
 	stats = df_eval[metrics_cols].describe(percentiles=[0.5, 0.9, 0.95])
 	stats.to_csv(eval_stats_csv)
+	print(f'[OK] wrote: {eval_stats_csv}')
 
 	return run_dir, df_eval, stats

@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
+
 
 # ========= hypoinverse .prt パース =========
 _SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
@@ -308,17 +310,7 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 		'NWS',
 		'NVR',
 	]
-	required_ell_keys = [
-		'ell_s1_km',
-		'ell_az1_deg',
-		'ell_dip1_deg',
-		'ell_s2_km',
-		'ell_az2_deg',
-		'ell_dip2_deg',
-		'ell_s3_km',
-		'ell_az3_deg',
-		'ell_dip3_deg',
-	]
+	required_ell_keys = list(ELLIPSE_COLS)
 
 	for j, rec in enumerate(records, start=1):
 		missing = [k for k in required_ell_keys if k not in rec]

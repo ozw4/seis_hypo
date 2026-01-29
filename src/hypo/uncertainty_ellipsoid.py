@@ -5,6 +5,19 @@ from collections.abc import Mapping
 import numpy as np
 
 
+ELLIPSE_COLS = (
+	'ell_s1_km',
+	'ell_az1_deg',
+	'ell_dip1_deg',
+	'ell_s2_km',
+	'ell_az2_deg',
+	'ell_dip2_deg',
+	'ell_s3_km',
+	'ell_az3_deg',
+	'ell_dip3_deg',
+)
+
+
 def unit_vector_from_az_dip(az_deg: float, dip_deg: float) -> np.ndarray:
 	"""AZ/DIP -> unit vector in (X=East, Y=North, Z=Depth[down+]).
 
