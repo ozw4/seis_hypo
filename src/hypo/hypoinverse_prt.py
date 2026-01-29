@@ -5,6 +5,13 @@ import pandas as pd
 
 
 # ========= hypoinverse .prt パース =========
+_SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
+_NSTA_HEADER_RE = re.compile(r'^\s*NSTA\s+NPHS\b', re.IGNORECASE)
+_ELL_TRIPLET_RE = re.compile(
+	r'<\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+)\s+([+-]?\d+)\s*>'
+)
+
+
 def parse_summary_line(line: str) -> dict:
 	"""Hypoinverse .prt の summary 行を固定カラムでパースする。
 
@@ -144,41 +151,182 @@ def parse_nsta_line(line: str) -> dict:
 	}
 
 
+def parse_error_ellipse_line(line: str) -> dict:
+	"""Hypoinverse .prt の ERROR ELLIPSE 行をパースする。
+
+	例:
+	ERROR ELLIPSE: <SERR AZ DIP>-<   0.12  91 21>-<   0.09   0  0>-<   0.08 271 68>
+	"""
+	if 'ERROR ELLIPSE' not in line.upper():
+		raise ValueError(f'not an ERROR ELLIPSE line: {line!r}')
+
+	triples = _ELL_TRIPLET_RE.findall(line)
+	if len(triples) != 3:
+		raise ValueError(f'ERROR ELLIPSE must contain 3 numeric triplets: {line!r}')
+
+	s1, az1, dip1 = triples[0]
+	s2, az2, dip2 = triples[1]
+	s3, az3, dip3 = triples[2]
+
+	return {
+		'ell_s1_km': float(s1),
+		'ell_az1_deg': int(az1),
+		'ell_dip1_deg': int(dip1),
+		'ell_s2_km': float(s2),
+		'ell_az2_deg': int(az2),
+		'ell_dip2_deg': int(dip2),
+		'ell_s3_km': float(s3),
+		'ell_az3_deg': int(az3),
+		'ell_dip3_deg': int(dip3),
+	}
+
+
+def parse_eigenvalues_block(lines: list[str], i: int) -> tuple[dict, int]:
+	"""EIGENVALUES 行 + 次行の (a b c d) をパースして返す。
+
+	EIGENVALUES が存在しない場合に呼ばないこと。
+	"""
+	if i < 0 or i >= len(lines):
+		raise IndexError(f'line index out of range: {i}')
+	if lines[i].strip().upper() != 'EIGENVALUES':
+		raise ValueError(f'not an EIGENVALUES line: {lines[i]!r}')
+	if i + 1 >= len(lines):
+		raise ValueError('EIGENVALUES block is truncated: missing values line')
+
+	s = lines[i + 1]
+	m = re.search(r'\(([^)]*)\)', s)
+	if m is None:
+		raise ValueError(f'EIGENVALUES values line must contain parentheses: {s!r}')
+
+	parts = m.group(1).split()
+	if len(parts) != 4:
+		raise ValueError(f'EIGENVALUES must contain 4 values: {s!r}')
+
+	vals = [float(x) for x in parts]
+	return (
+		{
+			'eig_adj1': vals[0],
+			'eig_adj2': vals[1],
+			'eig_adj3': vals[2],
+			'eig_adj4': vals[3],
+		},
+		i + 2,
+	)
+
+
 def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	"""hypoinverse_run.prt からイベント summary + 幾何情報を DataFrame にする。
 
 	カラム:
 	  origin_time_hyp, lat_deg_hyp, lon_deg_hyp, depth_km_hyp,
 	  RMS, ERH, ERZ,
-	  NSTA, NPHS, DMIN, MODEL, GAP, ITR, NFM, NWR, NWS, NVR
+	  NSTA, NPHS, DMIN, MODEL, GAP, ITR, NFM, NWR, NWS, NVR,
+	  ell_s1_km, ell_az1_deg, ell_dip1_deg,
+	  ell_s2_km, ell_az2_deg, ell_dip2_deg,
+	  ell_s3_km, ell_az3_deg, ell_dip3_deg,
+	  eig_adj1, eig_adj2, eig_adj3, eig_adj4
 	"""
 	prt_path = Path(prt_path)
 	text = prt_path.read_text(encoding='ascii', errors='strict')
 	lines = text.splitlines()
 
-	summary_lines: list[str] = []
-	nsta_value_lines: list[str] = []
-
-	for i, line in enumerate(lines):
-		# summary 行: 先頭近くに YYYY-MM-DD がある行
-		if re.match(r'^\s*\d{4}-\d{2}-\d{2}', line):
-			summary_lines.append(line)
-		# NSTA NPHS 行の直後の数値行
-		if 'NSTA NPHS' in line and i + 1 < len(lines):
-			nsta_value_lines.append(lines[i + 1].strip())
-
-	n = min(len(summary_lines), len(nsta_value_lines))
+	pending_error_ellipse: dict | None = None
+	pending_eigenvalues: dict | None = None
 	records: list[dict] = []
 
-	for idx in range(n):
-		sline = summary_lines[idx]
-		nline = nsta_value_lines[idx]
-		rec = parse_summary_line(sline)
-		rec.update(parse_nsta_line(nline))
-		records.append(rec)
+	i = 0
+	while i < len(lines):
+		line = lines[i]
+		s = line.strip()
+		u = s.upper()
+
+		if u == 'EIGENVALUES':
+			if pending_eigenvalues is not None:
+				raise ValueError('multiple EIGENVALUES blocks before an event summary')
+			vals, next_i = parse_eigenvalues_block(lines, i)
+			pending_eigenvalues = vals
+			i = next_i
+			continue
+
+		if 'ERROR ELLIPSE' in u:
+			if pending_error_ellipse is not None:
+				raise ValueError('multiple ERROR ELLIPSE lines before an event summary')
+			pending_error_ellipse = parse_error_ellipse_line(line)
+			i += 1
+			continue
+
+		if _SUMMARY_RE.match(line):
+			if pending_error_ellipse is None:
+				raise ValueError(f'ERROR ELLIPSE is missing for event summary: {line!r}')
+
+			rec = parse_summary_line(line)
+			rec.update(pending_error_ellipse)
+			if pending_eigenvalues is not None:
+				rec.update(pending_eigenvalues)
+			else:
+				rec.update(
+					{
+						'eig_adj1': None,
+						'eig_adj2': None,
+						'eig_adj3': None,
+						'eig_adj4': None,
+					}
+				)
+
+			records.append(rec)
+			pending_error_ellipse = None
+			pending_eigenvalues = None
+			i += 1
+			continue
+
+		if _NSTA_HEADER_RE.match(line):
+			if not records:
+				raise ValueError('NSTA/NPHS block found before any event summary')
+			if i + 1 >= len(lines):
+				raise ValueError('NSTA/NPHS header line is truncated: missing values line')
+			records[-1].update(parse_nsta_line(lines[i + 1]))
+			i += 2
+			continue
+
+		i += 1
+
+	if pending_error_ellipse is not None:
+		raise ValueError('found ERROR ELLIPSE without a following event summary')
 
 	if not records:
 		raise RuntimeError('no events parsed from .prt')
+
+	required_nsta_keys = [
+		'NSTA',
+		'NPHS',
+		'DMIN',
+		'MODEL',
+		'GAP',
+		'ITR',
+		'NFM',
+		'NWR',
+		'NWS',
+		'NVR',
+	]
+	required_ell_keys = [
+		'ell_s1_km',
+		'ell_az1_deg',
+		'ell_dip1_deg',
+		'ell_s2_km',
+		'ell_az2_deg',
+		'ell_dip2_deg',
+		'ell_s3_km',
+		'ell_az3_deg',
+		'ell_dip3_deg',
+	]
+
+	for j, rec in enumerate(records, start=1):
+		missing = [k for k in required_ell_keys if k not in rec]
+		if missing:
+			raise RuntimeError(f'missing error-ellipse fields for event {j}: {missing}')
+		missing = [k for k in required_nsta_keys if k not in rec]
+		if missing:
+			raise RuntimeError(f'missing NSTA/NPHS fields for event {j}: {missing}')
 
 	df = pd.DataFrame(records)
 	# hypoinverse 側の通し番号 seq（.arc のイベント順と対応させる）
