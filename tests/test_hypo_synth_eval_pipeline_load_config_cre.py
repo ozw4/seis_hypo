@@ -1,7 +1,9 @@
+# tests/test_hypo_synth_eval_pipeline_load_config_cre.py
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from hypo.synth_eval.pipeline import load_config
@@ -17,7 +19,7 @@ def _base_cfg_dict(
 		'template_cmd': str(template_cmd),
 		'hypoinverse_exe': str(hypoinverse_exe),
 		'receiver_geometry': 'recv.npy',
-		'station_set': 'all',
+		'station_subset': {'surface_indices': 'all', 'das_indices': 'all'},
 		'lat0': 35.0,
 		'lon0': 140.0,
 		'origin0': '2020-01-01T00:00:00Z',
@@ -90,12 +92,8 @@ def test_load_config_rejects_invalid_model_type(tmp_path: Path) -> None:
 	obj['model_type'] = 'XYZ'
 
 	_write_yaml(cfg_path, obj)
-
-	try:
+	with pytest.raises(ValueError):
 		load_config(cfg_path)
-		raise AssertionError('expected ValueError')
-	except ValueError:
-		pass
 
 
 def test_load_config_default_use_station_elev_depends_on_model_type(
@@ -119,3 +117,72 @@ def test_load_config_default_use_station_elev_depends_on_model_type(
 	_write_yaml(cfg_path, obj)
 	cfg = load_config(cfg_path)
 	assert cfg.use_station_elev is False
+
+
+def test_load_config_rejects_station_set(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj['station_set'] = 'surface'
+	_write_yaml(cfg_path, obj)
+
+	with pytest.raises(ValueError):
+		load_config(cfg_path)
+
+
+def test_load_config_requires_station_subset(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj.pop('station_subset', None)
+	_write_yaml(cfg_path, obj)
+
+	with pytest.raises(ValueError):
+		load_config(cfg_path)
+
+
+def test_load_config_accepts_surface_only_station_subset(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj['station_subset'] = {'surface_indices': 'all'}
+	_write_yaml(cfg_path, obj)
+
+	cfg = load_config(cfg_path)
+	assert isinstance(cfg.station_subset, dict)
+	assert cfg.station_subset['surface_indices'] == 'all'
+
+
+@pytest.mark.parametrize(
+	'station_subset',
+	[
+		{'surface_indices': 'all', 'extra': [1]},
+		{'surface_indices': 'surface', 'das_indices': 'all'},
+		{'surface_indices': [0, True], 'das_indices': 'all'},
+		{'surface_indices': [0, 0], 'das_indices': 'all'},
+		'all',
+	],
+)
+def test_load_config_rejects_invalid_station_subset(
+	tmp_path: Path, station_subset
+) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj['station_subset'] = station_subset
+	_write_yaml(cfg_path, obj)
+
+	with pytest.raises((TypeError, ValueError)):
+		load_config(cfg_path)

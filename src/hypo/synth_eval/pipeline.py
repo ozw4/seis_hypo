@@ -42,6 +42,7 @@ from .validation import (
 	require_filename_only,
 	validate_elevation_correction_config,
 )
+from .station_subset import validate_station_subset_schema
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ class Config:
 	hypoinverse_exe: str
 	receiver_geometry: str
 
-	station_set: str
+	station_subset: dict[str, object]
 	lat0: float
 	lon0: float
 	origin0: str
@@ -91,6 +92,16 @@ def load_config(path: Path) -> Config:
 	if mt not in ('CRE', 'CRH'):
 		raise ValueError(f"model_type must be 'CRE' or 'CRH', got: {mt!r}")
 
+	if 'station_set' in obj:
+		raise ValueError(
+			'station_set is deprecated. Use station_subset instead. '
+			'Example: station_set: surface -> station_subset: {surface_indices: "all"}'
+		)
+	if 'station_subset' not in obj:
+		raise ValueError('station_subset is required')
+
+	station_subset = validate_station_subset_schema(obj['station_subset'])
+
 	typ_m = obj.get('cre_typical_station_elevation_m', None)
 	typical_m = float(typ_m) if typ_m is not None else None
 
@@ -101,7 +112,7 @@ def load_config(path: Path) -> Config:
 		template_cmd=str(obj['template_cmd']),
 		hypoinverse_exe=str(obj['hypoinverse_exe']),
 		receiver_geometry=str(obj['receiver_geometry']),
-		station_set=str(obj['station_set']),
+		station_subset=station_subset,
 		lat0=float(obj['lat0']),
 		lon0=float(obj['lon0']),
 		origin0=str(obj['origin0']),

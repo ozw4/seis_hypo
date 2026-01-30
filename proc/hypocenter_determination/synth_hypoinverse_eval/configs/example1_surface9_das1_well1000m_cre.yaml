@@ -27,7 +27,9 @@ apply_station_elevation_delay: false
 
 
 # ---- 非path（ここは自由に残す）----
-station_set: "all"   # surface | all
+station_subset:
+  surface_indices: "all"
+  das_indices: "all"
 
 lat0: 35.0
 lon0: 140.0
