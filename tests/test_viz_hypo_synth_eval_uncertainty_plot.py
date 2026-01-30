@@ -68,8 +68,8 @@ def test_save_true_pred_xyz_3view_still_saves_png(
 	)
 
 	out_png = tmp_path / 'xyz.png'
-	with pytest.warns(UserWarning, match='tight_layout'):
-		m.save_true_pred_xyz_3view(true_xyz_m, pred_xyz_m, out_png, title='t')
+
+	m.save_true_pred_xyz_3view(true_xyz_m, pred_xyz_m, out_png, title='t')
 
 	assert out_png.is_file()
 	assert out_png.stat().st_size > 0
@@ -195,10 +195,10 @@ def test_save_true_pred_xyz_3view_with_uncertainty_adds_ellipses_and_legend(
 	)
 
 	out_png = tmp_path / 'xyz_unc.png'
-	with pytest.warns(UserWarning, match='tight_layout'):
-		m.save_true_pred_xyz_3view_with_uncertainty(
-			true_xyz_m, pred_xyz_m, df_eval, out_png
-		)
+
+	m.save_true_pred_xyz_3view_with_uncertainty(
+		true_xyz_m, pred_xyz_m, df_eval, out_png
+	)
 
 	assert out_png.is_file()
 	assert out_png.stat().st_size > 0
