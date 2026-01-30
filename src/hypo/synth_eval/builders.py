@@ -20,7 +20,8 @@ def _event_code_to_int(event_code: str) -> int:
 
 def build_station_df(
 	recv_xyz_m: np.ndarray,
-	station_set: str,
+	receiver_indices: np.ndarray,
+	station_codes_all: list[str] | np.ndarray,
 	lat0: float,
 	lon0: float,
 	*,
@@ -29,25 +30,33 @@ def build_station_df(
 	if recv_xyz_m.ndim != 2 or recv_xyz_m.shape[1] != 3:
 		raise ValueError(f'recv geometry must be (N,3), got {recv_xyz_m.shape}')
 
-	n = recv_xyz_m.shape[0]
-	if n < 9:
-		raise ValueError(f'receiver count too small: {n}')
+	n = int(recv_xyz_m.shape[0])
 
-	if station_set == 'surface':
-		idx = np.arange(0, 9, dtype=int)
-	elif station_set == 'all':
-		idx = np.arange(0, n, dtype=int)
-	else:
-		raise ValueError(f"station_set must be 'surface' or 'all', got: {station_set}")
-
+	idx = np.asarray(receiver_indices)
+	if idx.ndim != 1:
+		raise ValueError('receiver_indices must be a 1D array')
 	if idx.size == 0:
 		raise ValueError('no stations selected')
+	if np.any(np.isnan(idx)):
+		raise ValueError('receiver_indices contains NaN')
+	if idx.dtype.kind not in ('i', 'u'):
+		raise ValueError('receiver_indices must be an integer array')
+	idx = idx.astype(int, copy=False)
 	if idx.min() < 0 or idx.max() >= n:
 		raise ValueError(
-			f'receiver index out of range: min={idx.min()} max={idx.max()} n={n}'
+			f'receiver index out of range: min={int(idx.min())} max={int(idx.max())} n={n}'
 		)
 	if np.unique(idx).size != idx.size:
-		raise ValueError('receiver index has duplicates')
+		raise ValueError('receiver_indices has duplicates')
+
+	codes_all = np.asarray(station_codes_all)
+	if codes_all.ndim != 1:
+		raise ValueError('station_codes_all must be a 1D sequence')
+	if codes_all.size != n:
+		raise ValueError(
+			'station_codes_all length mismatch: '
+			f'len={int(codes_all.size)} expected={n}'
+		)
 
 	xyz = recv_xyz_m[idx]
 	x_km = xyz[:, 0] / 1000.0
@@ -64,12 +73,7 @@ def build_station_df(
 
 	lat_deg, lon_deg = local_xy_km_to_latlon(x_km, y_km, lat0_deg=lat0, lon0_deg=lon0)
 
-	codes: list[str] = []
-	for gidx in idx:
-		if gidx < 9:
-			codes.append(f'G{(gidx + 1):04d}')
-		else:
-			codes.append(f'D{(gidx - 9 + 1):04d}')
+	codes = [str(s) for s in codes_all[idx].tolist()]
 
 	return pd.DataFrame(
 		{
@@ -144,10 +148,13 @@ def build_meas_df(
 	events_dir: Path,
 	truth_df: pd.DataFrame,
 	station_df: pd.DataFrame,
-	station_set: str,
 ) -> pd.DataFrame:
 	nsta = len(station_df)
-	geom_indices = np.arange(0, 9, dtype=int) if station_set == 'surface' else None
+	idx = station_df['receiver_index'].to_numpy(dtype=int)
+	if idx.ndim != 1:
+		raise ValueError('station_df.receiver_index must be 1D')
+	if idx.size != nsta:
+		raise ValueError('station_df.receiver_index length mismatch')
 
 	rows: list[dict] = []
 	for _, ev in truth_df.iterrows():
@@ -164,10 +171,16 @@ def build_meas_df(
 
 		tt_p = np.load(tt_p_path).astype(float)
 		tt_s = np.load(tt_s_path).astype(float)
-
-		if geom_indices is not None:
-			tt_p = tt_p[geom_indices]
-			tt_s = tt_s[geom_indices]
+		if tt_p.ndim != 1 or tt_s.ndim != 1:
+			raise ValueError(f'tt arrays must be 1D: event_id={eid}')
+		if idx.min() < 0 or idx.max() >= tt_p.size or idx.max() >= tt_s.size:
+			raise ValueError(
+				f'tt index out of range: event_id={eid} '
+				f'min={int(idx.min())} max={int(idx.max())} '
+				f'tt_p={int(tt_p.size)} tt_s={int(tt_s.size)}'
+			)
+		tt_p = tt_p[idx]
+		tt_s = tt_s[idx]
 
 		if len(tt_p) != nsta or len(tt_s) != nsta:
 			raise ValueError(f'tt length mismatch: event_id={eid} nsta={nsta}')

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -27,9 +28,27 @@ def _prepare_dataset(tmp_path: Path) -> tuple[Path, str, str]:
 
 	sim_yaml_name = 'sim.yaml'
 	recv_name = 'recv.npy'
+	recv_catalog_name = 'recv.receivers.csv'
 
 	_write_sim_yaml(dataset_dir / sim_yaml_name)
-	np.save(geom_dir / recv_name, np.zeros((2, 3), dtype=float))
+	np.save(geom_dir / recv_name, np.zeros((4, 3), dtype=float))
+	(dataset_dir / 'dataset_meta.json').write_text(
+		json.dumps(
+			{'optional': {'receiver_catalog_csv_rel': f'geometry/{recv_catalog_name}'}},
+			sort_keys=False,
+		),
+		encoding='utf-8',
+		newline='\n',
+	)
+	(geom_dir / recv_catalog_name).write_text(
+		'receiver_index,station_code\n'
+		'0,G0001\n'
+		'1,G0002\n'
+		'2,D0001\n'
+		'3,D0002\n',
+		encoding='utf-8',
+		newline='\n',
+	)
 	(dataset_dir / 'index.csv').write_text('', encoding='utf-8')
 
 	return dataset_dir, sim_yaml_name, recv_name
@@ -59,7 +78,7 @@ def _write_config(
 		'template_cmd': str(template_cmd),
 		'hypoinverse_exe': str(hypoinverse_exe),
 		'receiver_geometry': str(receiver_geometry),
-		'station_set': 'all',
+		'station_subset': {'surface_indices': 'all', 'das_indices': 'all'},
 		'lat0': 35.0,
 		'lon0': 140.0,
 		'origin0': '2020-01-01T00:00:00Z',

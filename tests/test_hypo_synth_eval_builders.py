@@ -12,10 +12,13 @@ def test_build_station_df_elevation_from_depth_positive() -> None:
 		dtype=float,
 	)
 	recv_xyz_m[:, 2] = z_m
+	receiver_indices = np.arange(0, 9, dtype=int)
+	station_codes_all = np.array([f'G{i:04d}' for i in range(1, 10)], dtype=str)
 
 	df = build_station_df(
 		recv_xyz_m,
-		'all',
+		receiver_indices,
+		station_codes_all,
 		35.0,
 		140.0,
 		z_is_depth_positive=True,
@@ -33,10 +36,13 @@ def test_build_station_df_elevation_from_up_positive() -> None:
 		dtype=float,
 	)
 	recv_xyz_m[:, 2] = z_m
+	receiver_indices = np.arange(0, 9, dtype=int)
+	station_codes_all = np.array([f'G{i:04d}' for i in range(1, 10)], dtype=str)
 
 	df = build_station_df(
 		recv_xyz_m,
-		'all',
+		receiver_indices,
+		station_codes_all,
 		35.0,
 		140.0,
 		z_is_depth_positive=False,

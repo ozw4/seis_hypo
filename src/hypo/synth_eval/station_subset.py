@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 def _parse_indices_field(value: object, *, label: str) -> tuple[bool, list[int]]:
@@ -103,8 +104,14 @@ def normalize_station_subset(
 				f'codes length {codes_arr.size} does not match expected_len={expected_len}'
 			)
 
-	codes_upper = np.char.upper(codes_arr.astype(str))
-	stations_is_das = np.char.startswith(codes_upper, 'D')
+	# Keep DAS判定 identical to QC (src/qc/hypo/synth_eval.py):
+	# stations_is_das = codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
+	stations_is_das = (
+		pd.Series(codes_arr.astype(str))
+		.str.upper()
+		.str.startswith('D')
+		.to_numpy(dtype=bool)
+	)
 	surface_global = np.where(~stations_is_das)[0]
 	das_global = np.where(stations_is_das)[0]
 

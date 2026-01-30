@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy2
@@ -42,7 +43,10 @@ from .validation import (
 	require_filename_only,
 	validate_elevation_correction_config,
 )
-from .station_subset import validate_station_subset_schema
+from .station_subset import (
+	normalize_station_subset,
+	validate_station_subset_schema,
+)
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,96 @@ def _write_config_snapshot(config_path: Path, run_dir: Path) -> Path:
 	return out
 
 
+def _write_receiver_indices_used(
+	run_dir: Path,
+	*,
+	station_subset: dict[str, object],
+	receiver_indices: np.ndarray,
+	n_total: int,
+	n_surface: int,
+	n_das: int,
+	n_surface_selected: int,
+	n_das_selected: int,
+	min_points: int,
+) -> Path:
+	path = run_dir / 'receiver_indices_used.yaml'
+	obj = {
+		'station_subset_input': station_subset,
+		'n_total_receivers': int(n_total),
+		'n_surface_receivers': int(n_surface),
+		'n_das_receivers': int(n_das),
+		'n_surface_selected': int(n_surface_selected),
+		'n_das_selected': int(n_das_selected),
+		'min_points': int(min_points),
+		'receiver_indices_count': int(receiver_indices.size),
+		'receiver_indices': [int(i) for i in receiver_indices.tolist()],
+	}
+	path.write_text(
+		yaml.safe_dump(obj, sort_keys=False, allow_unicode=True),
+		encoding='utf-8',
+	)
+	return path
+
+
+def _load_station_codes_from_receiver_catalog(
+	dataset_dir: Path,
+	*,
+	expected_len: int,
+) -> np.ndarray:
+	meta_path = dataset_dir / 'dataset_meta.json'
+	if not meta_path.is_file():
+		raise FileNotFoundError(f'missing: {meta_path}')
+	meta = json.loads(meta_path.read_text(encoding='utf-8'))
+	rel = meta.get('optional', {}).get('receiver_catalog_csv_rel', None)
+	if rel is None or str(rel).strip() == '':
+		raise ValueError(
+			"dataset_meta.json missing optional.receiver_catalog_csv_rel (receiver catalog path)"
+		)
+	catalog_path = dataset_dir / str(rel)
+	if not catalog_path.is_file():
+		raise FileNotFoundError(f'missing: {catalog_path}')
+
+	df = pd.read_csv(catalog_path)
+	for col in ['receiver_index', 'station_code']:
+		if col not in df.columns:
+			raise ValueError(f'receiver catalog missing column: {col}')
+
+	ridx = df['receiver_index']
+	if ridx.isna().any():
+		raise ValueError('receiver catalog receiver_index contains NaN')
+	if (ridx.map(lambda v: isinstance(v, bool))).any():
+		raise ValueError('receiver catalog receiver_index contains bool')
+	if not pd.api.types.is_integer_dtype(ridx):
+		raise ValueError('receiver catalog receiver_index must be integer dtype')
+	ridx_i = ridx.astype(int)
+	if (ridx_i.to_numpy() < 0).any():
+		raise ValueError('receiver catalog receiver_index contains negative')
+	if ridx_i.nunique(dropna=False) != len(ridx_i):
+		raise ValueError('receiver catalog receiver_index has duplicates')
+
+	df2 = df[['receiver_index', 'station_code']].copy()
+	df2['receiver_index'] = ridx_i
+	df2 = df2.sort_values('receiver_index').reset_index(drop=True)
+
+	if len(df2) != int(expected_len):
+		raise ValueError(
+			'receiver catalog length mismatch: '
+			f'len={len(df2)} expected_len={int(expected_len)}'
+		)
+	expected = np.arange(int(expected_len), dtype=int)
+	got = df2['receiver_index'].to_numpy(dtype=int)
+	if not np.array_equal(got, expected):
+		raise ValueError(
+			'receiver catalog receiver_index must be contiguous 0..N-1 in sorted order: '
+			f'got min={int(got.min())} max={int(got.max())} expected_len={int(expected_len)}'
+		)
+
+	codes = df2['station_code'].astype(str)
+	if (codes.str.len() == 0).any():
+		raise ValueError('receiver catalog station_code contains empty string')
+	return codes.to_numpy(dtype=str)
+
+
 def build_synth_layer_tops_km(n_layers: int) -> list[float]:
 	"""Build base synthetic layer tops (km) for n_layers.
 
@@ -253,9 +347,45 @@ def run_synth_eval(
 	origin0 = pd.to_datetime(cfg.origin0)
 
 	recv_xyz_m = np.load(receiver_geometry).astype(float)
+	nrec = int(recv_xyz_m.shape[0])
+	station_codes_all = _load_station_codes_from_receiver_catalog(
+		dataset_dir,
+		expected_len=nrec,
+	)
+	receiver_indices = normalize_station_subset(
+		cfg.station_subset,
+		codes=station_codes_all,
+		expected_len=nrec,
+		min_points=4,
+	)
+	stations_is_das = (
+		pd.Series(station_codes_all)
+		.str.upper()
+		.str.startswith('D')
+		.to_numpy(dtype=bool)
+	)
+	n_surface = int((~stations_is_das).sum())
+	n_das = int(stations_is_das.sum())
+	selected_is_das = stations_is_das[receiver_indices]
+	n_surface_selected = int((~selected_is_das).sum())
+	n_das_selected = int(selected_is_das.sum())
+	recv_idx_used_yaml = _write_receiver_indices_used(
+		run_dir,
+		station_subset=cfg.station_subset,
+		receiver_indices=receiver_indices,
+		n_total=nrec,
+		n_surface=n_surface,
+		n_das=n_das,
+		n_surface_selected=n_surface_selected,
+		n_das_selected=n_das_selected,
+		min_points=4,
+	)
+	print(f'[OK] wrote: {recv_idx_used_yaml}')
+
 	station_df = build_station_df(
 		recv_xyz_m,
-		cfg.station_set,
+		receiver_indices,
+		station_codes_all,
 		cfg.lat0,
 		cfg.lon0,
 		z_is_depth_positive=bool(cfg.z_is_depth_positive),
@@ -271,7 +401,7 @@ def run_synth_eval(
 		index_csv, cfg.lat0, cfg.lon0, origin0, cfg.dt_sec, cfg.max_events
 	)
 	epic_df = build_epic_df(truth_df, cfg.default_depth_km)
-	meas_df = build_meas_df(events_dir, truth_df, station_df, cfg.station_set)
+	meas_df = build_meas_df(events_dir, truth_df, station_df)
 
 	write_station_csv(station_df, station_csv)
 	print(f'[OK] wrote: {station_csv}')
