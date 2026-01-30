@@ -81,7 +81,7 @@ def _resolve_indices(
 def normalize_station_subset(
 	station_subset: dict[str, object],
 	*,
-	codes: list[str] | np.ndarray,
+	codes: list[str] | np.ndarray | pd.Series,
 	expected_len: int | None = None,
 	min_points: int = 4,
 ) -> np.ndarray:
@@ -91,7 +91,8 @@ def normalize_station_subset(
 	"""
 	station_subset = validate_station_subset_schema(station_subset)
 
-	codes_arr = np.asarray(codes)
+	codes_s = codes if isinstance(codes, pd.Series) else pd.Series(codes)
+	codes_arr = codes_s.to_numpy()
 	if codes_arr.ndim != 1:
 		raise ValueError('codes must be a 1D sequence of station_code')
 	if expected_len is not None:
@@ -106,12 +107,7 @@ def normalize_station_subset(
 
 	# Keep DAS判定 identical to QC (src/qc/hypo/synth_eval.py):
 	# stations_is_das = codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
-	stations_is_das = (
-		pd.Series(codes_arr.astype(str))
-		.str.upper()
-		.str.startswith('D')
-		.to_numpy(dtype=bool)
-	)
+	stations_is_das = codes_s.str.upper().str.startswith('D').to_numpy(dtype=bool)
 	surface_global = np.where(~stations_is_das)[0]
 	das_global = np.where(stations_is_das)[0]
 

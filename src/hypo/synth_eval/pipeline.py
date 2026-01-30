@@ -352,17 +352,15 @@ def run_synth_eval(
 		dataset_dir,
 		expected_len=nrec,
 	)
+	codes = pd.Series(station_codes_all)
 	receiver_indices = normalize_station_subset(
 		cfg.station_subset,
-		codes=station_codes_all,
+		codes=codes,
 		expected_len=nrec,
 		min_points=4,
 	)
 	stations_is_das = (
-		pd.Series(station_codes_all)
-		.str.upper()
-		.str.startswith('D')
-		.to_numpy(dtype=bool)
+		codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
 	)
 	n_surface = int((~stations_is_das).sum())
 	n_das = int(stations_is_das.sum())
