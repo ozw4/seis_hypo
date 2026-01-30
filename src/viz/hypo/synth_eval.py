@@ -410,8 +410,8 @@ def _finalize_true_pred_xyz_3view(
 	ax_xz.set_ylabel('Depth (km)')
 	ax_xz.grid(True)
 
-	ax_yz.set_xlabel('Y (km)')
-	ax_yz.set_ylabel('Depth (km)')
+	ax_yz.set_xlabel('Depth (km)')
+	ax_yz.set_ylabel('Y (km)')
 	ax_yz.grid(True)
 
 	for ax in (ax_xy, ax_xz, ax_yz):

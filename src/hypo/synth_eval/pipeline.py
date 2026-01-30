@@ -10,7 +10,6 @@ import pandas as pd
 import yaml
 
 from hypo.arc import write_hypoinverse_arc_from_phases
-from hypo.crh import write_crh
 from hypo.cre import (
 	compute_cre_layer_top_shift_km,
 	compute_reference_elevation_km,
@@ -18,11 +17,12 @@ from hypo.cre import (
 	write_cre_from_layer_tops,
 	write_cre_meta,
 )
-from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
+from hypo.crh import write_crh
 from hypo.phase_jma import extract_phase_records
 from hypo.phase_weights import override_phase_weight_by_station_prefix
 from hypo.sta import write_hypoinverse_sta
 from hypo.station_delays import add_p_and_s_delays_from_elevation
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 
 from .builders import (
 	build_epic_df,
@@ -30,22 +30,22 @@ from .builders import (
 	build_station_df,
 	build_truth_df,
 )
-from .io import write_station_csv
 from .hypoinverse_runner import (
 	patch_cmd_template_for_cre,
 	run_hypoinverse,
 	write_cmd_from_template,
 )
+from .io import write_station_csv
 from .metrics import evaluate
+from .station_subset import (
+	normalize_station_subset,
+	validate_station_subset_schema,
+)
 from .validation import (
 	require_abs,
 	require_dirname_only,
 	require_filename_only,
 	validate_elevation_correction_config,
-)
-from .station_subset import (
-	normalize_station_subset,
-	validate_station_subset_schema,
 )
 
 
@@ -199,7 +199,7 @@ def _load_station_codes_from_receiver_catalog(
 	rel = meta.get('optional', {}).get('receiver_catalog_csv_rel', None)
 	if rel is None or str(rel).strip() == '':
 		raise ValueError(
-			"dataset_meta.json missing optional.receiver_catalog_csv_rel (receiver catalog path)"
+			'dataset_meta.json missing optional.receiver_catalog_csv_rel (receiver catalog path)'
 		)
 	catalog_path = dataset_dir / str(rel)
 	if not catalog_path.is_file():
@@ -251,6 +251,7 @@ def build_synth_layer_tops_km(n_layers: int) -> list[float]:
 
 	Returns:
 		[0.0, 1.0, 2.0, ..., n_layers-1]
+
 	"""
 	n = int(n_layers)
 	if n < 1:
@@ -306,7 +307,7 @@ def run_synth_eval(
 	require_filename_only(cfg.receiver_geometry, 'receiver_geometry')
 	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
 
-	sim_yaml = dataset_dir / cfg.sim_yaml
+	sim_yaml = dataset_dir / 'provenance' / cfg.sim_yaml
 	receiver_geometry = dataset_dir / 'geometry' / cfg.receiver_geometry
 	index_csv = dataset_dir / 'index.csv'
 	events_dir = dataset_dir / 'events'
@@ -359,9 +360,7 @@ def run_synth_eval(
 		expected_len=nrec,
 		min_points=4,
 	)
-	stations_is_das = (
-		codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
-	)
+	stations_is_das = codes.str.upper().str.startswith('D').to_numpy(dtype=bool)
 	n_surface = int((~stations_is_das).sum())
 	n_das = int(stations_is_das.sum())
 	selected_is_das = stations_is_das[receiver_indices]
@@ -407,8 +406,7 @@ def run_synth_eval(
 		station_csv,
 		sta_file,
 		force_zero_pdelays=(
-			str(cfg.model_type).strip().upper() == 'CRE'
-			and bool(cfg.use_station_elev)
+			str(cfg.model_type).strip().upper() == 'CRE' and bool(cfg.use_station_elev)
 		),
 	)
 	print(f'[OK] wrote: {sta_file}')

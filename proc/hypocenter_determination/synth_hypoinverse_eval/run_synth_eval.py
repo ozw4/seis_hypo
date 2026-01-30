@@ -7,8 +7,7 @@ from hypo.synth_eval.pipeline import run_synth_eval
 from qc.hypo.synth_eval import run_qc
 
 CONFIG_PATH = (
-	Path(__file__).resolve().parent
-	/ 'configs/example1_surface9_das1_well1000m_cre.yaml'
+	Path(__file__).resolve().parent / 'configs/example_surface9_well1000m_cre.yaml'
 )
 
 

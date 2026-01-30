@@ -1,5 +1,5 @@
 # ---- path系（ルール通り）----
-dataset_dir: "/workspace/data/synthe/example1_das1_surface9_well1000m"     # 絶対パス
+dataset_dir: "/workspace/data/synthe/example_das1_surface9_well1000m"     # 絶対パス
 sim_yaml: "pipeline_example_das1_surface9_well1000m.yaml"
 outputs_dir: "example_surface_das_cre"
 template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd" # 絶対パス
