@@ -81,3 +81,14 @@ def test_normalize_station_subset_rejects_invalid_string() -> None:
 
 	with pytest.raises(ValueError):
 		normalize_station_subset(station_subset, codes=_default_codes())
+
+
+def test_normalize_station_subset_expected_len_mismatch_raises() -> None:
+	station_subset = {'surface_indices': 'all', 'das_indices': 'all'}
+
+	with pytest.raises(ValueError):
+		normalize_station_subset(
+			station_subset,
+			codes=_default_codes(),
+			expected_len=10,
+		)
