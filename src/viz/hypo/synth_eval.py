@@ -809,7 +809,27 @@ def save_heatmap_2d(
 	invert_y: bool = False,
 ) -> Path:
 	"""Save a single 2D heatmap PNG (imshow, default colormap)."""
-	raise NotImplementedError
+	data = np.asarray(data_2d, dtype=float)
+	if data.ndim != 2:
+		raise ValueError(f'data_2d must be 2D, got shape={data.shape}')
+
+	fig, ax = plt.subplots()
+	im = ax.imshow(
+		data,
+		origin=origin,
+		extent=extent,
+		vmin=float(vmin),
+		vmax=float(vmax),
+	)
+	fig.colorbar(im, ax=ax)
+	ax.set_title(title)
+	ax.set_xlabel(xlabel)
+	ax.set_ylabel(ylabel)
+	if invert_y:
+		ax.invert_yaxis()
+
+	fig.tight_layout()
+	return save_figure(fig, out_png)
 
 
 def save_heatmap_xy_slices(
@@ -822,7 +842,36 @@ def save_heatmap_xy_slices(
 	vmax: float,
 ) -> list[Path]:
 	"""Save XY heatmaps for all depths (grid[iz,:,:])."""
-	raise NotImplementedError
+	grid = np.asarray(grid_zyx, dtype=float)
+	_validate_grid_shape(grid, axes)
+
+	out_dir = Path(out_dir)
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	xmin_km, xmax_km = _axis_extent_km(axes.x_m)
+	ymin_km, ymax_km = _axis_extent_km(axes.y_m)
+	extent = (xmin_km, xmax_km, ymin_km, ymax_km)
+
+	out_paths: list[Path] = []
+	for iz in range(grid.shape[0]):
+		z_m = float(axes.z_m[iz])
+		z_tag = int(round(z_m))
+		out_png = out_dir / f'xy_z{z_tag}m.png'
+		title = f'{metric} XY z={z_tag} m'
+		out_paths.append(
+			save_heatmap_2d(
+				grid[iz, :, :],
+				out_png,
+				title=title,
+				xlabel='X (km)',
+				ylabel='Y (km)',
+				extent=extent,
+				vmin=vmin,
+				vmax=vmax,
+			)
+		)
+
+	return out_paths
 
 
 def save_heatmap_xz_center_y(
@@ -836,7 +885,35 @@ def save_heatmap_xz_center_y(
 	center_y_index: int,
 ) -> Path:
 	"""Save XZ heatmap at center y (grid[:, iy0, :])."""
-	raise NotImplementedError
+	grid = np.asarray(grid_zyx, dtype=float)
+	_validate_grid_shape(grid, axes)
+	iy0 = int(center_y_index)
+	if iy0 < 0 or iy0 >= grid.shape[1]:
+		raise IndexError(f'center_y_index out of range: {iy0}')
+
+	out_dir = Path(out_dir)
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	xmin_km, xmax_km = _axis_extent_km(axes.x_m)
+	zmin_km, zmax_km = _axis_extent_km(axes.z_m)
+	extent = (xmin_km, xmax_km, zmin_km, zmax_km)
+
+	y_m = float(axes.y_m[iy0])
+	y_tag = int(round(y_m))
+	out_png = out_dir / f'xz_y{y_tag}m.png'
+	title = f'{metric} XZ y={y_tag} m'
+
+	return save_heatmap_2d(
+		grid[:, iy0, :],
+		out_png,
+		title=title,
+		xlabel='X (km)',
+		ylabel='Depth (km)',
+		extent=extent,
+		vmin=vmin,
+		vmax=vmax,
+		invert_y=True,
+	)
 
 
 def save_heatmap_yz_center_x(
@@ -850,4 +927,57 @@ def save_heatmap_yz_center_x(
 	center_x_index: int,
 ) -> Path:
 	"""Save YZ heatmap at center x (grid[:, :, ix0])."""
-	raise NotImplementedError
+	grid = np.asarray(grid_zyx, dtype=float)
+	_validate_grid_shape(grid, axes)
+	ix0 = int(center_x_index)
+	if ix0 < 0 or ix0 >= grid.shape[2]:
+		raise IndexError(f'center_x_index out of range: {ix0}')
+
+	out_dir = Path(out_dir)
+	out_dir.mkdir(parents=True, exist_ok=True)
+
+	ymin_km, ymax_km = _axis_extent_km(axes.y_m)
+	zmin_km, zmax_km = _axis_extent_km(axes.z_m)
+	extent = (ymin_km, ymax_km, zmin_km, zmax_km)
+
+	x_m = float(axes.x_m[ix0])
+	x_tag = int(round(x_m))
+	out_png = out_dir / f'yz_x{x_tag}m.png'
+	title = f'{metric} YZ x={x_tag} m'
+
+	return save_heatmap_2d(
+		grid[:, :, ix0],
+		out_png,
+		title=title,
+		xlabel='Y (km)',
+		ylabel='Depth (km)',
+		extent=extent,
+		vmin=vmin,
+		vmax=vmax,
+		invert_y=True,
+	)
+
+
+def _axis_extent_km(axis_m: np.ndarray) -> tuple[float, float]:
+	axis = np.asarray(axis_m, dtype=float).reshape(-1)
+	if axis.size == 0:
+		raise ValueError('axis is empty')
+	if axis.size < 2:
+		raise ValueError('axis must have at least 2 points')
+	d = np.diff(axis)
+	if not np.all(d > 0):
+		raise ValueError('axis must be strictly increasing')
+	if not np.allclose(d, d[0]):
+		raise ValueError('axis must be evenly spaced')
+	dx = float(d[0])
+	xmin = float(np.min(axis)) - dx * 0.5
+	xmax = float(np.max(axis)) + dx * 0.5
+	return (xmin / 1000.0, xmax / 1000.0)
+
+
+def _validate_grid_shape(grid_zyx: np.ndarray, axes: GridAxes) -> None:
+	if grid_zyx.ndim != 3:
+		raise ValueError(f'grid_zyx must be 3D, got shape={grid_zyx.shape}')
+	shape = axes.shape_zyx()
+	if grid_zyx.shape != shape:
+		raise ValueError(f'grid_zyx shape mismatch: {grid_zyx.shape} vs {shape}')
