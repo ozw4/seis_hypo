@@ -255,24 +255,42 @@ def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Pa
 	)
 
 
-def pipeline_loki_waveform_stacking(
-	cfg: LokiWaveformStackingPipelineConfig, inputs: LokiWaveformStackingInputs
-) -> None:
+def _build_streams_by_event(
+	cfg: LokiWaveformStackingPipelineConfig,
+	inputs: LokiWaveformStackingInputs,
+	*,
+	list_event_dirs_fn: Callable[[LokiWaveformStackingPipelineConfig], list[Path]],
+	prepare_stream_fn: Callable[[Stream], Stream],
+) -> tuple[list[Path], dict[str, Stream]]:
+	"""Enumerate events, ensure output directories, and build streams_by_event."""
 	cfg.loki_data_path.mkdir(parents=True, exist_ok=True)
 	cfg.loki_output_path.mkdir(parents=True, exist_ok=True)
 
-	event_dirs = list_event_dirs_filtered(cfg)
-	streams_by_event: dict[str, Stream] = {}
+	event_dirs = list_event_dirs_fn(cfg)
 
 	for event_dir in event_dirs:
 		(cfg.loki_data_path / event_dir.name).mkdir(parents=True, exist_ok=True)
 
+	streams_by_event: dict[str, Stream] = {}
 	for event_name, stream in iter_preprocessed_event_streams(
 		event_dirs,
 		inputs,
-		prepare_stream_fn=lambda st: st,
+		prepare_stream_fn=prepare_stream_fn,
 	):
 		streams_by_event[event_name] = stream
+
+	return event_dirs, streams_by_event
+
+
+def pipeline_loki_waveform_stacking(
+	cfg: LokiWaveformStackingPipelineConfig, inputs: LokiWaveformStackingInputs
+) -> None:
+	_, streams_by_event = _build_streams_by_event(
+		cfg,
+		inputs,
+		list_event_dirs_fn=list_event_dirs_filtered,
+		prepare_stream_fn=lambda st: st,
+	)
 
 	l1, header, _header_path = build_loki_with_header(cfg)
 
@@ -316,15 +334,6 @@ def pipeline_loki_waveform_stacking_eqt(
 	- LOKI へ渡すパラメータは direct_input 前提で最小化（proc 側 runner を正とする）
 	- vfunc/hfunc/derivative 等は渡さない（結果がブレやすい）
 	"""
-	cfg.loki_data_path.mkdir(parents=True, exist_ok=True)
-	cfg.loki_output_path.mkdir(parents=True, exist_ok=True)
-
-	event_dirs = list_event_dirs_filtered(cfg)
-	streams_by_event: dict[str, Stream] = {}
-
-	for event_dir in event_dirs:
-		(cfg.loki_data_path / event_dir.name).mkdir(parents=True, exist_ok=True)
-
 	fs_expected = float(inputs.base_sampling_rate_hz)
 
 	def build_eqt_prob_stream(st: Stream) -> Stream:
@@ -343,12 +352,12 @@ def pipeline_loki_waveform_stacking_eqt(
 			require_both_ps=True,
 		)
 
-	for event_name, stream in iter_preprocessed_event_streams(
-		event_dirs,
+	_, streams_by_event = _build_streams_by_event(
+		cfg,
 		inputs,
+		list_event_dirs_fn=list_event_dirs_filtered,
 		prepare_stream_fn=build_eqt_prob_stream,
-	):
-		streams_by_event[event_name] = stream
+	)
 
 	comp = list(getattr(cfg, 'comp', ['P', 'S']))
 	if comp != ['P', 'S']:
