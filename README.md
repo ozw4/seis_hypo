@@ -6,11 +6,34 @@ This repository contains Python pipelines and utilities for seismic workflows, c
 - **Forge DAS**: TDMS/Zarr utilities, per-event window cutting, pick extraction helpers (STALTA / PhaseNet / EQTransformer via SeisBench), and GaMMA association helpers
 - **LOKI waveform stacking**: Mobara (Hi-net style) and Forge DAS (direct_input / pass1 STALTA) workflows
 - **Hypocenter determination (HypoInverse)**: build ARC from arrival-time tables, run HypoInverse, merge results back to a catalog, and visualize
-- **Synthetic evaluation utilities**: generate synthetic datasets and evaluate HypoInverse performance, including **CRE**-based elevation handling
+- **Synthetic evaluation utilities**: evaluate pre-generated synthetic datasets with HypoInverse, including **CRE**-based elevation handling
 
 Most runnable entry points are scripts under **`proc/`**. Reusable library code lives under **`src/`**.
 
 > Note: Many pipelines expect YAML presets and large input data to live outside the repo and be mounted under `/workspace/data/` (see below). This repo snapshot does not include those datasets.
+
+---
+
+## TL;DR (how most people run this)
+
+### Option A: VS Code Dev Containers (recommended)
+
+1. Put your external configs/data on your host (e.g. `~/Desktop/data/seis_hypo`).
+2. Edit `.devcontainer/compose-dev.yaml` and fix the `volumes:` bind mounts for your machine.
+3. In VS Code: **Dev Containers → Reopen in Container**.
+
+### Option B: Run scripts on your host (no Docker)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r .devcontainer/requirements-dev.txt
+
+export PYTHONPATH="$PWD/src"
+python proc/hypocenter_determination/jma_mobara_hypoinverse/pipeline.py
+```
+
+> Heads up: host installs of `geopandas` often require system packages (e.g., GDAL/GEOS/PROJ). If `pip install geopandas` fails, Docker is usually the quickest path.
 
 ---
 
@@ -57,6 +80,15 @@ The repo includes:
 - `Dockerfile` (target: `develop`)
 - `.devcontainer/compose-dev.yaml`
 
+If you prefer to run it without VS Code, you can also use Docker Compose directly:
+
+```bash
+docker compose -f .devcontainer/compose-dev.yaml up -d --build
+docker compose -f .devcontainer/compose-dev.yaml exec hinet bash
+```
+
+> Note: `.devcontainer/compose-dev.yaml` is configured for NVIDIA GPUs. If you do not have a compatible GPU / driver stack, remove the `deploy:` GPU reservation and the `NVIDIA_VISIBLE_DEVICES` setting (or use a CPU-only base image).
+
 Inside the container, the repo is mounted at:
 
 - `/workspace` (this repository)
@@ -67,11 +99,13 @@ External configs/data are expected at:
 
 #### About `.devcontainer/compose-dev.yaml`
 
-`compose-dev.yaml` contains several bind-mounts that are specific to the original author’s machine (for example, absolute paths under `/home/...`). You will almost certainly need to edit those `volumes:` entries for your environment.
+`compose-dev.yaml` contains several bind-mounts that are specific to the original author’s machine (for example, absolute paths under `/home/youruser/Desktop/data`). You will almost certainly need to edit those `volumes:` entries for your environment.
 
 A typical mount that many scripts rely on is:
 
 - `${HOME}/Desktop/data/seis_hypo  ->  /workspace/data`
+
+The compose file also mounts a few optional WIN32 helper binaries (`catwin32`, `win2sac_32`) into the container. They are not required for the Python WIN32 reader in `src/jma/win32_reader.py`, but they can be handy for manual inspection/conversion.
 
 ### Running without Docker
 
@@ -98,6 +132,16 @@ The `Dockerfile` is written to build NonLinLoc from a local folder:
 
 This folder is not included in the repo snapshot. If you want to build the container as-is, provide that directory before building. Otherwise, comment out the NonLinLoc build section and install NonLinLoc another way.
 
+If you only need HypoInverse workflows (and not travel-time pipelines), the simplest approach is:
+
+1) comment out the `COPY external_source/NonLinLoc /opt/NonLinLoc` line and the subsequent `cmake/make/install` lines in `Dockerfile`
+2) remove any `Vel2Grid` / `Grid2Time` usage from your run scripts
+
+Quick workaround if you do *not* need NonLinLoc right now:
+
+- Comment out the "Build NonLinLoc" section in `Dockerfile`.
+- Or add a separate Docker target that skips it.
+
 ### LOKI Python package
 
 LOKI waveform stacking pipelines require the `loki` Python package. The `Dockerfile` expects a local clone at:
@@ -105,6 +149,12 @@ LOKI waveform stacking pipelines require the `loki` Python package. The `Dockerf
 - `external_source/loki`
 
 That directory is not included in the repo snapshot. Provide it (or change the Dockerfile to install `loki` from another source) if you use the LOKI workflows.
+
+If you do not use LOKI, you can comment out the `COPY external_source/loki /opt/loki` and `pip install /opt/loki` lines in `Dockerfile`.
+
+Quick workaround if you do *not* need LOKI right now:
+
+- Comment out the "Install LOKI" section in `Dockerfile`.
 
 ### HypoInverse
 
@@ -122,8 +172,8 @@ Many pipelines use `src/common/load_config.py::load_config()` and read presets f
 
 A common pattern in `proc/` scripts is:
 
-- a top-of-file `YAML_PATH = Path('/workspace/data/config/...')`
-- a `PRESET = '...'`
+- a top-of-file `YAML_PATH = Path('/workspace/data/config/traveltime_config.yaml')`
+- a `PRESET = 'preset_name'`
 
 In other words, configuration files are typically expected under:
 
@@ -132,6 +182,44 @@ In other words, configuration files are typically expected under:
 This repo includes some self-contained example configs for synthetic evaluation under:
 
 - `proc/hypocenter_determination/synth_hypoinverse_eval/configs/`
+
+---
+
+## Data directory convention (`/workspace/data`)
+
+Most scripts assume an external data/config tree mounted at `/workspace/data`. Below is a *typical* layout (file names vary by project):
+
+```text
+/workspace/data/
+  config/
+    prepare_events.yaml
+    traveltime_config.yaml
+    loki_waveform_pipeline.yaml
+    plot_config.yaml
+  station/
+    jma/
+      station.csv
+      stations_hypoinverse.sta
+    forge/
+      forge_das_station_metadata.csv
+  arrivetime/
+    JMA/
+    NIED/
+  velocity/
+    jma_crh/
+      JMA2001A_P.crh
+      JMA2001A_S.crh
+    forge/
+  qc/
+  synthe/
+  N03-20240101_GML/
+    N03-20240101_prefecture.shp
+```
+
+Many `proc/` scripts hard-code absolute paths like `Path('/workspace/data/config/plot_config.yaml')`. When running on your host, either:
+
+- keep using the container and mount your data to `/workspace/data`, or
+- edit the top-of-file constants in the runner scripts to match your local paths
 
 ---
 
@@ -227,7 +315,7 @@ Configs live under:
 
 Key features:
 
-- generates synthetic station geometry and event catalogs
+- reads a synthetic dataset (geometry + event catalogs) from `dataset_dir`
 - runs HypoInverse with a template command file
 - evaluates errors and produces QC plots
 - supports **CRH** and **CRE** modes
@@ -246,3 +334,16 @@ Most configs assume the synthetic dataset directory is under `/workspace/data/`.
 
 Many `proc/` scripts are intentionally parameterized by constants near the top of the file (instead of argparse CLIs).
 If you want to change I/O paths or presets, start by editing those top-of-file parameters.
+
+---
+
+## License / attribution
+
+This repository does not currently include a `LICENSE` file. If you plan to redistribute or publish results based on this code, confirm the intended licensing with the repository owner.
+
+The following components are external projects with their own licenses/citation requirements:
+
+- HypoInverse (vendored under `external_source/hyp1.40/`)
+- NonLinLoc (expected under `external_source/NonLinLoc` when building the devcontainer)
+- LOKI (expected under `external_source/loki` when building the devcontainer)
+- GaMMA and SeisBench (installed via pip)
