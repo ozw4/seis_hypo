@@ -9,6 +9,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
+from hypo.synth_eval.heatmap_types import GridAxes
 from viz.core.fig_io import save_current_figure, save_figure
 
 
@@ -792,3 +793,61 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		title=title,
 		out_png=out_png,
 	)
+
+
+def save_heatmap_2d(
+	data_2d: np.ndarray,
+	out_png: Path,
+	*,
+	title: str,
+	xlabel: str,
+	ylabel: str,
+	extent: tuple[float, float, float, float],
+	vmin: float,
+	vmax: float,
+	origin: str = 'lower',
+	invert_y: bool = False,
+) -> Path:
+	"""Save a single 2D heatmap PNG (imshow, default colormap)."""
+	raise NotImplementedError
+
+
+def save_heatmap_xy_slices(
+	grid_zyx: np.ndarray,
+	axes: GridAxes,
+	out_dir: Path,
+	*,
+	metric: str,
+	vmin: float,
+	vmax: float,
+) -> list[Path]:
+	"""Save XY heatmaps for all depths (grid[iz,:,:])."""
+	raise NotImplementedError
+
+
+def save_heatmap_xz_center_y(
+	grid_zyx: np.ndarray,
+	axes: GridAxes,
+	out_dir: Path,
+	*,
+	metric: str,
+	vmin: float,
+	vmax: float,
+	center_y_index: int,
+) -> Path:
+	"""Save XZ heatmap at center y (grid[:, iy0, :])."""
+	raise NotImplementedError
+
+
+def save_heatmap_yz_center_x(
+	grid_zyx: np.ndarray,
+	axes: GridAxes,
+	out_dir: Path,
+	*,
+	metric: str,
+	vmin: float,
+	vmax: float,
+	center_x_index: int,
+) -> Path:
+	"""Save YZ heatmap at center x (grid[:, :, ix0])."""
+	raise NotImplementedError

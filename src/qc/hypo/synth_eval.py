@@ -13,6 +13,13 @@ from hypo.synth_eval.validation import (
 	require_filename_only,
 )
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
+from qc.hypo.heatmap import (
+	HeatmapConfig,
+	HeatmapOutputConfig,
+	HeatmapScaleConfig,
+	HeatmapSlicesConfig,
+	run_heatmap_qc,
+)
 from viz.hypo.synth_eval import (
 	save_dxdy_scatter,
 	save_hist,
@@ -27,6 +34,7 @@ class Config:
 	outputs_dir: str
 	receiver_geometry: str
 	uncertainty_plot: 'UncertaintyPlotConfig'
+	heatmap: HeatmapConfig
 
 
 @dataclass(frozen=True)
@@ -52,11 +60,51 @@ def load_config(path: Path) -> Config:
 		ellipse_lw=float(up.get('ellipse_lw', 0.8)),
 		ellipse_alpha=float(up.get('ellipse_alpha', 0.85)),
 	)
+	hm = obj.get('heatmap') or {}
+	hm_slices = hm.get('slices') or {}
+	hm_scale = hm.get('scale') or {}
+	hm_output = hm.get('output') or {}
+	hm_metrics = hm.get('metrics', ['err3d_m', 'horiz_m', 'dz_m'])
+	if not isinstance(hm_metrics, list):
+		raise TypeError('heatmap.metrics must be a list of strings')
+	if not all(isinstance(m, str) for m in hm_metrics):
+		raise TypeError('heatmap.metrics must be a list of strings')
+	if len(hm_metrics) == 0:
+		raise ValueError('heatmap.metrics must be non-empty')
+	hm_global = hm_scale.get('global_across_slices', True)
+	if hm_global is False:
+		raise ValueError('heatmap.scale.global_across_slices must be True (fixed)')
+	hm_dz_symmetric = hm_scale.get('dz_symmetric', True)
+	if hm_dz_symmetric is False:
+		raise ValueError('heatmap.scale.dz_symmetric must be True (fixed)')
+	hm_percentile = float(hm_scale.get('percentile', 99.0))
+	if not (0.0 < hm_percentile <= 100.0):
+		raise ValueError('heatmap.scale.percentile must satisfy 0.0 < p <= 100.0')
+	hm_cfg = HeatmapConfig(
+		enabled=bool(hm.get('enabled', False)),
+		metrics=[str(m) for m in hm_metrics],
+		slices=HeatmapSlicesConfig(
+			xy_all_depths=bool(hm_slices.get('xy_all_depths', True)),
+			xz_center_y=bool(hm_slices.get('xz_center_y', True)),
+			yz_center_x=bool(hm_slices.get('yz_center_x', True)),
+		),
+		scale=HeatmapScaleConfig(
+			percentile=hm_percentile,
+			global_across_slices=bool(hm_global),
+			dz_symmetric=bool(hm_dz_symmetric),
+		),
+		output=HeatmapOutputConfig(
+			save_npy=bool(hm_output.get('save_npy', True)),
+			save_axes_json=bool(hm_output.get('save_axes_json', True)),
+			out_dirname=str(hm_output.get('out_dirname', 'heatmaps')),
+		),
+	)
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),
 		outputs_dir=str(obj['outputs_dir']),
 		receiver_geometry=str(obj['receiver_geometry']),
 		uncertainty_plot=up_cfg,
+		heatmap=hm_cfg,
 	)
 
 
@@ -136,6 +184,7 @@ def run_qc(config_path: Path) -> None:
 	require_abs(dataset_dir, 'dataset_dir')
 	require_dirname_only(cfg.outputs_dir, 'outputs_dir')
 	require_filename_only(cfg.receiver_geometry, 'receiver_geometry')
+	require_dirname_only(cfg.heatmap.output.out_dirname, 'heatmap.output.out_dirname')
 
 	runs_root = config_path.resolve().parent.parent / 'runs'
 	run_dir = runs_root / cfg.outputs_dir
@@ -216,6 +265,14 @@ def run_qc(config_path: Path) -> None:
 	print(f'[OK] wrote: {stats_path}')
 	print(f'[OK] wrote: {outliers_path}')
 	print(f'[OK] wrote: {qc_txt}')
+
+	if cfg.heatmap.enabled:
+		run_heatmap_qc(
+			df_eval=df,
+			dataset_dir=dataset_dir,
+			run_dir=run_dir,
+			cfg=cfg.heatmap,
+		)
 
 	# --- True vs HypoInverse (XY/XZ/YZ 3-view) + station locations ---
 	need_xyz = ['x_m_true', 'y_m_true', 'z_m_true', 'x_m_hyp', 'y_m_hyp', 'z_m_hyp']
