@@ -22,15 +22,19 @@ def _prepare_dataset(tmp_path: Path) -> tuple[Path, str, str]:
 	dataset_dir = tmp_path / 'dataset'
 	geom_dir = dataset_dir / 'geometry'
 	events_dir = dataset_dir / 'events'
+	prov_dir = dataset_dir / 'provenance'
+
 	dataset_dir.mkdir(parents=True, exist_ok=True)
 	geom_dir.mkdir(parents=True, exist_ok=True)
 	events_dir.mkdir(parents=True, exist_ok=True)
+	prov_dir.mkdir(parents=True, exist_ok=True)
 
 	sim_yaml_name = 'sim.yaml'
 	recv_name = 'recv.npy'
 	recv_catalog_name = 'recv.receivers.csv'
 
-	_write_sim_yaml(dataset_dir / sim_yaml_name)
+	_write_sim_yaml(prov_dir / sim_yaml_name)
+
 	np.save(geom_dir / recv_name, np.zeros((4, 3), dtype=float))
 	(dataset_dir / 'dataset_meta.json').write_text(
 		json.dumps(
@@ -41,11 +45,7 @@ def _prepare_dataset(tmp_path: Path) -> tuple[Path, str, str]:
 		newline='\n',
 	)
 	(geom_dir / recv_catalog_name).write_text(
-		'receiver_index,station_code\n'
-		'0,G0001\n'
-		'1,G0002\n'
-		'2,D0001\n'
-		'3,D0002\n',
+		'receiver_index,station_code\n0,G0001\n1,G0002\n2,D0001\n3,D0002\n',
 		encoding='utf-8',
 		newline='\n',
 	)
