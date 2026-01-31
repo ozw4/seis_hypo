@@ -270,4 +270,87 @@ def run_heatmap_qc(
 	cfg: HeatmapConfig,
 ) -> HeatmapArtifacts:
 	"""Orchestrate heatmap QC: axes -> grids -> save npy/json -> render PNGs."""
-	raise NotImplementedError
+	if not cfg.metrics:
+		raise ValueError('heatmap.metrics must be non-empty')
+	if not cfg.scale.global_across_slices:
+		raise ValueError('heatmap.scale.global_across_slices must be True (fixed)')
+
+	index_csv = dataset_dir / 'index.csv'
+	axes = load_grid_axes_from_index_csv(index_csv)
+
+	grids = build_metric_grids_zyx(df_eval, axes, cfg.metrics)
+
+	out_root = run_dir / cfg.output.out_dirname
+	out_root.mkdir(parents=True, exist_ok=True)
+
+	axes_json: Path | None = None
+	if cfg.output.save_axes_json:
+		axes_json = write_axes_json(out_root / 'axes.json', axes)
+
+	metric_npy: dict[str, Path] = {}
+	if cfg.output.save_npy:
+		for metric, grid in grids.items():
+			metric_npy[metric] = write_metric_grid_npy(out_root / f'{metric}.npy', grid)
+
+	from viz.hypo.synth_eval import (
+		save_heatmap_xy_slices,
+		save_heatmap_xz_center_y,
+		save_heatmap_yz_center_x,
+	)
+
+	metric_pngs: dict[str, dict[str, list[Path]]] = {}
+	for metric, grid in grids.items():
+		vmin, vmax = compute_vmin_vmax(
+			metric,
+			grid,
+			percentile=cfg.scale.percentile,
+			dz_symmetric=cfg.scale.dz_symmetric,
+		)
+		metric_dir = out_root / metric
+		metric_dir.mkdir(parents=True, exist_ok=True)
+
+		pngs_xy: list[Path] = []
+		pngs_xz: list[Path] = []
+		pngs_yz: list[Path] = []
+
+		if cfg.slices.xy_all_depths:
+			pngs_xy = save_heatmap_xy_slices(
+				grid,
+				axes,
+				metric_dir,
+				metric=metric,
+				vmin=vmin,
+				vmax=vmax,
+			)
+		if cfg.slices.xz_center_y:
+			pngs_xz = [
+				save_heatmap_xz_center_y(
+					grid,
+					axes,
+					metric_dir,
+					metric=metric,
+					vmin=vmin,
+					vmax=vmax,
+					center_y_index=axes.center_y_index(),
+				)
+			]
+		if cfg.slices.yz_center_x:
+			pngs_yz = [
+				save_heatmap_yz_center_x(
+					grid,
+					axes,
+					metric_dir,
+					metric=metric,
+					vmin=vmin,
+					vmax=vmax,
+					center_x_index=axes.center_x_index(),
+				)
+			]
+
+		metric_pngs[metric] = {'xy': pngs_xy, 'xz': pngs_xz, 'yz': pngs_yz}
+
+	return HeatmapArtifacts(
+		axes_json=axes_json,
+		metric_npy=metric_npy,
+		metric_pngs=metric_pngs,
+	)

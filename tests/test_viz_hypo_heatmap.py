@@ -20,7 +20,7 @@ from viz.hypo.synth_eval import (
 def _make_axes() -> GridAxes:
 	return GridAxes(
 		x_m=np.array([0, 1000], dtype=float),
-		y_m=np.array([0, 2000, 3000], dtype=float),
+		y_m=np.array([0, 1000, 2000], dtype=float),
 		z_m=np.array([0, 1000], dtype=float),
 	)
 
@@ -83,7 +83,7 @@ def test_save_heatmap_xz_center_y_outputs_png(tmp_path: Path) -> None:
 	)
 	assert out_png.is_file()
 	assert out_png.stat().st_size > 0
-	assert out_png.name == 'xz_y2000m.png'
+	assert out_png.name == 'xz_y1000m.png'
 
 
 def test_save_heatmap_yz_center_x_outputs_png(tmp_path: Path) -> None:
