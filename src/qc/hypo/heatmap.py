@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import json
 
 import numpy as np
 import pandas as pd
@@ -48,7 +49,27 @@ class HeatmapArtifacts:
 
 def load_grid_axes_from_index_csv(index_csv: Path) -> GridAxes:
 	"""Build axes from index.csv x_m/y_m/z_m (unique + sorted)."""
-	raise NotImplementedError
+	if not index_csv.is_file():
+		raise FileNotFoundError(f'missing: {index_csv}')
+
+	df = pd.read_csv(index_csv)
+	required = ['x_m', 'y_m', 'z_m']
+	missing = [c for c in required if c not in df.columns]
+	if missing:
+		raise ValueError(f'index.csv missing columns: {missing}')
+
+	x_vals = _require_int_values(df, 'x_m')
+	y_vals = _require_int_values(df, 'y_m')
+	z_vals = _require_int_values(df, 'z_m')
+
+	x_axis = np.unique(x_vals)
+	y_axis = np.unique(y_vals)
+	z_axis = np.unique(z_vals)
+
+	if x_axis.size == 0 or y_axis.size == 0 or z_axis.size == 0:
+		raise ValueError('index.csv has empty axis values')
+
+	return GridAxes(x_m=x_axis, y_m=y_axis, z_m=z_axis)
 
 
 def map_true_xyz_to_zyx_indices(
@@ -60,7 +81,38 @@ def map_true_xyz_to_zyx_indices(
 	z_col: str = 'z_m_true',
 ) -> np.ndarray:
 	"""Return (N,3) int array of [iz, iy, ix] with exact-match mapping."""
-	raise NotImplementedError
+	required = [x_col, y_col, z_col]
+	missing = [c for c in required if c not in df_eval.columns]
+	if missing:
+		raise ValueError(f'eval_metrics.csv missing columns: {missing}')
+
+	x_vals = _require_int_values(df_eval, x_col)
+	y_vals = _require_int_values(df_eval, y_col)
+	z_vals = _require_int_values(df_eval, z_col)
+
+	x_map = _build_axis_index(axes.x_m, 'x_m')
+	y_map = _build_axis_index(axes.y_m, 'y_m')
+	z_map = _build_axis_index(axes.z_m, 'z_m')
+
+	n = x_vals.size
+	indices = np.empty((n, 3), dtype=int)
+
+	for i in range(n):
+		xv = int(x_vals[i])
+		yv = int(y_vals[i])
+		zv = int(z_vals[i])
+
+		if xv not in x_map or yv not in y_map or zv not in z_map:
+			raise ValueError(
+				'coordinate not on grid axes: '
+				f'(x={xv}, y={yv}, z={zv})'
+			)
+
+		indices[i, 0] = z_map[zv]
+		indices[i, 1] = y_map[yv]
+		indices[i, 2] = x_map[xv]
+
+	return indices
 
 
 def build_metric_grid_zyx(
@@ -71,7 +123,44 @@ def build_metric_grid_zyx(
 	agg: str = 'median',
 ) -> np.ndarray:
 	"""Build grid[z,y,x], aggregate duplicates by nanmedian, keep missing as NaN."""
-	raise NotImplementedError
+	if agg != 'median':
+		raise ValueError(f'unsupported agg: {agg}')
+
+	idx = np.asarray(indices_zyx)
+	if idx.ndim != 2 or idx.shape[1] != 3:
+		raise ValueError(f'indices_zyx must be (N,3), got {idx.shape}')
+
+	vals = np.asarray(values, dtype=float).reshape(-1)
+	if idx.shape[0] != vals.size:
+		raise ValueError(
+			'indices_zyx and values length mismatch: '
+			f'{idx.shape[0]} vs {vals.size}'
+		)
+
+	nz, ny, nx = (int(shape_zyx[0]), int(shape_zyx[1]), int(shape_zyx[2]))
+	if nz <= 0 or ny <= 0 or nx <= 0:
+		raise ValueError(f'invalid grid shape: {shape_zyx}')
+
+	grid = np.full((nz, ny, nx), np.nan, dtype=float)
+
+	cell_values: dict[tuple[int, int, int], list[float]] = {}
+	for (iz, iy, ix), v in zip(idx, vals):
+		iz_i, iy_i, ix_i = int(iz), int(iy), int(ix)
+		if iz_i < 0 or iz_i >= nz or iy_i < 0 or iy_i >= ny or ix_i < 0 or ix_i >= nx:
+			raise IndexError(
+				'indices_zyx out of range: '
+				f'({iz_i}, {iy_i}, {ix_i}) for shape {shape_zyx}'
+			)
+		cell_values.setdefault((iz_i, iy_i, ix_i), []).append(float(v))
+
+	for (iz, iy, ix), vals_cell in cell_values.items():
+		arr = np.asarray(vals_cell, dtype=float)
+		if arr.size == 0 or not np.isfinite(arr).any():
+			grid[iz, iy, ix] = np.nan
+		else:
+			grid[iz, iy, ix] = float(np.nanmedian(arr))
+
+	return grid
 
 
 def build_metric_grids_zyx(
@@ -80,7 +169,19 @@ def build_metric_grids_zyx(
 	metrics: list[str],
 ) -> dict[str, np.ndarray]:
 	"""Build grid[z,y,x] per metric; raise if columns are missing."""
-	raise NotImplementedError
+	missing = [m for m in metrics if m not in df_eval.columns]
+	if missing:
+		raise ValueError(f'eval_metrics.csv missing columns: {missing}')
+
+	indices = map_true_xyz_to_zyx_indices(df_eval, axes)
+	shape = axes.shape_zyx()
+
+	grids: dict[str, np.ndarray] = {}
+	for metric in metrics:
+		values = pd.to_numeric(df_eval[metric], errors='raise').to_numpy(float)
+		grids[metric] = build_metric_grid_zyx(indices, values, shape)
+
+	return grids
 
 
 def compute_vmin_vmax(
@@ -91,17 +192,74 @@ def compute_vmin_vmax(
 	dz_symmetric: bool,
 ) -> tuple[float, float]:
 	"""Compute vmin/vmax (p99; dz_m uses symmetric scale on |dz|)."""
-	raise NotImplementedError
+	if not (0.0 < float(percentile) <= 100.0):
+		raise ValueError('percentile must satisfy 0.0 < p <= 100.0')
+
+	vals = np.asarray(grid_zyx, dtype=float)
+
+	if metric == 'dz_m':
+		if not dz_symmetric:
+			raise ValueError('dz_symmetric must be True for dz_m')
+		vmax = float(np.nanpercentile(np.abs(vals), percentile))
+		return (-vmax, vmax)
+
+	vmax = float(np.nanpercentile(vals, percentile))
+	return (0.0, vmax)
 
 
 def write_axes_json(out_json: Path, axes: GridAxes) -> Path:
 	"""Save axes.json with x_m/y_m/z_m + shape/order/center metadata."""
-	raise NotImplementedError
+	out_json.parent.mkdir(parents=True, exist_ok=True)
+	center_x = float(axes.x_m[axes.center_x_index()])
+	center_y = float(axes.y_m[axes.center_y_index()])
+	payload = {
+		'x_m': np.asarray(axes.x_m).astype(float).tolist(),
+		'y_m': np.asarray(axes.y_m).astype(float).tolist(),
+		'z_m': np.asarray(axes.z_m).astype(float).tolist(),
+		'shape': {
+			'nx': int(axes.x_m.size),
+			'ny': int(axes.y_m.size),
+			'nz': int(axes.z_m.size),
+		},
+		'order': ['z', 'y', 'x'],
+		'center_x_m': center_x,
+		'center_y_m': center_y,
+	}
+	out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n')
+	return out_json
 
 
 def write_metric_grid_npy(out_npy: Path, grid_zyx: np.ndarray) -> Path:
 	"""Save grid[z,y,x] as .npy and return path."""
-	raise NotImplementedError
+	out_npy.parent.mkdir(parents=True, exist_ok=True)
+	np.save(out_npy, np.asarray(grid_zyx, dtype=float))
+	return out_npy
+
+
+def _require_int_values(df: pd.DataFrame, col: str) -> np.ndarray:
+	series = pd.to_numeric(df[col], errors='raise')
+	if series.isna().any():
+		raise ValueError(f'{col} has missing values')
+	vals = series.to_numpy(float)
+	if not np.isfinite(vals).all():
+		raise ValueError(f'{col} has non-finite values')
+	if not np.equal(vals, np.round(vals)).all():
+		raise ValueError(f'{col} must be integer-valued (meters)')
+	return vals.astype(int)
+
+
+def _build_axis_index(axis_vals: np.ndarray, name: str) -> dict[int, int]:
+	axis = np.asarray(axis_vals, dtype=float)
+	if axis.size == 0:
+		raise ValueError(f'{name} axis is empty')
+	if not np.isfinite(axis).all():
+		raise ValueError(f'{name} axis has non-finite values')
+	if not np.equal(axis, np.round(axis)).all():
+		raise ValueError(f'{name} axis must be integer-valued (meters)')
+	axis_int = axis.astype(int)
+	if np.unique(axis_int).size != axis_int.size:
+		raise ValueError(f'{name} axis has duplicates')
+	return {int(v): int(i) for i, v in enumerate(axis_int)}
 
 
 def run_heatmap_qc(
