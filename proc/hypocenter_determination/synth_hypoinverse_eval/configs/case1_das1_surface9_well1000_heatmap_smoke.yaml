@@ -1,0 +1,63 @@
+# case1_das1_surface9_well1000_heatmap_smoke.yaml
+
+# ---- path系（ルール通り）----
+dataset_dir: "/workspace/data/synthe/case1_das1_surface9_well1000_event25interval"  # ←あなたの環境に合わせて要修正(絶対パス)
+sim_yaml: "case1_das1_surface9_well1000_event250interval.yaml"                     # provenance/ 配下
+outputs_dir: "case1_heatmap_smoke_cre"                                             # runs/ 配下の出力dirname（スラッシュ禁止）
+template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd"           # HypoInverse template
+hypoinverse_exe: "/workspace/external_source/hyp1.40/hypoinverse.exe"              # HypoInverse exe
+receiver_geometry: "recv_das1_geo9_0001.npy"                                       # geometry/ 配下
+
+# ---- CRE運用（station elevationをHypoInverseへ）----
+model_type: "CRE"
+use_station_elev: true
+z_is_depth_positive: true
+cre_reference_margin_m: 0.0
+cre_typical_station_elevation_m: null
+cre_n_layers: 1
+apply_station_elevation_delay: false
+
+# ---- 非path（ここは自由）----
+station_subset:
+  surface_indices: "all"
+  das_indices: "all"
+
+lat0: 35.0
+lon0: 140.0
+
+origin0: "2026-01-01T00:00:00"
+dt_sec: 10.0
+max_events: 0               # ←スモークテスト用。全イベントでやるなら 0
+
+default_depth_km: 0.5
+fix_depth: false
+
+arc_use_jma_flag: false
+arc_p_centroid_top_n: 1
+arc_origin_time_offset_sec: 1.0
+
+das_station_prefix: "D"
+das_phase_weight_code: 3
+
+# ---- 既存QC ----
+uncertainty_plot:
+  sigma_scale_sec: 0.05
+  poor_thresh_km: 5.0
+  clip_km: 10.0
+
+# ---- heatmap QC ----
+heatmap:
+  enabled: true
+  metrics: ["err3d_m", "horiz_m", "dz_m", "ERH", "ERZ"]
+  slices:
+    xy_all_depths: true
+    xz_center_y: true
+    yz_center_x: true
+  scale:
+    percentile: 99
+    global_across_slices: true
+    dz_symmetric: true
+  output:
+    save_npy: true
+    save_axes_json: true
+    out_dirname: "heatmaps"

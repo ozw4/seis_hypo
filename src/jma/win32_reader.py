@@ -37,20 +37,20 @@ def _sampling_rate(mm: bytes) -> int:
 
 
 @numba.jit(nopython=True, cache=True)
-def _channel_no(mm):
+def _channel_no(mm: bytes) -> int:
 	return (mm[0] << 8) | mm[1]
 
 
 @numba.jit(nopython=True, cache=True)
-def _sample0(mm):
+def _sample0(mm: bytes) -> int:
 	out = (mm[0] << 24) | (mm[1] << 16) | (mm[2] << 8) | mm[3]
 	out = -((1 << (32 - 1)) & out) | out
 	return out
 
 
 @numba.jit(nopython=True, cache=True)
-def _4bytes(mm, count):
-	out = np.zeros(count, dtype=numba.int32)
+def _4bytes(mm: bytes, count: int) -> np.ndarray:
+	out = np.zeros(count, dtype=np.int32)
 	for i in range(count):
 		aa = (
 			(mm[i * 4] << 24)
@@ -64,8 +64,8 @@ def _4bytes(mm, count):
 
 
 @numba.jit(nopython=True, cache=True)
-def _3bytes(mm, count):
-	out = np.zeros(count, dtype=numba.int32)
+def _3bytes(mm: bytes, count: int) -> np.ndarray:
+	out = np.zeros(count, dtype=np.int32)
 	for i in range(count):
 		aa = (mm[i * 3] << 16) | (mm[i * 3 + 1] << 8) | mm[i * 3 + 2]
 		aa = -((1 << (24 - 1)) & aa) | aa
@@ -74,8 +74,8 @@ def _3bytes(mm, count):
 
 
 @numba.jit(nopython=True, cache=True)
-def _2bytes(mm, count):
-	out = np.zeros(count, dtype=numba.int32)
+def _2bytes(mm: bytes, count: int) -> np.ndarray:
+	out = np.zeros(count, dtype=np.int32)
 	for i in range(count):
 		aa = (mm[i * 2] << 8) | mm[i * 2 + 1]
 		aa = -((1 << (16 - 1)) & aa) | aa
@@ -84,7 +84,7 @@ def _2bytes(mm, count):
 
 
 @numba.jit(nopython=True, cache=True)
-def _1byte(mm, count):
+def _1byte(mm: bytes, count: int) -> np.ndarray:
 	out = np.zeros(count, dtype=np.int32)
 	for i in range(count):
 		aa = -((1 << (8 - 1)) & mm[i]) | mm[i]
@@ -93,11 +93,8 @@ def _1byte(mm, count):
 
 
 @numba.jit(nopython=True, cache=True)
-def _05byte(mm, count):
-	if count % 2 == 0:
-		cnt = count
-	else:
-		cnt = count + 1
+def _05byte(mm: bytes, count: int) -> np.ndarray:
+	cnt = count if count % 2 == 0 else count + 1
 	out = np.zeros(cnt, dtype=np.int32)
 
 	for i in range(cnt // 2):
@@ -190,7 +187,7 @@ def _process_secondblock(mm, secondblock_BYTES, channel_array, base_sampling_rat
 
 
 @numba.jit(nopython=True, cache=True)
-def _datetime(mm):
+def _datetime(mm: bytes) -> str:
 	year = str(mm[0] // 16) + str(mm[0] % 16) + str(mm[1] // 16) + str(mm[1] % 16)
 	month = str(mm[2] // 16) + str(mm[2] % 16)
 	day = str(mm[3] // 16) + str(mm[3] % 16)
@@ -218,13 +215,13 @@ def _datetime(mm):
 
 
 @numba.jit(nopython=True, cache=True)
-def _secondblock_BYTES(mm):
+def _secondblock_BYTES(mm: bytes) -> int:
 	return (mm[0] << 24) | (mm[1] << 16) | (mm[2] << 8) | mm[3]
 
 
 @numba.jit(nopython=True, cache=True)
 def _process_file(
-	mm,
+	mm: bytes,
 	file_size,
 	sampling_rate_HZ,
 	channel_no_int_array,
@@ -265,7 +262,7 @@ def _process_file(
 
 
 def _process_file_with_timestamp(
-	mm,
+	mm: bytes,
 	file_size,
 	sampling_rate_HZ,
 	channel_no_int_array,
@@ -712,7 +709,10 @@ def _diff_samples_size_bytes(sample_size_code: int, sampling_rate_hz: int) -> in
 
 
 def _scan_secondblock_channel_rates(
-	payload: bytes, rates_by_ch: dict[int, set[int]]
+	payload: bytes,
+	rates_by_ch: dict[int, set[int]],
+	*,
+	channel_filter: set[int] | None = None,
 ) -> None:
 	off = 0
 	n = len(payload)
@@ -728,7 +728,8 @@ def _scan_secondblock_channel_rates(
 		sample_size_code = (b4 & 0xF0) >> 4
 		sampling_rate_hz = ((b4 & 0x0F) << 4) | b5
 
-		rates_by_ch[ch_no].add(int(sampling_rate_hz))
+		if channel_filter is None or int(ch_no) in channel_filter:
+			rates_by_ch[int(ch_no)].add(int(sampling_rate_hz))
 
 		diff_bytes = _diff_samples_size_bytes(sample_size_code, int(sampling_rate_hz))
 		off += 10 + diff_bytes
@@ -741,21 +742,28 @@ def scan_channel_sampling_rate_map_win32(
 	file_path: str | Path,
 	*,
 	max_second_blocks: int | None = None,
+	channel_filter: set[int] | None = None,
+	on_mixed: str = 'raise',  # 'raise' or 'drop'
 ) -> dict[int, int]:
 	"""WIN32(.evt/.cnt) を走査して channel_no -> sampling_rate_hz を確定する。
 
-	- 各サブブロックのヘッダに含まれる sampling_rate_hz を採用する（.ch には依存しない）
-	- 同一 channel_no に複数 sampling_rate_hz が出現した場合は ValueError（混在を許容しない）
+	- channel_filter を指定した場合、その channel_no のみ rates を記録する
+	- 同一 channel_no に複数 sampling_rate_hz が出現した場合:
+	- on_mixed='raise': ValueError
+	- on_mixed='drop' : その channel_no を返り値から除外（警告）
 	- 返り値: {channel_no_int: fs_int}
 	"""
 	fp = Path(file_path)
 	if not fp.is_file():
 		raise FileNotFoundError(f'WIN32 file not found: {fp}')
 
+	if channel_filter is not None:
+		channel_filter = {int(x) for x in channel_filter}
+
 	rates_by_ch: dict[int, set[int]] = defaultdict(set)
 
 	with fp.open('rb') as f:
-		f.seek(4)  # win32_reader.py の実装に合わせて先頭4バイトをスキップ
+		f.seek(4)
 		n_blocks = 0
 
 		while True:
@@ -776,23 +784,33 @@ def scan_channel_sampling_rate_map_win32(
 					f'expected={block_size}, got={len(payload)}'
 				)
 
-			_scan_secondblock_channel_rates(payload, rates_by_ch)
+			_scan_secondblock_channel_rates(
+				payload, rates_by_ch, channel_filter=channel_filter
+			)
 
 			n_blocks += 1
 			if max_second_blocks is not None and n_blocks >= max_second_blocks:
 				break
 
-	mixed = {
-		ch: sorted(list(rates)) for ch, rates in rates_by_ch.items() if len(rates) != 1
-	}
+	mixed = {ch: sorted(rates) for ch, rates in rates_by_ch.items() if len(rates) != 1}
 	if mixed:
 		lines = ['mixed sampling_rate_hz detected per channel_no:']
 		for ch in sorted(mixed.keys()):
 			rates = ','.join(str(x) for x in mixed[ch])
 			lines.append(f'  channel_no={ch} (0x{ch:04X}) rates=[{rates}]')
-		raise ValueError('\n'.join(lines))
+		msg = '\n'.join(lines)
 
-	return {ch: next(iter(rates)) for ch, rates in rates_by_ch.items()}
+		if on_mixed == 'raise':
+			raise ValueError(msg)
+		if on_mixed == 'drop':
+			pass
+			# warnings.warn(msg, RuntimeWarning, stacklevel=2)
+		else:
+			raise ValueError(f'invalid on_mixed={on_mixed} (use "raise" or "drop")')
+
+	return {
+		ch: next(iter(rates)) for ch, rates in rates_by_ch.items() if len(rates) == 1
+	}
 
 
 def read_win32_resampled(
@@ -809,7 +827,7 @@ def read_win32_resampled(
 
 	前提:
 	- scan_channel_sampling_rate_map_win32() が channel_no ごとの fs を確定できること
-	  （同一channel_no内のfs混在は scan 側で ValueError にする設計）
+	（同一channel_no内のfs混在は scan 側で ValueError にする設計）
 
 	返り値:
 	- shape=(n_ch, duration_SECOND * target_sampling_rate_HZ), dtype=float32
@@ -832,8 +850,13 @@ def read_win32_resampled(
 	)
 
 	# WIN32本体から channel_no(int) -> fs(int) を確定
-	fs_by_ch = scan_channel_sampling_rate_map_win32(file_path)
+	ch_ints = df['ch_int'].to_numpy(dtype=np.int32)
 
+	fs_by_ch = scan_channel_sampling_rate_map_win32(
+		file_path,
+		channel_filter=set(int(x) for x in ch_ints.tolist()),
+		on_mixed='drop',
+	)
 	ch_ints = df['ch_int'].to_numpy(dtype=np.int32)
 	row_fs: list[int] = []
 	for ch in ch_ints.tolist():

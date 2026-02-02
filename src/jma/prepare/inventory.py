@@ -47,9 +47,7 @@ def _axis_from_component(raw: str, axis_tail_chars: set[str]) -> str:
 	return tail
 
 
-def _component_rank(
-	raw: str, axis: str, comp_priority: dict[str, list[str]]
-) -> int:
+def _component_rank(raw: str, axis: str, comp_priority: dict[str, list[str]]) -> int:
 	comp = normalize_code(raw)
 	if not comp:
 		return 99
@@ -339,7 +337,7 @@ def _build_inventory_for_event(
 			info = get_evt_info(s.data_path, scan_rate_blocks=1)
 
 		fs_by_ch = scan_channel_sampling_rate_map_win32(
-			s.data_path, max_second_blocks=scan_max_second_blocks
+			s.data_path, max_second_blocks=scan_max_second_blocks, on_mixed='drop'
 		)
 		present_ch = set(int(x) for x in fs_by_ch.keys())
 
@@ -543,6 +541,4 @@ def write_inventory_outputs(
 	print(f'  json     : {json_path.name}')
 	print(f'  stations_csv  : {event_dir.name}_{schema_version}_stations.csv')
 	print(f'  sources_csv   : {event_dir.name}_{schema_version}_sources.csv')
-	print(
-		f'  candidates_csv: {event_dir.name}_{schema_version}_candidates.csv'
-	)
+	print(f'  candidates_csv: {event_dir.name}_{schema_version}_candidates.csv')
