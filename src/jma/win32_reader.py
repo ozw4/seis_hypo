@@ -1,13 +1,21 @@
+"""WIN32 (Hi-net/JMA) waveform reader and utilities.
+
+This module provides low-level WIN32 decoding helpers plus higher-level functions to:
+- select Hi-net channels from a channel table,
+- read WIN32 data into calibrated numpy arrays,
+- scan embedded per-channel sampling rates and resample to a target rate.
+"""
+
 from __future__ import annotations
 
 import datetime as dt
 import mmap
 import warnings
 from collections import defaultdict
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numba
 import numpy as np
@@ -19,9 +27,12 @@ from common.time_util import floor_minute
 from jma.station_reader import read_hinet_channel_table
 from waveform.preprocess import resample_window_poly
 
+if TYPE_CHECKING:
+	from collections.abc import Sequence
+
 
 @numba.jit(nopython=True, cache=True)
-def _sampling_rate(mm):
+def _sampling_rate(mm: bytes) -> int:
 	return ((mm[0] & 0x0F) << 4) | mm[1]
 
 
@@ -115,7 +126,14 @@ def _process_secondblock(mm, secondblock_BYTES, channel_array, base_sampling_rat
 		sampling_rate_HZ = _sampling_rate(mm[offset + 4 : offset + 6])
 
 		if sampling_rate_HZ != base_sampling_rate_HZ:
-			print('sampling_rate of this block is not base_sampling_rate_HZ')
+			hit = False
+			for i in range(nch):
+				if channel_no == channel_array[i]:
+					hit = True
+					break
+
+			if hit and sampling_rate_HZ != base_sampling_rate_HZ:
+				print('sampling_rate of this block is not base_sampling_rate_HZ')
 
 		diff_sample_number = sampling_rate_HZ - 1
 
