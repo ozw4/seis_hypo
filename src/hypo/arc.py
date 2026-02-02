@@ -11,6 +11,26 @@ from hypo.station_meta import build_station_meta, parse_station_code
 
 
 def format_depth_f5_for_hypo(depth_km: float) -> str:
+	"""Format a depth value as a 5-character HypoInverse depth field (F5).
+
+	Parameters
+	----------
+	depth_km : float
+		Depth in kilometers. Must be finite and non-negative, and must fit in a 5-char
+		field according to the formatting rules below.
+
+	Returns
+	-------
+	str
+		A 5-character string suitable for HypoInverse ARC headers/terminators.
+
+	Raises
+	------
+	ValueError
+		If `depth_km` is negative, too large to fit in 5 characters, or the formatted
+		result is not exactly 5 characters.
+
+	"""
 	if depth_km < 0:
 		raise ValueError(f'depth_km は負ではいけません: {depth_km}')
 
