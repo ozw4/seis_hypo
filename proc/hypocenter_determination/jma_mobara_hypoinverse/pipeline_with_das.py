@@ -11,8 +11,8 @@ from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.join_jma_hypoinverse import build_joined_jma_hypo_csv
 from hypo.phase_jma import extract_phase_records
 from hypo.phase_ml_das import extract_das_phase_records
-from viz.hypo.event_quality import plot_event_quality
 from viz.events_map import plot_events_map_and_sections
+from viz.hypo.event_quality import plot_event_quality
 from viz.plot_config import PlotConfig
 
 sta_file = Path('/workspace/data/station/jma/stations_hypoinverse_with_das.sta')
