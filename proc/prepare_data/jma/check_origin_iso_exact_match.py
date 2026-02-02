@@ -60,7 +60,7 @@ def main() -> None:
 		raise FileNotFoundError(EPI_CSV)
 
 	epi_df = pd.read_csv(EPI_CSV, low_memory=False)
-	ns_to_rows, epi_ns, epi_event_id = _build_ns_to_rows(epi_df)
+	ns_to_rows, _, epi_event_id = _build_ns_to_rows(epi_df)
 
 	dup_keys = [k for k, rows in ns_to_rows.items() if len(rows) > 1]
 	dup_keys_sorted = sorted(dup_keys)
@@ -156,7 +156,8 @@ def main() -> None:
 		ex = [r for r in rows_out if r['status'] == 'ambiguous']
 		for r in ex[: int(min(MAX_PRINT_EXAMPLES, len(ex)))]:
 			print(
-				f'  {r["event_dir"]}  origin={r["origin_iso"]}  cands={r["event_id_candidates"]}'
+				f'  {r["event_dir"]}  origin={r["origin_iso"]}  cands='
+				f'{r["event_id_candidates"]}'
 			)
 
 	if n_not_found:
