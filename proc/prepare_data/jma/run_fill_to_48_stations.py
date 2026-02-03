@@ -42,8 +42,8 @@ TARGET_EVENT_DIR_NAMES: list[str] = []
 # TARGET_EVENT_DIR_NAMES = ["D20230118000041_20", "D20230119012345_00"]
 
 # ---- 追加：期間フィルタ（ディレクトリ名 DYYYYMMDD... の YYYYMMDD で日付粒度）----
-DATE_MIN: str | None = '2023-01-01'  # 例: "2023-01-01"
-DATE_MAX: str | None = '2023-01-31'  # 例: "2023-01-31"
+DATE_MIN: str | None = '2023-02-01'  # 例: "2023-01-01"
+DATE_MAX: str | None = '2023-05-31'  # 例: "2023-01-31"
 
 MIN_STATIONS = 48
 FILL_NETWORK_CODE = '0101'
@@ -65,7 +65,7 @@ SKIP_IF_EXISTS = True
 CONT_SCAN_SECOND_BLOCKS = 3
 
 # ---- Step2 実行済みチェック（doneマーカー） ----
-SKIP_IF_STEP2_NOT_DONE = False
+SKIP_IF_STEP2_NOT_DONE = True
 STEP2_RUN_TAG = 'v1'  # Step2側の RUN_TAG と合わせる
 
 # ---- Step3 実行済みチェック（doneマーカー） ----
