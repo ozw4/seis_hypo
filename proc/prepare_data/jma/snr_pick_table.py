@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 import warnings
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -25,40 +24,7 @@ from jma.stationcode_presence import load_presence_db
 from jma.win32_reader import read_win32, scan_channel_sampling_rate_map_win32
 from waveform.filters import bandpass_iir_filtfilt
 from waveform.preprocess import resample_window_poly
-
-
-@dataclass(frozen=True)
-class SNRSpec:
-	"""Configuration for SNR computation around phase picks.
-
-	This dataclass controls:
-	- target resampling rate (`fs_target_hz`)
-	- noise/signal windows relative to the pick time (seconds)
-	- preprocessing bandpass filter design parameters
-	- basic raw-trace QC thresholds (zero/clip fractions)
-	"""
-
-	fs_target_hz: int = 100
-
-	noise_from_s: float = -3.0
-	noise_to_s: float = -0.5
-	signal_from_s: float = 0.0
-	signal_to_s: float = 3.0
-
-	eps_energy: float = 1e-12
-
-	# bandpass (ellip iirdesign)
-	fstop_lo: float = 0.5
-	fpass_lo: float = 1.0
-	fpass_hi: float = 20.0
-	fstop_hi: float = 25.0
-	gpass: float = 1.0
-	gstop: float = 40.0
-
-	# QC thresholds
-	zero_frac_max: float = 0.98
-	clip_frac_max: float = 0.02
-
+from waveform.snr_metrics import SNRSpec, compute_snr_metrics
 
 _P_PHASES = {'P', 'EP', 'IP'}
 _DATE_ONLY_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -123,45 +89,8 @@ def _qc_trace_raw(
 
 def _preprocess_1d(x: np.ndarray, *, fs: float, spec: SNRSpec) -> np.ndarray:
 	y = sp_detrend(np.asarray(x, dtype=float), type='linear')
-	y = bandpass_iir_filtfilt(
-		y,
-		fs=float(fs),
-		fstop_lo=float(spec.fstop_lo),
-		fpass_lo=float(spec.fpass_lo),
-		fpass_hi=float(spec.fpass_hi),
-		fstop_hi=float(spec.fstop_hi),
-		gpass=float(spec.gpass),
-		gstop=float(spec.gstop),
-	)
+	# bandpass design params are still controlled outside (below) for clarity
 	return np.asarray(y, dtype=np.float32)
-
-
-def _snr_db_energy(
-	x_proc: np.ndarray, *, pick_idx: float, fs: float, spec: SNRSpec
-) -> tuple[float, float, float]:
-	def _idx(t_s: float) -> int:
-		return int(round(float(pick_idx) + float(t_s) * float(fs)))
-
-	n0 = _idx(spec.noise_from_s)
-	n1 = _idx(spec.noise_to_s)
-	s0 = _idx(spec.signal_from_s)
-	s1 = _idx(spec.signal_to_s)
-
-	if not (0 <= n0 < n1 <= len(x_proc) and 0 <= s0 < s1 <= len(x_proc)):
-		return float('nan'), float('nan'), float('nan')
-
-	noise = x_proc[n0:n1]
-	signal = x_proc[s0:s1]
-
-	noise_e = float(np.sum(noise * noise))
-	signal_e = float(np.sum(signal * signal))
-
-	snr = signal_e / (noise_e + float(spec.eps_energy))
-	snr_db = 10.0 * float(np.log10(max(snr, 1e-300)))
-
-	noise_rms = float(np.sqrt(np.mean(noise * noise)))
-	signal_rms = float(np.sqrt(np.mean(signal * signal)))
-	return snr_db, noise_rms, signal_rms
 
 
 def _prepare_epicenters(epi_df: pd.DataFrame) -> pd.DataFrame:
@@ -264,11 +193,22 @@ def build_snr_pick_table(
 	out_csv: str | Path,
 	out_skip_csv: str | Path,
 	mag1_types_allowed: set[str],
-	spec: SNRSpec = SNRSpec(),
+	spec: SNRSpec,
 	start_origin_jst: str | None = None,
 	end_origin_jst: str | None = None,
 	continue_on_error: bool = False,
 	epicenters_dist_tie_km: float = 0.1,
+	snr_primary: str = 'stalta',
+	# bandpass params live here (not in SNRSpec) so you can sweep easily without touching src
+	fstop_lo: float = 0.5,
+	fpass_lo: float = 1.0,
+	fpass_hi: float = 20.0,
+	fstop_hi: float = 25.0,
+	gpass: float = 1.0,
+	gstop: float = 40.0,
+	# QC thresholds
+	zero_frac_max: float = 0.98,
+	clip_frac_max: float = 0.02,
 ) -> None:
 	event_root = Path(event_root)
 	out_csv = Path(out_csv)
@@ -287,6 +227,12 @@ def build_snr_pick_table(
 	event_dirs = sorted([p for p in event_root.iterdir() if p.is_dir()])
 	if not event_dirs:
 		raise RuntimeError(f'no event dirs found under: {event_root}')
+
+	snr_primary = str(snr_primary).strip().lower()
+	if snr_primary not in {'energy', 'rms', 'stalta'}:
+		raise ValueError(
+			f'snr_primary must be one of energy/rms/stalta, got: {snr_primary}'
+		)
 
 	rows: list[dict[str, object]] = []
 	skips: list[dict[str, object]] = []
@@ -394,7 +340,7 @@ def build_snr_pick_table(
 			inv = build_inventory(ev_dir)
 			source_by_id = {s.source_id: s for s in inv.sources}
 
-			# まず、このイベントで必要なUチャンネルを source_id ごとにまとめる（ファイル走査回数を減らす）
+			# このイベントで必要なUチャンネルを source_id ごとにまとめる
 			required_u_by_source: dict[str, set[int]] = {}
 			u_meta_by_station: dict[str, dict[str, object]] = {}
 
@@ -555,8 +501,8 @@ def build_snr_pick_table(
 
 				ok, why = _qc_trace_raw(
 					raw,
-					zero_frac_max=float(spec.zero_frac_max),
-					clip_frac_max=float(spec.clip_frac_max),
+					zero_frac_max=float(zero_frac_max),
+					clip_frac_max=float(clip_frac_max),
 				)
 				if not ok:
 					skips.append(
@@ -577,24 +523,47 @@ def build_snr_pick_table(
 					out_len=int(out_len),
 				)[0]
 
-				x_proc = _preprocess_1d(raw_rs, fs=float(spec.fs_target_hz), spec=spec)
+				# detrend first
+				x_dt = _preprocess_1d(raw_rs, fs=float(spec.fs_target_hz), spec=spec)
 
-				snr_db, noise_rms, signal_rms = _snr_db_energy(
+				# bandpass after detrend
+				x_proc = bandpass_iir_filtfilt(
+					x_dt,
+					fs=float(spec.fs_target_hz),
+					fstop_lo=float(fstop_lo),
+					fpass_lo=float(fpass_lo),
+					fpass_hi=float(fpass_hi),
+					fstop_hi=float(fstop_hi),
+					gpass=float(gpass),
+					gstop=float(gstop),
+				)
+
+				m = compute_snr_metrics(
 					x_proc,
 					pick_idx=float(pick_idx),
 					fs=float(spec.fs_target_hz),
 					spec=spec,
 				)
-				if not np.isfinite(snr_db):
+
+				# windows out of range -> skip (cannot compute any metric)
+				if not m.ok_windows:
 					skips.append(
 						{
 							'event_dir': str(ev_dir),
 							'event_id': eid,
 							'station': str(sta),
-							'reason': 'snr_window_out_of_range',
+							'reason': f'snr_invalid:{m.reason}',
 						}
 					)
 					continue
+
+				# choose primary output (snr_db) for convenience
+				if snr_primary == 'energy':
+					snr_db = float(m.snr_db_energy)
+				elif snr_primary == 'rms':
+					snr_db = float(m.snr_db_rms)
+				else:
+					snr_db = float(m.snr_db_stalta)
 
 				sta_lat = float(st_meta['lat'])
 				sta_lon = float(st_meta['lon'])
@@ -631,17 +600,38 @@ def build_snr_pick_table(
 						'pick_time': pd.Timestamp(r['p_time']).strftime(
 							'%Y-%m-%dT%H:%M:%S.%f'
 						)[:-3],
+						# Primary (selected) SNR for downstream convenience
 						'snr_db': float(snr_db),
-						'noise_rms': float(noise_rms),
-						'signal_rms': float(signal_rms),
+						'snr_primary': str(snr_primary),
+						# All variants
+						'snr_db_energy': float(m.snr_db_energy),
+						'snr_db_rms': float(m.snr_db_rms),
+						'snr_db_stalta': float(m.snr_db_stalta),
+						# Window diagnostics (fixed)
+						'noise_rms': float(m.noise_rms),
+						'signal_rms': float(m.signal_rms),
+						'noise_energy': float(m.noise_energy),
+						'signal_energy': float(m.signal_energy),
+						# STA/LTA internals
+						'sta_s': float(spec.sta_s),
+						'lta_s': float(spec.lta_s),
+						'lta_agg': str(spec.lta_agg),
+						'sta_max_pow': float(m.sta_max_pow),
+						'noise_lta_pow': float(m.noise_lta_pow),
 						'waveform_kind': str(u['kind']),
 						'network_code': str(u['network_code']),
 						'source_id': str(source_id),
 						'ch_int': int(ch_int),
 						'fs_in_hz': int(fs_in),
 						'fs_target_hz': int(spec.fs_target_hz),
-						'bandpass_fpass_lo_hz': float(spec.fpass_lo),
-						'bandpass_fpass_hi_hz': float(spec.fpass_hi),
+						# bandpass used
+						'bandpass_fpass_lo_hz': float(fpass_lo),
+						'bandpass_fpass_hi_hz': float(fpass_hi),
+						'bandpass_fstop_lo_hz': float(fstop_lo),
+						'bandpass_fstop_hi_hz': float(fstop_hi),
+						'bandpass_gpass': float(gpass),
+						'bandpass_gstop': float(gstop),
+						# windows
 						'noise_win_s': f'{spec.noise_from_s},{spec.noise_to_s}',
 						'signal_win_s': f'{spec.signal_from_s},{spec.signal_to_s}',
 					}
@@ -680,6 +670,11 @@ def build_snr_pick_table(
 	print(f'[done] rows={len(df)} skips={len(df_skip)}')
 
 
+# =========================
+# Hard-coded config section
+# (ここだけ触れば回し直し楽)
+# =========================
+
 EVENT_ROOT = Path('/workspace/data/waveform/jma/event')
 
 EPICENTERS_CSV = Path('/workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv')
@@ -704,17 +699,34 @@ MAG1_TYPES_ALLOWED = {'v', 'V'}
 START_ORIGIN_JST = '2023-01-01'
 END_ORIGIN_JST = '2023-01-31'
 
+# SNR windows + STA/LTA params live in src dataclass, but values are set here
 SPEC = SNRSpec(
 	fs_target_hz=100,
 	noise_from_s=-3.0,
 	noise_to_s=-0.5,
 	signal_from_s=0.0,
 	signal_to_s=3.0,
+	eps_energy=1e-12,
+	sta_s=0.3,
+	lta_s=2.0,
+	lta_agg='median',
+)
+
+# choose what to write into snr_db (while still keeping all variants)
+SNR_PRIMARY = 'stalta'  # "energy" | "rms" | "stalta"
+
+# bandpass params are separated so you can sweep these easily
+BANDPASS = dict(
 	fstop_lo=0.5,
 	fpass_lo=1.0,
 	fpass_hi=20.0,
 	fstop_hi=25.0,
-	eps_energy=1e-12,
+	gpass=1.0,
+	gstop=40.0,
+)
+
+# QC thresholds
+QC = dict(
 	zero_frac_max=0.98,
 	clip_frac_max=0.02,
 )
@@ -739,4 +751,7 @@ build_snr_pick_table(
 	end_origin_jst=END_ORIGIN_JST,
 	continue_on_error=CONTINUE_ON_ERROR,
 	epicenters_dist_tie_km=EPICENTERS_DIST_TIE_KM,
+	snr_primary=SNR_PRIMARY,
+	**BANDPASS,
+	**QC,
 )
