@@ -138,3 +138,126 @@ def _detect_local_peaks_2d(
 	# stable-ish ordering (channel major, time)
 	out.sort(key=lambda x: (x[0], x[1]))
 	return out
+
+
+def extract_pick_near_ref(
+	score_1d: np.ndarray,
+	ref_pick_idx: float,
+	*,
+	fs_hz: float,
+	search_pre_sec: float,
+	search_post_sec: float,
+	thr: float,
+	min_sep_sec: float,
+	clip_search_window: bool = True,
+	search_i1_inclusive: bool = True,
+) -> dict[str, object]:
+	"""Extract a single peak near a reference pick within a local search window."""
+	fs_val = float(fs_hz)
+	if not np.isfinite(fs_val) or fs_val <= 0.0:
+		raise ValueError('fs_hz must be > 0')
+	pre_sec = float(search_pre_sec)
+	post_sec = float(search_post_sec)
+	if not np.isfinite(pre_sec) or pre_sec < 0.0:
+		raise ValueError('search_pre_sec must be >= 0')
+	if not np.isfinite(post_sec) or post_sec < 0.0:
+		raise ValueError('search_post_sec must be >= 0')
+
+	score = np.asarray(score_1d, dtype=float)
+	if score.ndim != 1:
+		raise ValueError(f'score_1d must be 1D, got shape={score.shape}')
+
+	n = int(score.shape[0])
+	if n <= 0:
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': 0,
+			'search_i1': (-1),
+			'fail_reason': 'empty_score',
+		}
+
+	if not np.isfinite(score).any():
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': 0,
+			'search_i1': -1,
+			'fail_reason': 'nan_or_inf_score',
+		}
+
+	if not np.isfinite(float(ref_pick_idx)):
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': 0,
+			'search_i1': (-1),
+			'fail_reason': 'ref_pick_invalid',
+		}
+
+	ref_i = int(round(float(ref_pick_idx)))
+	pre_n = int(round(pre_sec * fs_val))
+	post_n = int(round(post_sec * fs_val))
+
+	i0 = int(ref_i - pre_n)
+	i1 = int(ref_i + post_n)
+	if not search_i1_inclusive:
+		i1 -= 1
+
+	if clip_search_window:
+		i0 = max(0, i0)
+		i1 = min(n - 1, i1)
+	elif i0 < 0 or i1 >= n:
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': int(i0),
+			'search_i1': int(i1),
+			'fail_reason': 'search_window_out_of_bounds',
+		}
+
+	if i0 > i1:
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': int(i0),
+			'search_i1': int(i1),
+			'fail_reason': 'empty_search_window',
+		}
+
+	win = score[i0 : i1 + 1]
+	min_sep = max(1, int(round(float(min_sep_sec) * fs_val)))
+	peaks = _detect_local_peaks_2d(win[None, :], thr=float(thr), min_sep=int(min_sep))
+	n_peaks = len(peaks)
+	if n_peaks <= 0:
+		return {
+			'found_peak': False,
+			'est_pick_idx': float('nan'),
+			'score_at_pick': float('nan'),
+			'n_peaks': 0,
+			'search_i0': int(i0),
+			'search_i1': int(i1),
+			'fail_reason': 'no_peak',
+		}
+
+	best = sorted(peaks, key=lambda x: (-float(x[2]), int(x[1])))[0]
+	est_i = int(i0 + int(best[1]))
+	return {
+		'found_peak': True,
+		'est_pick_idx': float(est_i),
+		'score_at_pick': float(best[2]),
+		'n_peaks': int(n_peaks),
+		'search_i0': int(i0),
+		'search_i1': int(i1),
+		'fail_reason': '',
+	}
