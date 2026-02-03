@@ -123,7 +123,9 @@ def patch_cmd_template_for_cre(
 		if last_model_idx is not None:
 			out.insert(last_model_idx + 1, 'SAL 1 2')
 		else:
-			sta_idx = next((i for i, x in enumerate(out) if cmd_token(x) == 'STA'), None)
+			sta_idx = next(
+				(i for i, x in enumerate(out) if cmd_token(x) == 'STA'), None
+			)
 			if sta_idx is None:
 				raise ValueError('internal error: STA line not found after patching')
 			out.insert(sta_idx, 'SAL 1 2')

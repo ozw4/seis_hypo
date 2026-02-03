@@ -143,9 +143,7 @@ def nll_layers_text_from_1d_model(
 		vp_km_s.tolist(),
 		vs_km_s.tolist(),
 	):
-		lines.append(
-			f'LAYER {d:.3f} {vp:.3f} 0.0 {vs:.3f} 0.0 {rho_top:.1f} 0.0'
-		)
+		lines.append(f'LAYER {d:.3f} {vp:.3f} 0.0 {vs:.3f} 0.0 {rho_top:.1f} 0.0')
 
 	text = '\n'.join(lines) + '\n'
 	if not text.startswith('LAYER '):

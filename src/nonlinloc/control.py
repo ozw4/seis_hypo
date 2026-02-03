@@ -180,4 +180,3 @@ def generate_nll_control_text(
 		)
 
 	return '\n'.join(lines) + '\n'
-

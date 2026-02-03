@@ -12,9 +12,7 @@ def _iter_missing_rows(path: Path) -> Iterator[tuple[str, str, str]]:
 		line = raw.strip()
 		if not line:
 			continue
-		parts = next(
-			csv.reader([line], delimiter='\t', quoting=csv.QUOTE_NONE)
-		)
+		parts = next(csv.reader([line], delimiter='\t', quoting=csv.QUOTE_NONE))
 		if len(parts) != 2:
 			raise ValueError(
 				f'invalid line (expected 2 TSV fields) in {path.name}: {raw}'
@@ -22,9 +20,7 @@ def _iter_missing_rows(path: Path) -> Iterator[tuple[str, str, str]]:
 		station = parts[0].strip()
 		network_code = parts[1].strip()
 		if not station or not network_code:
-			raise ValueError(
-				f'invalid station/network_code in {path.name}: {raw}'
-			)
+			raise ValueError(f'invalid station/network_code in {path.name}: {raw}')
 		yield raw, station, network_code
 
 
@@ -41,9 +37,7 @@ def read_missing_pairs(
 		sta = normalize_station(station) if normalize_station else station
 		net = normalize_network(network_code) if normalize_network else network_code
 		if not sta or not net:
-			raise ValueError(
-				f'invalid station/network_code in {path.name}: {raw}'
-			)
+			raise ValueError(f'invalid station/network_code in {path.name}: {raw}')
 		key = (sta, net)
 		if key in seen:
 			continue

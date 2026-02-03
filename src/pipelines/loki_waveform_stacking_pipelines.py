@@ -191,13 +191,9 @@ def _filter_event_dirs(
 		dirs = dirs[: int(cfg.max_events)]
 
 	if not dirs:
-		raise ValueError(
-			empty_error.format(base=base, glob=cfg.event_glob)
-		)
+		raise ValueError(empty_error.format(base=base, glob=cfg.event_glob))
 
-	print(
-		f'{log_prefix}: total={len(candidates)} kept={len(dirs)} dropped={dropped}'
-	)
+	print(f'{log_prefix}: total={len(candidates)} kept={len(dirs)} dropped={dropped}')
 	return dirs
 
 
@@ -410,7 +406,8 @@ def list_event_dirs_filtered_forge_das(
 
 	def build_candidates(base: Path) -> list[Path]:
 		return sorted(
-			[p for p in base.glob(cfg.event_glob) if p.is_dir()], key=_das_event_sort_key
+			[p for p in base.glob(cfg.event_glob) if p.is_dir()],
+			key=_das_event_sort_key,
 		)
 
 	def read_event_dir(ev_dir: Path) -> tuple[pd.Timestamp, dict, Path] | None:

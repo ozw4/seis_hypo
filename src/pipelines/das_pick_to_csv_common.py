@@ -252,9 +252,7 @@ def run_das_pick_to_csv_pipeline(
 						wcsv,
 						seg_id=int(pending_seg_id),
 						block_start=int(pending_block_start),
-						chunk_d=pending_d
-						if bool(use_det)
-						else None,
+						chunk_d=pending_d if bool(use_det) else None,
 						chunk_p=pending_p,
 						chunk_s=pending_s
 						if pending_s is not None
@@ -322,9 +320,7 @@ def run_das_pick_to_csv_pipeline(
 			else:
 				if overlap_merge == 'max':
 					if bool(use_det) and pending_d is not None:
-						pending_d[:, H:L] = np.maximum(
-							pending_d[:, H:L], det_w[:, 0:O]
-						)
+						pending_d[:, H:L] = np.maximum(pending_d[:, H:L], det_w[:, 0:O])
 					pending_p[:, H:L] = np.maximum(pending_p[:, H:L], p_w[:, 0:O])
 					pending_s[:, H:L] = np.maximum(pending_s[:, H:L], s_w[:, 0:O])
 				else:
@@ -347,7 +343,9 @@ def run_das_pick_to_csv_pipeline(
 				)
 
 				if bool(use_det) and pending_d is not None:
-					pending_d = np.concatenate([pending_d[:, H:L], det_w[:, O:L]], axis=1)
+					pending_d = np.concatenate(
+						[pending_d[:, H:L], det_w[:, O:L]], axis=1
+					)
 				pending_p = np.concatenate([pending_p[:, H:L], p_w[:, O:L]], axis=1)
 				pending_s = np.concatenate([pending_s[:, H:L], s_w[:, O:L]], axis=1)
 				pending_start_ms = int(meta.window_start_utc_ms)
@@ -368,11 +366,11 @@ def run_das_pick_to_csv_pipeline(
 				wcsv,
 				seg_id=int(pending_seg_id),
 				block_start=int(pending_block_start),
-				chunk_d=pending_d
-				if bool(use_det)
-				else None,
+				chunk_d=pending_d if bool(use_det) else None,
 				chunk_p=pending_p,
-				chunk_s=pending_s if pending_s is not None else np.zeros_like(pending_p),
+				chunk_s=pending_s
+				if pending_s is not None
+				else np.zeros_like(pending_p),
 				chunk_start_ms=int(pending_start_ms),
 				chunk_fs_hz=float(fs_used),
 			)

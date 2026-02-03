@@ -273,7 +273,9 @@ def _plot_coord_misfit(
 			plt.ylabel('Horizontal distance |JMA - HYPOINV| (km)')
 			plt.title(f'Horizontal misfit vs {mag_col_jma}')
 			plt.tight_layout()
-			save_current_figure(out_dir / 'coordmisfit_horizontal_vs_mag_jma.png', dpi=200)
+			save_current_figure(
+				out_dir / 'coordmisfit_horizontal_vs_mag_jma.png', dpi=200
+			)
 
 
 def plot_event_quality(

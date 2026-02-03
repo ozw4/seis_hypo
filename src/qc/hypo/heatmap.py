@@ -103,10 +103,7 @@ def map_true_xyz_to_zyx_indices(
 		zv = int(z_vals[i])
 
 		if xv not in x_map or yv not in y_map or zv not in z_map:
-			raise ValueError(
-				'coordinate not on grid axes: '
-				f'(x={xv}, y={yv}, z={zv})'
-			)
+			raise ValueError(f'coordinate not on grid axes: (x={xv}, y={yv}, z={zv})')
 
 		indices[i, 0] = z_map[zv]
 		indices[i, 1] = y_map[yv]
@@ -133,8 +130,7 @@ def build_metric_grid_zyx(
 	vals = np.asarray(values, dtype=float).reshape(-1)
 	if idx.shape[0] != vals.size:
 		raise ValueError(
-			'indices_zyx and values length mismatch: '
-			f'{idx.shape[0]} vs {vals.size}'
+			f'indices_zyx and values length mismatch: {idx.shape[0]} vs {vals.size}'
 		)
 
 	nz, ny, nx = (int(shape_zyx[0]), int(shape_zyx[1]), int(shape_zyx[2]))

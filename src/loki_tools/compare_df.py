@@ -64,9 +64,7 @@ def load_jma_event_jsons(
 				f'lat/lon/dep may be under extra)'
 			)
 
-		origin_time_utc = get_event_origin_utc(
-			ev, event_json_path=evdir / 'event.json'
-		)
+		origin_time_utc = get_event_origin_utc(ev, event_json_path=evdir / 'event.json')
 
 		rows.append(
 			{

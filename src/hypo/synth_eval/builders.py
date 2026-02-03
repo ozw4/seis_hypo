@@ -54,8 +54,7 @@ def build_station_df(
 		raise ValueError('station_codes_all must be a 1D sequence')
 	if codes_all.size != n:
 		raise ValueError(
-			'station_codes_all length mismatch: '
-			f'len={int(codes_all.size)} expected={n}'
+			f'station_codes_all length mismatch: len={int(codes_all.size)} expected={n}'
 		)
 
 	xyz = recv_xyz_m[idx]

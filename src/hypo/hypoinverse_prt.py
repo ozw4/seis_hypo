@@ -8,9 +8,7 @@ from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 # ========= hypoinverse .prt パース =========
 _SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
 _NSTA_HEADER_RE = re.compile(r'^\s*NSTA\s+NPHS\b', re.IGNORECASE)
-_ELL_TRIPLET_RE = re.compile(
-	r'<\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+)\s+([+-]?\d+)\s*>'
-)
+_ELL_TRIPLET_RE = re.compile(r'<\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+)\s+([+-]?\d+)\s*>')
 
 
 def parse_summary_line(line: str) -> dict:
@@ -258,7 +256,9 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 
 		if _SUMMARY_RE.match(line):
 			if pending_error_ellipse is None:
-				raise ValueError(f'ERROR ELLIPSE is missing for event summary: {line!r}')
+				raise ValueError(
+					f'ERROR ELLIPSE is missing for event summary: {line!r}'
+				)
 
 			rec = parse_summary_line(line)
 			rec.update(pending_error_ellipse)
@@ -284,7 +284,9 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 			if not records:
 				raise ValueError('NSTA/NPHS block found before any event summary')
 			if i + 1 >= len(lines):
-				raise ValueError('NSTA/NPHS header line is truncated: missing values line')
+				raise ValueError(
+					'NSTA/NPHS header line is truncated: missing values line'
+				)
 			records[-1].update(parse_nsta_line(lines[i + 1]))
 			i += 2
 			continue

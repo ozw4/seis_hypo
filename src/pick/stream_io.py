@@ -62,7 +62,9 @@ def station_zne_from_stream(
 
 		if missing and fill_missing_with_zeros:
 			n_fill += 1
-			print(f'[WARN] {label} input: station={sta} missing={missing} -> fill zeros')
+			print(
+				f'[WARN] {label} input: station={sta} missing={missing} -> fill zeros'
+			)
 
 		u = d.get('U', np.zeros(npts_ref, dtype=np.float32))
 		n = d.get('N', np.zeros(npts_ref, dtype=np.float32))

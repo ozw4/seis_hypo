@@ -30,7 +30,7 @@ class ZarrBlockWindowIterator:
 	Yields:
 	  wave: (Csel, in_samples)
 	  meta: WindowMeta
-	
+
 	Notes:
 	  - Unlike the previous block-aligned implementation, in_samples and hop do NOT
 	    need to be multiples of Tb.
@@ -115,7 +115,9 @@ class ZarrBlockWindowIterator:
 		for seg_id, s_start, s_end in self._segment_ranges():
 			# trim trailing short blocks (common when segment ends with a short file)
 			s_end_full = int(s_end)
-			while s_end_full > int(s_start) and int(self.valid_out[s_end_full - 1]) < tb:
+			while (
+				s_end_full > int(s_start) and int(self.valid_out[s_end_full - 1]) < tb
+			):
 				s_end_full -= 1
 
 			b = int(s_start)
@@ -145,7 +147,9 @@ class ZarrBlockWindowIterator:
 					need = int(s_off + wS)
 					nb = (need + tb - 1) // tb
 
-					x = self.arr[b0 : b0 + nb, ch0:ch1, :].astype(np.float32, copy=False)  # (nb, Csel, Tb)
+					x = self.arr[b0 : b0 + nb, ch0:ch1, :].astype(
+						np.float32, copy=False
+					)  # (nb, Csel, Tb)
 
 					if nb == 1:
 						wave = x[0, :, s_off : s_off + wS]
@@ -162,7 +166,9 @@ class ZarrBlockWindowIterator:
 							k += 1
 						wave = np.concatenate(parts, axis=1)
 
-					start_ms = int(self.start_ms[b0]) + int(round(float(s_off) * float(dt_ms)))
+					start_ms = int(self.start_ms[b0]) + int(
+						round(float(s_off) * float(dt_ms))
+					)
 					meta = WindowMeta(
 						segment_id=int(seg_id),
 						block_start=int(b0),

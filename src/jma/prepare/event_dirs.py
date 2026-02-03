@@ -58,9 +58,7 @@ def event_dir_date_jst_from_name(
 	if len(name) < 9 or not name.startswith('D'):
 		if on_invalid == 'none':
 			return None
-		raise ValueError(
-			f'unexpected event dir name (need DYYYYMMDD...): {dirname!r}'
-		)
+		raise ValueError(f'unexpected event dir name (need DYYYYMMDD...): {dirname!r}')
 	ymd = name[1:9]
 	if not ymd.isdigit():
 		if on_invalid == 'none':

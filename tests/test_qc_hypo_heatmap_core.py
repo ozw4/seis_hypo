@@ -96,11 +96,13 @@ def test_build_metric_grids_zyx_missing_metric_raises(tmp_path: Path) -> None:
 def test_compute_vmin_vmax_err3d_and_dz() -> None:
 	grid = np.array([[[0.0, 1.0], [2.0, 3.0]]], dtype=float)
 	percentile = 99.0
-	vmin, vmax = compute_vmin_vmax('err3d_m', grid, percentile=percentile, dz_symmetric=True)
+	vmin, vmax = compute_vmin_vmax(
+		'err3d_m', grid, percentile=percentile, dz_symmetric=True
+	)
 	assert vmin == 0.0
 	assert np.isclose(vmax, np.nanpercentile(grid, percentile))
 
-	grid_dz = np.array([[[ -2.0, 0.0, 2.0, 4.0 ]]], dtype=float)
+	grid_dz = np.array([[[-2.0, 0.0, 2.0, 4.0]]], dtype=float)
 	vmin_dz, vmax_dz = compute_vmin_vmax(
 		'dz_m',
 		grid_dz,
