@@ -496,7 +496,7 @@ def _render_template_vars(s: str, root: dict[str, Any]) -> str:
 		cur: Any = root
 		for p in parts:
 			if not isinstance(cur, dict) or p not in cur:
-				raise KeyError(f'template key {path!r} is not defined')
+				raise ValueError(f'template key {path!r} is not defined')
 			cur = cur[p]
 		return str(cur)
 
@@ -536,10 +536,13 @@ def _as_path(v: Any, *, name: str) -> Path:
 def _as_str_list(v: Any, *, name: str) -> list[str]:
 	if not isinstance(v, list):
 		raise ValueError(f'{name} must be list')
-	out = []
-	for item in v:
-		out.append(str(item))
-	return out
+	return [str(item) for item in v]
+
+
+def _as_bool_strict(v: Any, *, name: str) -> bool:
+	if not isinstance(v, bool):
+		raise ValueError(f'{name} must be bool')
+	return v
 
 
 def _parse_dt_pick_error_run(obj: Any) -> JmaDtPickErrorRunConfig:
@@ -549,7 +552,7 @@ def _parse_dt_pick_error_run(obj: Any) -> JmaDtPickErrorRunConfig:
 	return JmaDtPickErrorRunConfig(
 		run_id=str(o['run_id']),
 		out_dir=_as_path(o['out_dir'], name='run.out_dir'),
-		overwrite=bool(o.get('overwrite', False)),
+		overwrite=_as_bool_strict(o.get('overwrite', False), name='run.overwrite'),
 		notes=str(o.get('notes', '')),
 	)
 
@@ -605,6 +608,10 @@ def _parse_dt_pick_error_inputs(obj: Any) -> JmaDtPickErrorInputsConfig:
 			raise ValueError('inputs.event_id_allowlist must be list')
 		event_id_allowlist = [int(x) for x in event_id_allowlist]
 
+	distance = str(o['distance'])
+	if distance != 'hypocentral':
+		raise ValueError('inputs.distance must be "hypocentral"')
+
 	return JmaDtPickErrorInputsConfig(
 		event_root=_as_path(o['event_root'], name='inputs.event_root'),
 		epicenters_csv=_as_path(o['epicenters_csv'], name='inputs.epicenters_csv'),
@@ -621,7 +628,7 @@ def _parse_dt_pick_error_inputs(obj: Any) -> JmaDtPickErrorInputsConfig:
 		mag1_types_allowed=_as_str_list(
 			o['mag1_types_allowed'], name='inputs.mag1_types_allowed'
 		),
-		distance=str(o['distance']),
+		distance=distance,
 		phase_defs=phase_defs_out,
 		stations_allowlist=stations_allowlist,
 		event_id_allowlist=event_id_allowlist,
@@ -678,8 +685,11 @@ def _parse_dt_pick_error_stalta(
 	o = _expect_mapping(obj, name='picker.stalta')
 	_require_keys(o, {'transform', 'sta_sec', 'lta_sec'}, name='picker.stalta')
 	_deny_unknown_keys(o, {'transform', 'sta_sec', 'lta_sec'}, name='picker.stalta')
+	transform = str(o['transform'])
+	if transform not in {'raw', 'envelope'}:
+		raise ValueError('picker.stalta.transform must be "raw" or "envelope"')
 	return JmaDtPickErrorStaltaConfig(
-		transform=str(o['transform']),
+		transform=transform,
 		sta_sec=float(o['sta_sec']),
 		lta_sec=float(o['lta_sec']),
 	)
@@ -701,6 +711,13 @@ def _parse_dt_pick_error_picker(obj: Any) -> JmaDtPickErrorPickerConfig:
 		},
 		name='picker',
 	)
+	phase = str(o['phase'])
+	if phase != 'P':
+		raise ValueError('picker.phase must be "P"')
+	component = str(o['component'])
+	if component != 'U':
+		raise ValueError('picker.component must be "U"')
+
 	stalta = o.get('stalta')
 	stalta_cfg = None
 	if stalta is not None:
@@ -713,8 +730,8 @@ def _parse_dt_pick_error_picker(obj: Any) -> JmaDtPickErrorPickerConfig:
 	return JmaDtPickErrorPickerConfig(
 		picker_name=picker_name,
 		picker_preset=str(o['picker_preset']),
-		phase=str(o['phase']),
-		component=str(o['component']),
+		phase=phase,
+		component=component,
 		stalta=stalta_cfg,
 	)
 
@@ -751,15 +768,25 @@ def _parse_dt_pick_error_pick_extract(
 		},
 		name='pick_extract',
 	)
+	choose = str(o['choose'])
+	if choose != 'max':
+		raise ValueError('pick_extract.choose must be "max"')
+	tie_break = str(o['tie_break'])
+	if tie_break != 'min_t':
+		raise ValueError('pick_extract.tie_break must be "min_t"')
 	return JmaDtPickErrorPickExtractConfig(
 		search_pre_sec=float(o['search_pre_sec']),
 		search_post_sec=float(o['search_post_sec']),
-		clip_search_window=bool(o['clip_search_window']),
-		choose=str(o['choose']),
-		tie_break=str(o['tie_break']),
+		clip_search_window=_as_bool_strict(
+			o['clip_search_window'], name='pick_extract.clip_search_window'
+		),
+		choose=choose,
+		tie_break=tie_break,
 		thr=float(o['thr']),
 		min_sep_sec=float(o['min_sep_sec']),
-		search_i1_inclusive=bool(o['search_i1_inclusive']),
+		search_i1_inclusive=_as_bool_strict(
+			o['search_i1_inclusive'], name='pick_extract.search_i1_inclusive'
+		),
 	)
 
 
@@ -772,7 +799,9 @@ def _parse_dt_pick_error_eval(obj: Any) -> JmaDtPickErrorEvalConfig:
 	tol_sec = [float(x) for x in o['tol_sec']]
 	return JmaDtPickErrorEvalConfig(
 		tol_sec=tol_sec,
-		keep_missing_rows=bool(o['keep_missing_rows']),
+		keep_missing_rows=_as_bool_strict(
+			o['keep_missing_rows'], name='eval.keep_missing_rows'
+		),
 	)
 
 
@@ -789,7 +818,9 @@ def _parse_dt_pick_error_output(obj: Any) -> JmaDtPickErrorOutputConfig:
 	return JmaDtPickErrorOutputConfig(
 		dt_table_csv=_as_path(o['dt_table_csv'], name='output.dt_table_csv'),
 		skips_csv=_as_path(o['skips_csv'], name='output.skips_csv'),
-		save_config_snapshot=bool(o['save_config_snapshot']),
+		save_config_snapshot=_as_bool_strict(
+			o['save_config_snapshot'], name='output.save_config_snapshot'
+		),
 	)
 
 
