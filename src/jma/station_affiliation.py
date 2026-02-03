@@ -1,6 +1,5 @@
 from common.text import normalize_comment
 
-
 # Comment（元の所属文字列） → 英語 Legend ラベル
 # ・地方区分: すべて "JMA"
 # ・大学: すべて "University"

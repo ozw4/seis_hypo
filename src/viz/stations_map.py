@@ -12,10 +12,9 @@ from adjustText import adjust_text
 from shapely.geometry import Point
 
 from common.text import normalize_comment
-from viz.core.fig_io import save_figure
-
 from jma.station_affiliation import _comment_to_affiliation_en
 from jma.station_reader import read_hinet_channel_table
+from viz.core.fig_io import save_figure
 
 
 def plot_stations_by_affiliation_from_station_csv(

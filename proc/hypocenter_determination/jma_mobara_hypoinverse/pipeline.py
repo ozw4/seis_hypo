@@ -7,8 +7,8 @@ import pandas as pd
 from common.load_config import load_config
 from hypo.arc import write_hypoinverse_arc
 from hypo.join_jma_hypoinverse import build_joined_jma_hypo_csv
-from viz.hypo.event_quality import plot_event_quality
 from viz.events_map import plot_events_map_and_sections
+from viz.hypo.event_quality import plot_event_quality
 from viz.plot_config import PlotConfig
 
 sta_file = Path('/workspace/data/station/jma/stations_hypoinverse.sta')

@@ -10,7 +10,11 @@ from seisbench.models import EQTransformer
 
 from pick.eqt_io import station_zne_from_stream
 from pick.overlap import stack_overlap_1d
-from pick.probs_common import extract_station_probs, iterate_overlapping_windows, normalize_zne
+from pick.probs_common import (
+	extract_station_probs,
+	iterate_overlapping_windows,
+	normalize_zne,
+)
 from pick.weights_util import _extract_state_dict, _is_local_weights_spec
 from waveform.filters import zscore_tracewise
 

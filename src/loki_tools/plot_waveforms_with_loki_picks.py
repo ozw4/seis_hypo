@@ -30,6 +30,7 @@ from waveform.preprocess import (
 	preprocess_stream_detrend_bandpass,
 )
 
+
 def main() -> None:
 	# =========================
 	# 直書き設定

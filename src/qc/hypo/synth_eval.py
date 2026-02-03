@@ -33,7 +33,7 @@ class Config:
 	dataset_dir: str
 	outputs_dir: str
 	receiver_geometry: str
-	uncertainty_plot: 'UncertaintyPlotConfig'
+	uncertainty_plot: UncertaintyPlotConfig
 	heatmap: HeatmapConfig
 
 

@@ -4,7 +4,6 @@ from collections.abc import Mapping
 
 import numpy as np
 
-
 ELLIPSE_COLS = (
 	'ell_s1_km',
 	'ell_az1_deg',

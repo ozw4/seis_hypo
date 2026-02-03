@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -60,7 +61,7 @@ def extract_station_probs(
 	sta: str,
 	npts: int,
 ) -> dict[str, np.ndarray]:
-	probs = meta.get('probs', None)
+	probs = meta.get('probs')
 	if not isinstance(probs, dict):
 		raise ValueError("meta['probs'] missing or invalid")
 

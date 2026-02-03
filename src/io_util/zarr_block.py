@@ -34,6 +34,7 @@ class ZarrBlockWindowIterator:
 	Notes:
 	  - Unlike the previous block-aligned implementation, in_samples and hop do NOT
 	    need to be multiples of Tb.
+
 	"""
 
 	def __init__(

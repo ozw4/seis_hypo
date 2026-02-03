@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 
 def parse_date_yyyy_mm_dd(

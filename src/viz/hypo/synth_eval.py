@@ -8,8 +8,8 @@ import pandas as pd
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
-from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 from hypo.synth_eval.heatmap_types import GridAxes
+from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 from viz.core.fig_io import save_current_figure, save_figure
 
 

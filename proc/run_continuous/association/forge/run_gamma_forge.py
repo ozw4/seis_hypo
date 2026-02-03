@@ -11,6 +11,7 @@ import pandas as pd
 from gamma.utils import association, estimate_eps
 
 from common.core import validate_columns
+
 # =========================
 # 設定（ここだけ触ればOK）
 # =========================

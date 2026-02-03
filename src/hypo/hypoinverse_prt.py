@@ -5,7 +5,6 @@ import pandas as pd
 
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 
-
 # ========= hypoinverse .prt パース =========
 _SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
 _NSTA_HEADER_RE = re.compile(r'^\s*NSTA\s+NPHS\b', re.IGNORECASE)

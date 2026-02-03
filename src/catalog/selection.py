@@ -28,7 +28,7 @@ def extract_events_in_region(
 	戻り値:
 	(epic_sub, meas_sub)
 	meas_df が None のとき meas_sub は None
-	"""  # noqa: D205
+	"""
 	required_cols = {
 		'event_id',
 		'origin_time',

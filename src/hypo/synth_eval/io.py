@@ -9,7 +9,7 @@ from common.core import validate_columns
 
 
 def write_station_csv(df_station: pd.DataFrame, out_csv: Path) -> None:
-	"""station DataFrame を synth station CSV として書き出す。
+	"""Station DataFrame を synth station CSV として書き出す。
 
 	必須列:
 	- station_code

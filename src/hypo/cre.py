@@ -36,8 +36,7 @@ def compute_reference_elevation_km(
 
 	max_m = float(s.max())
 	ref_m = max_m + float(margin_m)
-	if ref_m < 0.0:
-		ref_m = 0.0
+	ref_m = max(ref_m, 0.0)
 
 	return ref_m / 1000.0
 
@@ -149,9 +148,10 @@ def format_cre_cmd_line(
 
 	Example:
 		CRE 1 'P.cre' 0.000000 T
+
 	"""
 	mid = int(model_id)
 	if mid not in (1, 2):
 		raise ValueError(f'model_id must be 1 or 2, got {model_id}')
 	flag = 'T' if bool(use_station_elev) else 'F'
-	return f"CRE {mid:d} '{str(model_file)}' {float(ref_elev_km):.6f} {flag}"
+	return f"CRE {mid:d} '{model_file!s}' {float(ref_elev_km):.6f} {flag}"
