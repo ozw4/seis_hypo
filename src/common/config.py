@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from common.yaml_config import render_dollar_template
 
 # ---- Defaults (あなたの現状に合わせて適宜調整) ----
 DEFAULT_CHANNEL_TABLE = Path(
@@ -337,7 +338,6 @@ _DT_PICK_ERROR_EXPERIMENT_KEYS = {
 	'eval',
 	'output',
 }
-_TEMPLATE_RE = re.compile(r'\$\{([^}]+)\}')
 
 
 def load_dt_pick_error_config_v1(
@@ -485,26 +485,9 @@ def _apply_run_out_dir_template(cfg: dict[str, Any]) -> dict[str, Any]:
 		raise ValueError('run.out_dir is required')
 	out_dir_s = str(out_dir)
 	if '${' in out_dir_s:
-		out_dir_s = _render_template_vars(out_dir_s, cfg)
+		out_dir_s = render_dollar_template(out_dir_s, cfg)
 	run['out_dir'] = out_dir_s
 	return cfg
-
-
-def _render_template_vars(s: str, root: dict[str, Any]) -> str:
-	def _lookup(path: str) -> str:
-		parts = [p for p in path.split('.') if p]
-		cur: Any = root
-		for p in parts:
-			if not isinstance(cur, dict) or p not in cur:
-				raise ValueError(f'template key {path!r} is not defined')
-			cur = cur[p]
-		return str(cur)
-
-	def _replace(m: re.Match[str]) -> str:
-		key = m.group(1).strip()
-		return _lookup(key)
-
-	return _TEMPLATE_RE.sub(_replace, s)
 
 
 def _expect_mapping(obj: Any, *, name: str) -> dict[str, Any]:
