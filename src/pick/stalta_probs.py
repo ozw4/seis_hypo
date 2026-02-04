@@ -1,6 +1,7 @@
 # src/picks/stalta_probs.py
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,7 +100,7 @@ class StaltaProbSpec:
 	smooth_sec: float | None = None  # 入力（transform後）を平滑化してからSTALTA
 	clip_p: float | None = 99.5  # STALTA出力を上側クリップ
 	log1p: bool = False  # STALTA出力（非負）に log1p
-	eps: float = 1e-12
+	eps: float = 1e-20
 
 
 def build_probs_by_station_stalta(
@@ -181,8 +182,19 @@ def build_probs_by_station_stalta(
 				)
 			cf = np.log1p(cf)
 
-		cf01 = _scale_0_1_strict(cf, eps=float(spec.eps))
-		out[sta] = {phase_s: cf01.astype(np.float32, copy=False)}
+		mn = float(np.min(cf))
+		mx = float(np.max(cf))
+		if (mx - mn) <= float(spec.eps):
+			warnings.warn(
+				f'stalta cf flat; return zeros (station={sta})',
+				RuntimeWarning,
+			)
+			cf01 = np.zeros(int(npts), dtype=np.float32)
+		else:
+			cf01 = _scale_0_1_strict(cf, eps=float(spec.eps)).astype(
+				np.float32, copy=False
+			)
+		out[sta] = {phase_s: cf01}
 
 	return out
 

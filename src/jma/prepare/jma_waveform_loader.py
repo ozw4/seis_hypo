@@ -9,7 +9,7 @@ from obspy import Stream, Trace, UTCDateTime
 from scipy.signal import detrend as sp_detrend
 
 from common.config import JmaDtPickErrorPreprocessConfig
-from jma.prepare.inventory import build_inventory
+from jma.prepare.inventory import InventoryResult, build_inventory
 from jma.station_reader import read_hinet_channel_table
 from jma.win32_reader import (
 	read_win32,
@@ -65,12 +65,13 @@ def load_u_stream_for_event(
 	*,
 	stations: list[str] | None,
 	preprocess_cfg: JmaDtPickErrorPreprocessConfig,
+	inventory: InventoryResult | None = None,
 ) -> UStreamLoadResult:
 	event_dir = Path(event_dir)
 	if not event_dir.is_dir():
 		raise FileNotFoundError(f'event_dir not found: {event_dir}')
 
-	inv = build_inventory(event_dir)
+	inv = build_inventory(event_dir) if inventory is None else inventory
 	source_by_id = {s.source_id: s for s in inv.sources}
 
 	if stations is None:

@@ -25,7 +25,7 @@ def _ensure_src_on_syspath() -> None:
 _ensure_src_on_syspath()
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_event_dict() -> dict[str, Any]:
 	"""A minimal event.json-like payload."""
 	return {
@@ -37,7 +37,7 @@ def sample_event_dict() -> dict[str, Any]:
 	}
 
 
-@pytest.fixture()
+@pytest.fixture
 def write_text(tmp_path: Path) -> Callable[[str, str], Path]:
 	"""Return a helper to write UTF-8 text under tmp_path."""
 
