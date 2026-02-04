@@ -13,11 +13,10 @@ from seisbench.models import PhaseNet
 from pick.overlap import stack_overlap_1d
 from pick.phasenet_labels import labels_to_indices
 from pick.probs_common import (
-	extract_station_probs,
+	build_probs_by_station_common,
 	iterate_overlapping_windows,
 	normalize_zne,
 )
-from pick.stream_io import station_zne_from_stream
 from pick.weights_util import _extract_state_dict, _is_local_weights_spec
 
 _PHASENET_MODELS: dict[tuple[str, int], PhaseNet] = {}
@@ -213,25 +212,17 @@ def build_probs_by_station(
 	phasenet_batch_size: int,
 	overlap_mode: Literal['max', 'mean'] = 'max',
 ) -> dict[str, dict[str, np.ndarray]]:
-	zne_by_sta = station_zne_from_stream(st, log_label='PhaseNet')
-
-	probs_by_sta: dict[str, dict[str, np.ndarray]] = {}
-	npts = int(st[0].stats.npts)
-
-	for sta, zne in zne_by_sta.items():
-		score, delay, meta = backend_phasenet_probs(
-			zne,
-			float(fs),
-			weights=str(phasenet_weights),
-			in_samples=int(phasenet_in_samples),
-			overlap=int(phasenet_overlap),
-			batch_size=int(phasenet_batch_size),
-			overlap_mode=overlap_mode,
-		)
-
-		probs_by_sta[sta] = extract_station_probs(meta, sta, npts)
-
-	if not probs_by_sta:
-		raise ValueError('no station probs built')
-
-	return probs_by_sta
+	backend_kwargs = {
+		'weights': str(phasenet_weights),
+		'in_samples': int(phasenet_in_samples),
+		'overlap': int(phasenet_overlap),
+		'batch_size': int(phasenet_batch_size),
+		'overlap_mode': overlap_mode,
+		'log_label': 'PhaseNet',
+	}
+	return build_probs_by_station_common(
+		st,
+		fs=float(fs),
+		backend_fn=backend_phasenet_probs,
+		backend_kwargs=backend_kwargs,
+	)

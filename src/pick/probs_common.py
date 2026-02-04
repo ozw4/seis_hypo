@@ -4,6 +4,9 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from obspy import Stream
+
+from pick.stream_io import station_zne_from_stream
 
 
 def normalize_zne(zne: np.ndarray) -> np.ndarray:
@@ -80,3 +83,31 @@ def extract_station_probs(
 		)
 
 	return {'P': p, 'S': s}
+
+
+def build_probs_by_station_common(
+	st: Stream,
+	*,
+	fs: float,
+	backend_fn: Callable[..., tuple[np.ndarray, int, dict[str, Any]]],
+	backend_kwargs: dict[str, Any],
+	log_label: str | None = None,
+) -> dict[str, dict[str, np.ndarray]]:
+	backend_kwargs_local = dict(backend_kwargs)
+	if log_label is None:
+		log_label = backend_kwargs_local.pop('log_label', None)
+	else:
+		backend_kwargs_local.pop('log_label', None)
+
+	zne_by_sta = station_zne_from_stream(st, log_label=log_label or 'Input')
+	npts = int(st[0].stats.npts)
+
+	probs_by_sta: dict[str, dict[str, np.ndarray]] = {}
+	for sta, zne in zne_by_sta.items():
+		score, delay, meta = backend_fn(zne, float(fs), **backend_kwargs_local)
+		probs_by_sta[sta] = extract_station_probs(meta, sta, npts)
+
+	if not probs_by_sta:
+		raise ValueError('no station probs built')
+
+	return probs_by_sta
