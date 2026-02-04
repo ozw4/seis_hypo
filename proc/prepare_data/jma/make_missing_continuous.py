@@ -4,50 +4,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common.load_config import load_config
 from jma.missing_continuous import run_make_missing_continuous
+from jma.prepare.config import JmaMissingContinuousConfig
 
-WIN_EVENT_DIR = Path('/workspace/data/waveform/jma/event').resolve()
-
-MEAS_CSV = Path(
-	'/workspace/data/arrivetime/JMA/arrivetime_measurements_2023.0.csv'
-).resolve()
-EPI_CSV = Path(
-	'/workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv'
-).resolve()
-
-PRES_CSV = Path(
-	'/workspace/proc/prepare_data/jma/stationcode_match/v1/snapshots/monthly/monthly_presence.csv'
-).resolve()
-
-MATCH_OUT_DIR = Path(
-	'/workspace/proc/prepare_data/jma/stationcode_match/v1/match_out_final'
-).resolve()
-MAPPING_REPORT_CSV = (MATCH_OUT_DIR / 'mapping_report.csv').resolve()
-NEAR0_SUGGEST_CSV = (MATCH_OUT_DIR / 'near0_suggestions.csv').resolve()
-
-OUT_MISSING_CSV = Path(
-	'/workspace/data/waveform/jma/event/missing_in_active_ch.csv'
-).resolve()
-
-SKIP_IF_NO_ACTIVE_CH = True
-SKIP_IF_DONE = True
-DATE_MIN = '2023-02-09'
-DATE_MAX = '2023-05-10'
+YAML_PATH = Path(__file__).resolve().parent / 'config' / 'missing_continuous.yaml'
+PRESET = 'sample'
 
 
 def main() -> None:
+	cfg = load_config(JmaMissingContinuousConfig, YAML_PATH, PRESET)
 	run_make_missing_continuous(
-		win_event_dir=WIN_EVENT_DIR,
-		meas_csv=MEAS_CSV,
-		epi_csv=EPI_CSV,
-		pres_csv=PRES_CSV,
-		mapping_report_csv=MAPPING_REPORT_CSV,
-		near0_suggest_csv=NEAR0_SUGGEST_CSV,
-		out_missing_csv=OUT_MISSING_CSV,
-		skip_if_no_active_ch=SKIP_IF_NO_ACTIVE_CH,
-		date_min=DATE_MIN,
-		date_max=DATE_MAX,
-		skip_if_done=SKIP_IF_DONE,
+		win_event_dir=cfg.win_event_dir,
+		meas_csv=cfg.meas_csv,
+		epi_csv=cfg.epi_csv,
+		pres_csv=cfg.pres_csv,
+		mapping_report_csv=cfg.mapping_report_csv,
+		near0_suggest_csv=cfg.near0_suggest_csv,
+		out_missing_csv=cfg.out_missing_csv,
+		skip_if_no_active_ch=cfg.skip_if_no_active_ch,
+		date_min=cfg.date_min,
+		date_max=cfg.date_max,
+		skip_if_done=cfg.skip_if_done,
 	)
 
 

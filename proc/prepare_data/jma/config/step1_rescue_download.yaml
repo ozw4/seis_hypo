@@ -1,0 +1,16 @@
+sample:
+  win_event_dir: /workspace/data/waveform/jma/event
+  epi_csv: /workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv
+  date_min: "2023-01-01"
+  date_max: "2023-01-31"
+  min_mag: 1.0
+  max_mag: 9.9
+  request_window_min: 1
+  max_retry_get_event_waveform: 1
+  retry_sleep_sec: 2.0
+  tmp_download_dir: /workspace/proc/prepare_data/jma/_tmp/step1_rescue_download
+  out_rescue_targets_csv: /workspace/proc/prepare_data/jma/_tmp/step1_rescue_targets.csv
+  out_orphan_dirs_csv: /workspace/proc/prepare_data/jma/_tmp/step1_orphan_event_dirs.csv
+  out_rescue_run_csv: /workspace/proc/prepare_data/jma/_tmp/step1_rescue_run.csv
+  skip_if_already_ok: true
+  download_run: true
