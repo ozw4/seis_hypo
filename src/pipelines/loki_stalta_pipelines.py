@@ -41,14 +41,6 @@ def _require_one_trial_phs(event_out_dir: Path, *, trial: int) -> Path:
 	return phs[0]
 
 
-def _sort_json_obj(obj: object) -> object:
-	if isinstance(obj, dict):
-		return {k: _sort_json_obj(obj[k]) for k in sorted(obj, key=str)}
-	if isinstance(obj, list):
-		return [_sort_json_obj(v) for v in obj]
-	return obj
-
-
 def _ones_prob(npts: int) -> np.ndarray:
 	if npts <= 0:
 		raise ValueError(f'npts must be > 0, got {npts}')
@@ -242,9 +234,10 @@ def write_pick_json(
 		obj['channels_kept'] = int(channels_kept)
 	write_json(
 		out_json,
-		_sort_json_obj(obj),
+		obj,
 		ensure_ascii=False,
 		indent=2,
+		sort_recursive=True,
 	)
 	with out_json.open('a', encoding='utf-8') as f:
 		f.write('\n')
