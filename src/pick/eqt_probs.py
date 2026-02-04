@@ -8,10 +8,9 @@ from obspy import Stream
 from scipy.signal import resample_poly
 from seisbench.models import EQTransformer
 
-from pick.eqt_io import station_zne_from_stream
 from pick.overlap import stack_overlap_1d
 from pick.probs_common import (
-	extract_station_probs,
+	build_probs_by_station_common,
 	iterate_overlapping_windows,
 	normalize_zne,
 )
@@ -185,24 +184,16 @@ def build_probs_by_station(
 	eqt_overlap: int,
 	eqt_batch_size: int,
 ) -> dict[str, dict[str, np.ndarray]]:
-	zne_by_sta = station_zne_from_stream(st)
-
-	probs_by_sta: dict[str, dict[str, np.ndarray]] = {}
-	npts = int(st[0].stats.npts)
-
-	for sta, zne in zne_by_sta.items():
-		score, delay, meta = backend_eqt_probs(
-			zne,
-			float(fs),
-			weights=str(eqt_weights),
-			in_samples=int(eqt_in_samples),
-			overlap=int(eqt_overlap),
-			batch_size=int(eqt_batch_size),
-		)
-
-		probs_by_sta[sta] = extract_station_probs(meta, sta, npts)
-
-	if not probs_by_sta:
-		raise ValueError('no station probs built')
-
-	return probs_by_sta
+	backend_kwargs = {
+		'weights': str(eqt_weights),
+		'in_samples': int(eqt_in_samples),
+		'overlap': int(eqt_overlap),
+		'batch_size': int(eqt_batch_size),
+		'log_label': 'EqT',
+	}
+	return build_probs_by_station_common(
+		st,
+		fs=float(fs),
+		backend_fn=backend_eqt_probs,
+		backend_kwargs=backend_kwargs,
+	)
