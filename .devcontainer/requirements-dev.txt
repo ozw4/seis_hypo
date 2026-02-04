@@ -5,6 +5,7 @@ pandas
 scipy
 matplotlib
 
+segyio
 tqdm
 numba
 nptdms
