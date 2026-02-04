@@ -9,6 +9,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+_JST = dt.timezone(dt.timedelta(hours=9))
+
+
+def _as_jst(ts: dt.datetime | pd.Timestamp) -> dt.datetime:
+	if isinstance(ts, pd.Timestamp):
+		ts = ts.to_pydatetime()
+	if ts.tzinfo is None:
+		return ts.replace(tzinfo=_JST)
+	return ts.astimezone(_JST)
+
+
+def _format_jst_iso(ts: dt.datetime | pd.Timestamp) -> str:
+	return _as_jst(ts).isoformat(timespec='milliseconds')
+
 
 def month_label(m: dt.date) -> str:
 	return f'{m.year:04d}-{m.month:02d}'
