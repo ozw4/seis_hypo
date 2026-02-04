@@ -5,7 +5,6 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
-from typing import TypeVar
 
 import pandas as pd
 from obspy import Stream
@@ -16,10 +15,15 @@ from common.config import (
 )
 from common.core import load_event_json
 from common.json_io import read_json
-from common.time_util import get_event_origin_utc, parse_cfg_time_utc, to_utc
+from common.time_util import get_event_origin_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.build_loki import build_loki_with_header
 from loki_tools.prob_stream import build_loki_ps_prob_stream
+from pipelines.event_filtering import (
+	EventContext,
+	extract_event_magnitude,
+	filter_event_dirs,
+)
 from pick.eqt_probs import build_probs_by_station
 from waveform.preprocess import (
 	preprocess_stream_detrend_bandpass,
@@ -39,9 +43,6 @@ _PRE_KEYS = {
 	'pre_mad_eps',
 	'pre_mad_c',
 }
-
-_EventContext = TypeVar('_EventContext')
-
 
 def prepare_win32_stream(
 	event_dir: Path,
@@ -141,106 +142,41 @@ def _log_stream_station_overlap(
 		print(f'[DBG]   example station names (db): {sorted(list(db_stas))[:10]}')
 
 
-def _filter_event_dirs(
-	cfg: LokiWaveformStackingPipelineConfig,
-	*,
-	build_candidates: Callable[[Path], list[Path]],
-	read_event: Callable[[Path], _EventContext | None],
-	get_event_time: Callable[[_EventContext], pd.Timestamp],
-	extra_filter: Callable[[_EventContext], bool] | None,
-	empty_error: str,
-	log_prefix: str,
-) -> list[Path]:
-	base = Path(cfg.base_input_dir)
-	if not base.is_dir():
-		raise FileNotFoundError(f'base_input_dir not found: {base}')
-
-	t_start = parse_cfg_time_utc(cfg.origin_time_start)
-	t_end = parse_cfg_time_utc(cfg.origin_time_end)
-	if t_start is not None and t_end is not None and t_end < t_start:
-		raise ValueError(
-			f'origin_time_end must be >= origin_time_start: {t_end} < {t_start}'
-		)
-
-	candidates = build_candidates(base)
-
-	dirs: list[Path] = []
-	dropped = 0
-
-	for p in candidates:
-		ctx = read_event(p)
-		if ctx is None:
-			continue
-
-		origin_utc = get_event_time(ctx)
-
-		if t_start is not None and origin_utc < t_start:
-			dropped += 1
-			continue
-		if t_end is not None and origin_utc > t_end:
-			dropped += 1
-			continue
-
-		if extra_filter is not None and not extra_filter(ctx):
-			dropped += 1
-			continue
-
-		dirs.append(p)
-
-	if cfg.max_events is not None and cfg.max_events > 0:
-		dirs = dirs[: int(cfg.max_events)]
-
-	if not dirs:
-		raise ValueError(empty_error.format(base=base, glob=cfg.event_glob))
-
-	print(f'{log_prefix}: total={len(candidates)} kept={len(dirs)} dropped={dropped}')
-	return dirs
-
-
 def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
 	def build_candidates(base: Path) -> list[Path]:
 		return sorted(base.glob(cfg.event_glob))
 
-	def read_event_dir(ev_dir: Path) -> tuple[pd.Timestamp, dict, Path] | None:
+	def read_event_dir(ev_dir: Path) -> EventContext | None:
 		event_json = ev_dir / 'event.json'
 		if not (ev_dir.is_dir() and event_json.is_file()):
 			return None
 		ev = load_event_json(ev_dir)
 		origin_utc = get_event_origin_utc(ev, event_json_path=event_json)
-		return (origin_utc, ev, event_json)
+		return EventContext(
+			origin_utc=origin_utc,
+			meta=ev,
+			meta_path=event_json,
+			event_dir=ev_dir,
+		)
 
-	def get_event_time(ctx: tuple[pd.Timestamp, dict, Path]) -> pd.Timestamp:
-		return ctx[0]
+	def get_event_time(ctx: EventContext) -> pd.Timestamp:
+		return ctx.origin_utc
 
-	def extra_filter(ctx: tuple[pd.Timestamp, dict, Path]) -> bool:
-		ev = ctx[1]
-		mag = None
-		extra = ev.get('extra', {})
-		if not isinstance(extra, dict):
-			extra = {}
-
-		for key in ('mag1', 'magnitude', 'mag'):
-			if key in ev:
-				mag = ev[key]
-				break
-			if key in extra:
-				mag = extra[key]
-				break
-
+	def extra_filter(ctx: EventContext) -> bool:
+		mag = extract_event_magnitude(ctx.meta)
 		if mag is None and (cfg.mag_min is not None or cfg.mag_max is not None):
 			if cfg.drop_if_mag_missing:
 				return False
 			return True
 
 		if mag is not None:
-			mag_f = float(mag)
-			if cfg.mag_min is not None and mag_f < float(cfg.mag_min):
+			if cfg.mag_min is not None and mag < float(cfg.mag_min):
 				return False
-			if cfg.mag_max is not None and mag_f > float(cfg.mag_max):
+			if cfg.mag_max is not None and mag > float(cfg.mag_max):
 				return False
 		return True
 
-	return _filter_event_dirs(
+	return filter_event_dirs(
 		cfg,
 		build_candidates=build_candidates,
 		read_event=read_event_dir,
@@ -410,7 +346,7 @@ def list_event_dirs_filtered_forge_das(
 			key=_das_event_sort_key,
 		)
 
-	def read_event_dir(ev_dir: Path) -> tuple[pd.Timestamp, dict, Path] | None:
+	def read_event_dir(ev_dir: Path) -> EventContext | None:
 		waveform_path = ev_dir / 'waveform.npy'
 		meta_path = ev_dir / 'meta.json'
 		stations_path = ev_dir / 'stations.csv'
@@ -420,12 +356,17 @@ def list_event_dirs_filtered_forge_das(
 			return None
 		meta = read_json(meta_path, encoding='utf-8', errors='strict')
 		t0 = _das_event_time_utc_from_meta(meta, meta_path=meta_path)
-		return (t0, meta, meta_path)
+		return EventContext(
+			origin_utc=t0,
+			meta=meta,
+			meta_path=meta_path,
+			event_dir=ev_dir,
+		)
 
-	def get_event_time(ctx: tuple[pd.Timestamp, dict, Path]) -> pd.Timestamp:
-		return ctx[0]
+	def get_event_time(ctx: EventContext) -> pd.Timestamp:
+		return ctx.origin_utc
 
-	return _filter_event_dirs(
+	return filter_event_dirs(
 		cfg,
 		build_candidates=build_candidates,
 		read_event=read_event_dir,
