@@ -51,6 +51,7 @@ Thumbs.db
 
 catalogue
 
+
 data/
 result/
 debug_*/
@@ -73,3 +74,5 @@ model_weight
 
 _util/
 external_source/
+!tests/data/
+!tests/data/**

@@ -5,7 +5,7 @@ matplotlib
 obspy
 numba
 PyYAML
-
+segy
 pytest
 pytest-cov
 torch

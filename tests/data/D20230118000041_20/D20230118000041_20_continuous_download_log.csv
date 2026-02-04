@@ -1,0 +1,3 @@
+event_dir,evt_file,t0_jst,span_min,network_code,n_stations_request,select_used,full_download,status,cnt_file,ch_file,message
+/workspace/data/waveform/jma/event/D20230118000041_20,D20230118000041_20.evt,2023-01-18 02:21:00,3,0203,3,False,True,downloaded,win_0203_202301180221_3m_b2db5d28.cnt,win_0203_202301180221_3m_b2db5d28.ch,
+/workspace/data/waveform/jma/event/D20230118000041_20,D20230118000041_20.evt,2023-01-18 02:21:00,3,030224,1,False,True,downloaded,win_030224_202301180221_3m_2adf96e9.cnt,win_030224_202301180221_3m_2adf96e9.ch,
