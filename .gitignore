@@ -57,6 +57,7 @@ result/
 debug_*/
 outputs/
 tmp_code/
+.venv/
 model_weight
 */runs/
 # Hypoinverse artifacts (file-based)
