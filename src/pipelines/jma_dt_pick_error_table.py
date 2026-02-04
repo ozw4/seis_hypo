@@ -4,7 +4,7 @@ import logging
 import traceback
 import warnings
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from math import sqrt
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,7 @@ import pandas as pd
 from common.config import JmaDtPickErrorConfigV1
 from common.geo import haversine_distance_km
 from common.run_snapshot import save_yaml_and_effective
-from common.time_util import iso_to_ns
+from common.time_util import _as_jst, _format_jst_iso, iso_to_ns
 from jma.picks import build_pick_table_for_event
 from jma.prepare.event_txt import read_event_txt_meta, read_origin_jst_iso
 from jma.prepare.inventory import build_inventory
@@ -26,8 +26,6 @@ from pick.dt_eval import eval_dt_row
 from pick.picks_from_probs import extract_pick_near_ref
 from pick.prob_picker import build_probs_by_station
 from pick.stalta_probs import StaltaProbSpec
-
-_JST = timezone(timedelta(hours=9))
 _DT_TOL_REQUIRED = [0.05, 0.10, 0.20]
 _DT_TABLE_COLUMNS = [
 	'run_id',
@@ -106,18 +104,6 @@ def _install_warning_logger(logger: logging.Logger) -> Callable[[], None]:
 		warnings.showwarning = prev_showwarning
 
 	return _restore
-
-
-def _as_jst(dt: datetime) -> datetime:
-	if isinstance(dt, pd.Timestamp):
-		dt = dt.to_pydatetime()
-	if dt.tzinfo is None:
-		return dt.replace(tzinfo=_JST)
-	return dt.astimezone(_JST)
-
-
-def _format_jst_iso(dt: datetime) -> str:
-	return _as_jst(dt).isoformat(timespec='milliseconds')
 
 
 def _prepare_epicenters(epi_df: pd.DataFrame) -> pd.DataFrame:

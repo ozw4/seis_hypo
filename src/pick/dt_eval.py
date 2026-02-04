@@ -1,20 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 
-_JST = timezone(timedelta(hours=9))
-
-
-def _as_jst(dt: datetime) -> datetime:
-	if dt.tzinfo is None:
-		return dt.replace(tzinfo=_JST)
-	return dt.astimezone(_JST)
-
-
-def _format_jst_iso(dt: datetime) -> str:
-	return _as_jst(dt).isoformat(timespec='milliseconds')
+from common.time_util import _as_jst, _format_jst_iso
 
 
 def _tol_key(tol: float) -> str:
