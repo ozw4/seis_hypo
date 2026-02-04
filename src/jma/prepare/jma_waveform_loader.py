@@ -27,6 +27,42 @@ CLIP_FRAC_MAX = 0.02
 def _qc_trace_raw(
 	x: np.ndarray, *, zero_frac_max: float, clip_frac_max: float
 ) -> tuple[bool, str]:
+	"""Run basic quality-control checks on a raw 1-D waveform trace.
+
+	This function validates common failure modes in raw sensor traces, including
+	shape errors, non-finite values, all-zero/constant signals, excessive zeros,
+	and suspected clipping (too many samples at the global min/max).
+
+	Parameters
+	----------
+	x : np.ndarray
+		Input trace data. Must be a 1-D array of numeric values.
+	zero_frac_max : float
+		Maximum allowed fraction of samples that are exactly 0.0. If the observed
+		fraction exceeds this threshold, the trace is rejected.
+	clip_frac_max : float
+		Maximum allowed fraction of samples equal to the global maximum or global
+		minimum value. If either fraction exceeds this threshold, the trace is
+		rejected as potentially clipped/saturated.
+
+	Returns
+	-------
+	tuple[bool, str]
+		(ok, reason) where:
+		- ok is True if the trace passes all checks, otherwise False.
+		- reason is an empty string when ok is True; otherwise a short code
+		describing the first failure encountered. Possible values include:
+		'bad_shape:{shape}', 'nan_or_inf', 'all_zero', 'too_many_zeros:{frac}',
+		'constant', 'clipped_suspect:{frac}'.
+
+	Notes
+	-----
+	- The zero and clipping checks use exact equality (== 0.0, == mx, == mn), which
+	may be sensitive to floating-point representation.
+	- The clipping heuristic flags traces with an unusually large proportion of
+	samples at the extreme values, which can indicate saturation.
+
+	"""
 	if x.ndim != 1:
 		return False, f'bad_shape:{x.shape}'
 	if not np.isfinite(x).all():
@@ -53,6 +89,25 @@ def _qc_trace_raw(
 
 @dataclass(frozen=True)
 class UStreamLoadResult:
+	"""Result of loading and preprocessing a set of vertical-component (U) traces for one event.
+
+	Attributes
+	----------
+	t0 : datetime
+		Reference window start time taken from the event inventory (naive; treated as JST in the
+		inventory, while `stream` starttimes are written in UTC).
+	fs_hz : float
+		Target sampling rate (Hz) after resampling.
+	stream : obspy.Stream
+		Processed ObsPy stream containing one Trace per station (U component), aligned to the
+		reference window.
+	stations_used : list[str]
+		Station codes that produced usable traces and were included in `stream`.
+	skips : list[dict[str, object]]
+		Per-station skip records with at least: `event_dir`, `station`, and `reason`.
+
+	"""
+
 	t0: datetime
 	fs_hz: float
 	stream: Stream
