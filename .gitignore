@@ -47,6 +47,7 @@ Thumbs.db
 *.crh
 *.cmd
 *.sta
+!requirements-ci.txt
 
 catalogue
 

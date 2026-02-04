@@ -2,10 +2,9 @@ name: pytest
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   push:
-    branches: [ "main" ]
-  # merge queue を使ってるなら追加推奨
+    branches: ["main"]
   merge_group:
 
 permissions:
@@ -18,19 +17,26 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.11", "3.12" ]
+
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      MPLBACKEND: Agg
 
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements-ci.txt
 
-      - run: python -m pip install -U pip
-      - run: pip install -r .devcontainer/requirements-dev.txt
-      - run: pytest -q
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements-ci.txt
+
+      - name: Run tests
+        run: pytest -q
