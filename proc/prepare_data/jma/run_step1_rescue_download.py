@@ -11,49 +11,20 @@ from pathlib import Path
 
 import pandas as pd
 
+from common.load_config import load_config
 from common.time_util import floor_minute
 from jma.download import create_hinet_client
+from jma.prepare.config import JmaStep1RescueDownloadConfig
 from jma.prepare.event_dirs import in_date_range, list_event_dirs, parse_date_yyyy_mm_dd
 from jma.prepare.event_txt import read_origin_jst_iso
 from jma.prepare.step1_paths import build_step1_paths
 
 # =========================
-# 設定（直書き）
+# 設定（YAML から読み込む）
 # =========================
 
-WIN_EVENT_DIR = Path('/workspace/data/waveform/jma/event').resolve()
-
-EPI_CSV = Path(
-	'/workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv'
-).resolve()
-
-DATE_MIN: str | None = '2023-01-01'
-DATE_MAX: str | None = '2023-01-31'
-
-MIN_MAG: float | None = 1.00
-MAX_MAG: float | None = 9.9
-
-REQUEST_WINDOW_MIN = 1
-
-MAX_RETRY_GET_EVENT_WAVEFORM = 1
-RETRY_SLEEP_SEC = 2.0
-
-TMP_DOWNLOAD_DIR = Path(
-	'/workspace/proc/prepare_data/jma/_tmp/step1_rescue_download'
-).resolve()
-
-OUT_RESCUE_TARGETS_CSV = Path(
-	'/workspace/proc/prepare_data/jma/_tmp/step1_rescue_targets.csv'
-).resolve()
-OUT_ORPHAN_DIRS_CSV = Path(
-	'/workspace/proc/prepare_data/jma/_tmp/step1_orphan_event_dirs.csv'
-).resolve()
-OUT_RESCUE_RUN_CSV = Path(
-	'/workspace/proc/prepare_data/jma/_tmp/step1_rescue_run.csv'
-).resolve()
-
-SKIP_IF_ALREADY_OK = True
-DOWNLOAD_RUN = True
+YAML_PATH = Path(__file__).resolve().parent / 'config' / 'step1_rescue_download.yaml'
+PRESET = 'sample'
 
 # =========================
 # 実装
@@ -232,11 +203,11 @@ def _safe_copy(src: Path, dst: Path) -> None:
 
 
 def _scan_orphan_dirs(
-	*, dmin: date | None, dmax: date | None
+	*, win_event_dir: Path, dmin: date | None, dmax: date | None
 ) -> list[dict[str, object]]:
 	rows: list[dict[str, object]] = []
 	for d in list_event_dirs(
-		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
+		win_event_dir, date_min=dmin, date_max=dmax, invalid_name='skip'
 	):
 		p = build_step1_paths(d)
 		missing = []
@@ -275,11 +246,11 @@ def _scan_orphan_dirs(
 
 
 def _build_origin_ns_to_dir_map(
-	*, dmin: date | None, dmax: date | None
+	*, win_event_dir: Path, dmin: date | None, dmax: date | None
 ) -> dict[int, Path]:
 	out: dict[int, Path] = {}
 	for d in list_event_dirs(
-		WIN_EVENT_DIR, date_min=dmin, date_max=dmax, invalid_name='skip'
+		win_event_dir, date_min=dmin, date_max=dmax, invalid_name='skip'
 	):
 		p = build_step1_paths(d)
 		if not p.txt_path.is_file():
@@ -318,33 +289,43 @@ def _count_useful_downloaded_dirs(
 
 
 def main() -> None:
-	if not WIN_EVENT_DIR.is_dir():
-		raise FileNotFoundError(WIN_EVENT_DIR)
+	cfg = load_config(JmaStep1RescueDownloadConfig, YAML_PATH, PRESET)
 
-	dmin = parse_date_yyyy_mm_dd(DATE_MIN)
-	dmax = parse_date_yyyy_mm_dd(DATE_MAX)
+	if not cfg.win_event_dir.is_dir():
+		raise FileNotFoundError(cfg.win_event_dir)
+
+	dmin = parse_date_yyyy_mm_dd(cfg.date_min)
+	dmax = parse_date_yyyy_mm_dd(cfg.date_max)
 	if dmin is not None and dmax is not None and dmax < dmin:
 		raise ValueError(f'DATE_MAX < DATE_MIN: {dmax} < {dmin}')
 
-	if int(REQUEST_WINDOW_MIN) <= 0:
+	if int(cfg.request_window_min) <= 0:
 		raise ValueError('REQUEST_WINDOW_MIN must be >= 1')
-	if int(MAX_RETRY_GET_EVENT_WAVEFORM) <= 0:
+	if int(cfg.max_retry_get_event_waveform) <= 0:
 		raise ValueError('MAX_RETRY_GET_EVENT_WAVEFORM must be >= 1')
 
 	epi = _load_epicenters_filtered(
-		EPI_CSV, dmin=dmin, dmax=dmax, min_mag=MIN_MAG, max_mag=MAX_MAG
+		cfg.epi_csv, dmin=dmin, dmax=dmax, min_mag=cfg.min_mag, max_mag=cfg.max_mag
 	)
 	print(
-		f'[epi] filtered rows={len(epi)}  date={DATE_MIN}..{DATE_MAX}  mag={MIN_MAG}..{MAX_MAG}',
+		f'[epi] filtered rows={len(epi)}  date={cfg.date_min}..{cfg.date_max}  '
+		f'mag={cfg.min_mag}..{cfg.max_mag}',
 		flush=True,
 	)
 
 	# 既存dirの欠損（evt/txt/ch いずれか欠けている）
-	orphan_rows = _scan_orphan_dirs(dmin=dmin, dmax=dmax)
-	_write_csv(OUT_ORPHAN_DIRS_CSV, orphan_rows)
-	print(f'[out] orphan_dirs={len(orphan_rows)} -> {OUT_ORPHAN_DIRS_CSV}', flush=True)
+	orphan_rows = _scan_orphan_dirs(
+		win_event_dir=cfg.win_event_dir, dmin=dmin, dmax=dmax
+	)
+	_write_csv(cfg.out_orphan_dirs_csv, orphan_rows)
+	print(
+		f'[out] orphan_dirs={len(orphan_rows)} -> {cfg.out_orphan_dirs_csv}',
+		flush=True,
+	)
 
-	origin_ns_to_dir = _build_origin_ns_to_dir_map(dmin=dmin, dmax=dmax)
+	origin_ns_to_dir = _build_origin_ns_to_dir_map(
+		win_event_dir=cfg.win_event_dir, dmin=dmin, dmax=dmax
+	)
 	orphan_dirname_set = set(Path(str(r['event_dir'])).name for r in orphan_rows)
 
 	# orphan_dirs 由来 minute（dir名から）
@@ -387,7 +368,7 @@ def main() -> None:
 			missing_dir_or_txt += 1
 			continue
 
-		if SKIP_IF_ALREADY_OK and _event_step1_ok(event_dir):
+		if cfg.skip_if_already_ok and _event_step1_ok(event_dir):
 			ok += 1
 			continue
 
@@ -419,9 +400,9 @@ def main() -> None:
 
 		ok += 1
 
-	_write_csv(OUT_RESCUE_TARGETS_CSV, target_rows)
+	_write_csv(cfg.out_rescue_targets_csv, target_rows)
 	print(
-		f'[out] rescue_targets={len(target_rows)} -> {OUT_RESCUE_TARGETS_CSV}\n'
+		f'[out] rescue_targets={len(target_rows)} -> {cfg.out_rescue_targets_csv}\n'
 		f'  ok={ok}\n'
 		f'  missing_dir_or_dir_txt={missing_dir_or_txt}\n'
 		f'  missing_evt_or_ch={missing_evt_or_ch}',
@@ -432,7 +413,7 @@ def main() -> None:
 		print('[done] nothing to rescue', flush=True)
 		return
 
-	if not DOWNLOAD_RUN:
+	if not cfg.download_run:
 		print('[done] download run skipped by config', flush=True)
 		return
 
@@ -461,7 +442,7 @@ def main() -> None:
 	run_rows: list[dict[str, object]] = []
 
 	for i, m0 in enumerate(minute_list, 1):
-		m1 = _minute_add(m0, int(REQUEST_WINDOW_MIN))
+		m1 = _minute_add(m0, int(cfg.request_window_min))
 		print(
 			f'\n[req {i}/{len(minute_list)}] get_event_waveform {m0}..{m1}', flush=True
 		)
@@ -471,21 +452,24 @@ def main() -> None:
 		downloaded_dirs: list[Path] = []
 		useful = 0
 
-		for k in range(1, int(MAX_RETRY_GET_EVENT_WAVEFORM) + 1):
-			print(f'[try] {k}/{MAX_RETRY_GET_EVENT_WAVEFORM}', flush=True)
+		for k in range(1, int(cfg.max_retry_get_event_waveform) + 1):
+			print(
+				f'[try] {k}/{cfg.max_retry_get_event_waveform}',
+				flush=True,
+			)
 
 			# retryごとに必ず掃除（残骸で成功扱いにならないようにする）
-			_clear_tmp_dir(TMP_DOWNLOAD_DIR)
+			_clear_tmp_dir(cfg.tmp_download_dir)
 
 			try:
 				cwd0 = os.getcwd()
-				os.chdir(str(TMP_DOWNLOAD_DIR))
+				os.chdir(str(cfg.tmp_download_dir))
 				try:
 					kwargs: dict[str, object] = {}
-					if MIN_MAG is not None:
-						kwargs['minmagnitude'] = float(MIN_MAG)
-					if MAX_MAG is not None:
-						kwargs['maxmagnitude'] = float(MAX_MAG)
+					if cfg.min_mag is not None:
+						kwargs['minmagnitude'] = float(cfg.min_mag)
+					if cfg.max_mag is not None:
+						kwargs['maxmagnitude'] = float(cfg.max_mag)
 					client.get_event_waveform(m0, m1, **kwargs)
 				finally:
 					os.chdir(cwd0)
@@ -493,14 +477,14 @@ def main() -> None:
 			except Exception as e:
 				last_err = repr(e)
 				print(
-					f'[warn] get_event_waveform failed -> retry {k}/{MAX_RETRY_GET_EVENT_WAVEFORM}: {last_err}',
+					f'[warn] get_event_waveform failed -> retry {k}/{cfg.max_retry_get_event_waveform}: {last_err}',
 					flush=True,
 				)
-				time.sleep(float(RETRY_SLEEP_SEC) * float(k))
+				time.sleep(float(cfg.retry_sleep_sec) * float(k))
 				continue
 
 			downloaded_dirs = sorted(
-				[p for p in TMP_DOWNLOAD_DIR.glob('D20*') if p.is_dir()]
+				[p for p in cfg.tmp_download_dir.glob('D20*') if p.is_dir()]
 			)
 			useful = _count_useful_downloaded_dirs(
 				downloaded_dirs,
@@ -517,10 +501,10 @@ def main() -> None:
 			if useful <= 0:
 				last_err = 'no_useful_dirs_downloaded'
 				print(
-					f'[warn] no useful dirs -> retry {k}/{MAX_RETRY_GET_EVENT_WAVEFORM}',
+					f'[warn] no useful dirs -> retry {k}/{cfg.max_retry_get_event_waveform}',
 					flush=True,
 				)
-				time.sleep(float(RETRY_SLEEP_SEC) * float(k))
+				time.sleep(float(cfg.retry_sleep_sec) * float(k))
 				continue
 
 			ok_req = True
@@ -561,7 +545,7 @@ def main() -> None:
 			if not want:
 				continue
 
-			dst_dir = WIN_EVENT_DIR / d.name
+			dst_dir = cfg.win_event_dir / d.name
 			dst_dir.mkdir(parents=True, exist_ok=True)
 
 			dst_paths = build_step1_paths(dst_dir)
@@ -587,7 +571,9 @@ def main() -> None:
 			}
 		)
 
-	origin_ns_to_dir2 = _build_origin_ns_to_dir_map(dmin=dmin, dmax=dmax)
+	origin_ns_to_dir2 = _build_origin_ns_to_dir_map(
+		win_event_dir=cfg.win_event_dir, dmin=dmin, dmax=dmax
+	)
 
 	n_ok_after = 0
 	n_still_missing = 0
@@ -601,9 +587,10 @@ def main() -> None:
 		else:
 			n_still_missing += 1
 
-	_write_csv(OUT_RESCUE_RUN_CSV, run_rows)
+	_write_csv(cfg.out_rescue_run_csv, run_rows)
 	print(
-		f'\n[out] rescue_run rows={len(run_rows)} -> {OUT_RESCUE_RUN_CSV}', flush=True
+		f'\n[out] rescue_run rows={len(run_rows)} -> {cfg.out_rescue_run_csv}',
+		flush=True,
 	)
 	print(
 		f'[check] after rescue (origin_ns targets): ok={n_ok_after} still_missing={n_still_missing}',

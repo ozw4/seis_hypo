@@ -1,0 +1,12 @@
+sample:
+  win_event_dir: /workspace/data/waveform/jma/event
+  meas_csv: /workspace/data/arrivetime/JMA/arrivetime_measurements_2023.0.csv
+  epi_csv: /workspace/data/arrivetime/JMA/arrivetime_epicenters_2023.0.csv
+  pres_csv: /workspace/proc/prepare_data/jma/stationcode_match/v1/snapshots/monthly/monthly_presence.csv
+  mapping_report_csv: /workspace/proc/prepare_data/jma/stationcode_match/v1/match_out_final/mapping_report.csv
+  near0_suggest_csv: /workspace/proc/prepare_data/jma/stationcode_match/v1/match_out_final/near0_suggestions.csv
+  out_missing_csv: /workspace/data/waveform/jma/event/missing_in_active_ch.csv
+  skip_if_no_active_ch: true
+  skip_if_done: true
+  date_min: "2023-02-09"
+  date_max: "2023-05-10"

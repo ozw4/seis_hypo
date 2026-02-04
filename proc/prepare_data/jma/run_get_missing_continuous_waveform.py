@@ -6,6 +6,7 @@ from pathlib import Path
 
 from common.csv_util import open_dict_writer
 from common.done_marker import read_done_json, should_skip_done, write_done_json
+from common.load_config import load_config
 from common.time_util import ceil_minutes, floor_minute
 from jma.download import (
 	_name_stem,
@@ -19,38 +20,17 @@ from jma.prepare.event_dirs import (
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
+from jma.prepare.config import JmaMissingContinuousWaveformConfig
 from jma.prepare.event_paths import resolve_missing_continuous, resolve_single_evt
 from jma.prepare.missing_io import read_missing_by_network
 from jma.win32_reader import get_evt_info
 
 # =========================
-# 設定（ここを直書きでOK）
+# 設定（YAML から読み込む）
 # =========================
 
-WIN_EVENT_DIR = Path('/workspace/data/waveform/jma/event').resolve()
-
-TARGET_EVENT_DIR_NAMES: list[str] = []
-# 例:
-# TARGET_EVENT_DIR_NAMES = ["D20230118000041_20", "D20230119012345_00"]
-
-OUT_SUBDIR = 'continuous'
-THREADS = 8
-CLEANUP = True
-SKIP_IF_EXISTS = True
-
-# ---- 期間フィルタ（ディレクトリ名 DYYYYMMDD... の YYYYMMDD で絞る）----
-DATE_MIN: str | None = '2023-02-10'
-DATE_MAX: str | None = '2023-05-01'
-
-# ---- 処理済み skip（ネットワーク単位 done マーカー方式） ----
-SKIP_IF_DONE = True
-RUN_TAG = 'v1'
-
-# ---- returned None のときだけ、最大リトライ回数 ----
-MAX_RETRY_REQUEST_NONE = 5
-
-# ---- returned None のときだけ、threadsを段階的に落とす ----
-THREADS_LADDER = [8, 4, 2, 1]
+YAML_PATH = Path(__file__).resolve().parent / 'config' / 'missing_continuous_waveform.yaml'
+PRESET = 'sample'
 
 
 # =========================
@@ -111,39 +91,43 @@ def _write_net_done(
 
 
 def main() -> None:
-	if not WIN_EVENT_DIR.is_dir():
-		raise FileNotFoundError(WIN_EVENT_DIR)
+	cfg = load_config(JmaMissingContinuousWaveformConfig, YAML_PATH, PRESET)
 
-	run_tag2 = str(RUN_TAG).strip()
+	if not cfg.win_event_dir.is_dir():
+		raise FileNotFoundError(cfg.win_event_dir)
+
+	run_tag2 = str(cfg.run_tag).strip()
 	if not run_tag2:
 		raise ValueError('RUN_TAG must be non-empty')
 
-	dmin = parse_date_yyyy_mm_dd(DATE_MIN)
-	dmax = parse_date_yyyy_mm_dd(DATE_MAX)
+	dmin = parse_date_yyyy_mm_dd(cfg.date_min)
+	dmax = parse_date_yyyy_mm_dd(cfg.date_max)
 	if dmin is not None and dmax is not None and dmax < dmin:
 		raise ValueError(f'DATE_MAX < DATE_MIN: {dmax} < {dmin}')
 
-	if int(MAX_RETRY_REQUEST_NONE) <= 0:
+	if int(cfg.max_retry_request_none) <= 0:
 		raise ValueError('MAX_RETRY_REQUEST_NONE must be >= 1')
 
-	ladder = [int(x) for x in THREADS_LADDER]
+	ladder = [int(x) for x in cfg.threads_ladder]
 	if not ladder:
 		raise ValueError('THREADS_LADDER must be non-empty')
 	if any(x <= 0 for x in ladder):
-		raise ValueError(f'invalid THREADS_LADDER: {THREADS_LADDER}')
-	if ladder[0] != int(THREADS):
+		raise ValueError(f'invalid THREADS_LADDER: {cfg.threads_ladder}')
+	if ladder[0] != int(cfg.threads):
 		print(
-			f'[warn] THREADS={THREADS} but THREADS_LADDER[0]={ladder[0]} '
+			f'[warn] THREADS={cfg.threads} but THREADS_LADDER[0]={ladder[0]} '
 			'(keeping ladder as-is)',
 			flush=True,
 		)
 
 	client = create_hinet_client()
 
-	event_dirs = list_event_dirs(WIN_EVENT_DIR, target_names=TARGET_EVENT_DIR_NAMES)
+	event_dirs = list_event_dirs(
+		cfg.win_event_dir, target_names=cfg.target_event_dir_names
+	)
 
 	if not event_dirs:
-		raise RuntimeError(f'no event dirs under: {WIN_EVENT_DIR}')
+		raise RuntimeError(f'no event dirs under: {cfg.win_event_dir}')
 
 	for event_dir in event_dirs:
 		# ---- 期間フィルタ（ディレクトリ名の日付）----
@@ -198,7 +182,7 @@ def main() -> None:
 			)  # max time 3 min
 
 			stations_by_network = read_missing_by_network(inp.missing_path)
-			outdir = inp.event_dir / OUT_SUBDIR
+			outdir = inp.event_dir / cfg.out_subdir
 			outdir.mkdir(parents=True, exist_ok=True)
 
 			for network_code, stations in stations_by_network.items():
@@ -208,7 +192,9 @@ def main() -> None:
 					run_tag=run_tag2,
 					network_code=str(network_code),
 				)
-				if SKIP_IF_DONE and _should_skip_net_done(net_done, run_tag=run_tag2):
+				if cfg.skip_if_done and _should_skip_net_done(
+					net_done, run_tag=run_tag2
+				):
 					print(
 						f'[info] skip network (done exists): '
 						f'code={network_code} start={t0} span_min={span_min} '
@@ -228,7 +214,7 @@ def main() -> None:
 				ch_path = outdir / ctable_name
 
 				try:
-					if SKIP_IF_EXISTS and cnt_path.exists() and ch_path.exists():
+					if cfg.skip_if_exists and cnt_path.exists() and ch_path.exists():
 						writer.writerow(
 							{
 								'event_dir': str(inp.event_dir),
@@ -271,7 +257,7 @@ def main() -> None:
 
 					# None のときだけ threads を落とす：8→4→2→1
 					for th in ladder:
-						for k in range(1, int(MAX_RETRY_REQUEST_NONE) + 1):
+						for k in range(1, int(cfg.max_retry_request_none) + 1):
 							last_threads = int(th)
 							last_try_idx = int(k)
 							try:
@@ -284,7 +270,7 @@ def main() -> None:
 										span_min=span_min,
 										outdir=outdir,
 										threads=int(th),
-										cleanup=CLEANUP,
+										cleanup=cfg.cleanup,
 										clear_selection=False,
 										skip_if_exists=False,
 										use_select=select_supported,
@@ -301,7 +287,7 @@ def main() -> None:
 									'Fail to request WIN32 (returned None).'
 								):
 									print(
-										f'[warn] returned None -> retry {k}/{MAX_RETRY_REQUEST_NONE} '
+										f'[warn] returned None -> retry {k}/{cfg.max_retry_request_none} '
 										f'(threads={th}): code={network_code} start={t0} '
 										f'span_min={span_min} n_stations={len(stations)}',
 										flush=True,
