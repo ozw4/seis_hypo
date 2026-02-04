@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -43,6 +44,49 @@ class PickAccumulator:
 			base = 0 if self.channel_range is None else int(self.channel_range[0])
 			return int(base + channel_index)
 		return int(self.channel_ids[channel_index])
+
+	def _consume_peaks(
+		self,
+		wcsv: csv.writer,
+		*,
+		seg_id: int,
+		block_start: int,
+		phase: str,
+		peaks: np.ndarray,
+		last_time_ms: np.ndarray,
+		last_prob: np.ndarray,
+		tol_ms: int,
+		t_idx_to_ms: Callable[[int], int],
+	) -> int:
+		count = 0
+		for c_idx, t_idx, val in peaks:
+			t_ms = t_idx_to_ms(int(t_idx))
+			prev_t = int(last_time_ms[c_idx])
+			prev_v = float(last_prob[c_idx])
+			if prev_t < 0:
+				last_time_ms[c_idx] = int(t_ms)
+				last_prob[c_idx] = float(val)
+				continue
+			if int(t_ms) - int(prev_t) <= int(tol_ms):
+				if float(val) > float(prev_v):
+					last_time_ms[c_idx] = int(t_ms)
+					last_prob[c_idx] = float(val)
+				continue
+			wcsv.writerow(
+				[
+					int(seg_id),
+					int(block_start),
+					self._chan_id(int(c_idx)),
+					str(phase),
+					int(prev_t),
+					utc_ms_to_iso(int(prev_t)),
+					float(prev_v),
+				]
+			)
+			count += 1
+			last_time_ms[c_idx] = int(t_ms)
+			last_prob[c_idx] = float(val)
+		return int(count)
 
 	def flush(self, wcsv: csv.writer, seg_id: int, block_start: int) -> int:
 		if self.last_p_time_ms is None:
@@ -123,60 +167,27 @@ class PickAccumulator:
 			return int(round(int(chunk_start_ms) + (float(t_idx) * float(dt_ms))))
 
 		count = 0
-		for c_idx, t_idx, val in p_peaks:
-			t_ms = _tidx_to_ms(int(t_idx))
-			prev_t = int(self.last_p_time_ms[c_idx])
-			prev_v = float(self.last_p_prob[c_idx])
-			if prev_t < 0:
-				self.last_p_time_ms[c_idx] = int(t_ms)
-				self.last_p_prob[c_idx] = float(val)
-				continue
-			if int(t_ms) - int(prev_t) <= int(tol_ms):
-				if float(val) > float(prev_v):
-					self.last_p_time_ms[c_idx] = int(t_ms)
-					self.last_p_prob[c_idx] = float(val)
-				continue
-			wcsv.writerow(
-				[
-					int(seg_id),
-					int(block_start),
-					self._chan_id(int(c_idx)),
-					'P',
-					int(prev_t),
-					utc_ms_to_iso(int(prev_t)),
-					float(prev_v),
-				]
-			)
-			count += 1
-			self.last_p_time_ms[c_idx] = int(t_ms)
-			self.last_p_prob[c_idx] = float(val)
-
-		for c_idx, t_idx, val in s_peaks:
-			t_ms = _tidx_to_ms(int(t_idx))
-			prev_t = int(self.last_s_time_ms[c_idx])
-			prev_v = float(self.last_s_prob[c_idx])
-			if prev_t < 0:
-				self.last_s_time_ms[c_idx] = int(t_ms)
-				self.last_s_prob[c_idx] = float(val)
-				continue
-			if int(t_ms) - int(prev_t) <= int(tol_ms):
-				if float(val) > float(prev_v):
-					self.last_s_time_ms[c_idx] = int(t_ms)
-					self.last_s_prob[c_idx] = float(val)
-				continue
-			wcsv.writerow(
-				[
-					int(seg_id),
-					int(block_start),
-					self._chan_id(int(c_idx)),
-					'S',
-					int(prev_t),
-					utc_ms_to_iso(int(prev_t)),
-					float(prev_v),
-				]
-			)
-			count += 1
-			self.last_s_time_ms[c_idx] = int(t_ms)
-			self.last_s_prob[c_idx] = float(val)
+		count += self._consume_peaks(
+			wcsv,
+			seg_id=int(seg_id),
+			block_start=int(block_start),
+			phase='P',
+			peaks=p_peaks,
+			last_time_ms=self.last_p_time_ms,
+			last_prob=self.last_p_prob,
+			tol_ms=int(tol_ms),
+			t_idx_to_ms=_tidx_to_ms,
+		)
+		count += self._consume_peaks(
+			wcsv,
+			seg_id=int(seg_id),
+			block_start=int(block_start),
+			phase='S',
+			peaks=s_peaks,
+			last_time_ms=self.last_s_time_ms,
+			last_prob=self.last_s_prob,
+			tol_ms=int(tol_ms),
+			t_idx_to_ms=_tidx_to_ms,
+		)
 
 		return int(count)
