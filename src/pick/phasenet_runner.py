@@ -4,16 +4,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from pick.phasenet_labels import labels_to_indices
 from pick.phasenet_probs import _get_phasenet
-
-
-def _labels_to_indices(labels: str) -> tuple[int, int]:
-	lab = str(labels)
-	if 'P' not in lab or 'S' not in lab:
-		raise ValueError(
-			f"PhaseNet labels must include 'P' and 'S', got labels={lab!r}"
-		)
-	return int(lab.index('P')), int(lab.index('S'))
 
 
 class PhaseNetWindowRunner:
@@ -22,6 +14,7 @@ class PhaseNetWindowRunner:
 	Note:
 	  - det_gate_enable is not supported at pipeline-level (enforce elsewhere).
 	  - This runner returns a dummy det array of ones for signature compatibility.
+	  - idx_n is ignored because this runner only returns P/S probabilities.
 
 	"""
 
@@ -31,7 +24,7 @@ class PhaseNetWindowRunner:
 		self.in_samples = int(in_samples)
 		self.batch_traces = int(batch_traces)
 
-		self.idx_p, self.idx_s = _labels_to_indices(
+		_, self.idx_p, self.idx_s = labels_to_indices(
 			getattr(self.model, 'labels', 'NPS')
 		)
 

@@ -11,6 +11,7 @@ from scipy.signal import resample_poly
 from seisbench.models import PhaseNet
 
 from pick.overlap import stack_overlap_1d
+from pick.phasenet_labels import labels_to_indices
 from pick.probs_common import (
 	extract_station_probs,
 	iterate_overlapping_windows,
@@ -63,18 +64,6 @@ def _get_phasenet(weights: str, in_samples: int) -> PhaseNet:
 	model.eval().to(device)
 	_PHASENET_MODELS[key] = model
 	return model
-
-
-def _labels_to_indices(labels: str) -> tuple[int, int, int]:
-	lab = str(labels)
-	if 'P' not in lab or 'S' not in lab:
-		raise ValueError(
-			f"PhaseNet labels must include 'P' and 'S', got labels={lab!r}"
-		)
-	idx_p = int(lab.index('P'))
-	idx_s = int(lab.index('S'))
-	idx_n = int(lab.index('N')) if 'N' in lab else -1
-	return idx_n, idx_p, idx_s
 
 
 def _stitch_phasenet_batch(
@@ -152,7 +141,7 @@ def backend_phasenet_probs(
 
 	model = _get_phasenet(weights, int(in_samples))
 	device = next(model.parameters()).device
-	idx_n, idx_p, idx_s = _labels_to_indices(getattr(model, 'labels', 'NPS'))
+	idx_n, idx_p, idx_s = labels_to_indices(getattr(model, 'labels', 'NPS'))
 
 	probN = np.full(N_eff, np.nan, dtype=np.float32)
 	probP = np.full(N_eff, np.nan, dtype=np.float32)
