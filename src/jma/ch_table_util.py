@@ -5,8 +5,7 @@ import pandas as pd
 from jma.prepare.inventory import (
 	DEFAULT_AXIS_TAIL_CHARS,
 	DEFAULT_COMP_PRIORITY,
-	_axis_from_component,
-	_component_rank,
+	infer_station_axes_by_rank,
 )
 from jma.stationcode_common import normalize_code
 
@@ -37,28 +36,26 @@ def normalize_ch_table_components_to_une(
 
 	out_rows: list[pd.Series] = []
 	bad_missing: list[str] = []
+	seen_station: set[str] = set()
+	station_order: list[str] = []
 
-	# sort=False で station の出現順を維持
-	for sta_raw, g in ch_df.groupby('station', sort=False):
+	for sta_raw in ch_df['station'].tolist():
 		sta = normalize_code(sta_raw)
 		if not sta:
 			continue
+		if sta in seen_station:
+			continue
+		seen_station.add(sta)
+		station_order.append(sta)
 
-		best_row: dict[str, pd.Series] = {}
-		best_rank: dict[str, int] = {}
+	best_rows_by_station = infer_station_axes_by_rank(
+		ch_df,
+		comp_priority=comp_priority,
+		axis_tail_chars=axis_tail_chars,
+	)
 
-		for _, r in g.iterrows():
-			comp_raw = str(r['component'])
-			axis = _axis_from_component(comp_raw, axis_tail_chars)
-			if axis not in ('U', 'N', 'E'):
-				continue
-			rank = _component_rank(comp_raw, axis, comp_priority)
-
-			prev = best_rank.get(axis)
-			if prev is None or int(rank) < int(prev):
-				best_rank[axis] = int(rank)
-				best_row[axis] = r
-
+	for sta in station_order:
+		best_row = best_rows_by_station.get(sta, {})
 		missing = [a for a in ('U', 'N', 'E') if a not in best_row]
 		if missing:
 			bad_missing.append(f'{sta} missing={missing}')

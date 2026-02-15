@@ -74,6 +74,51 @@ def _component_rank(raw: str, axis: str, comp_priority: dict[str, list[str]]) ->
 	return 99
 
 
+def infer_station_axes_by_rank(
+	ch_df,
+	*,
+	comp_priority: dict[str, list[str]] | None = None,
+	axis_tail_chars: set[str] | None = None,
+) -> dict[str, dict[str, object]]:
+	"""Station ごとに component 文字列から U/N/E 候補を rank 最小で選ぶ。
+
+	返り値:
+	- {station_code: {'U': row_like, 'N': row_like, 'E': row_like (存在するものだけ)}}
+	- station_code は normalize_code 後の値
+	"""
+	if 'station' not in ch_df.columns or 'component' not in ch_df.columns:
+		raise ValueError('ch_df must have columns: station, component')
+
+	if comp_priority is None:
+		comp_priority = DEFAULT_COMP_PRIORITY
+	if axis_tail_chars is None:
+		axis_tail_chars = DEFAULT_AXIS_TAIL_CHARS
+
+	out: dict[str, dict[str, object]] = {}
+	best_rank_by_station: dict[str, dict[str, int]] = {}
+
+	for _, r in ch_df.iterrows():
+		sta = normalize_code(r['station'])
+		if not sta:
+			continue
+
+		comp_raw = str(r['component'])
+		axis = _axis_from_component(comp_raw, axis_tail_chars)
+		if axis not in ['U', 'N', 'E']:
+			continue
+
+		rank = int(_component_rank(comp_raw, axis, comp_priority))
+		per_sta_rows = out.setdefault(sta, {})
+		per_sta_rank = best_rank_by_station.setdefault(sta, {})
+
+		prev = per_sta_rank.get(axis)
+		if prev is None or rank < prev:
+			per_sta_rank[axis] = rank
+			per_sta_rows[axis] = r.copy()
+
+	return out
+
+
 @dataclass(frozen=True)
 class SourceSpec:
 	source_id: str
