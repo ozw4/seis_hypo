@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 # ---- Hard-coded paths for your workflow ----
 DEFAULT_1DVEL_SRC = Path('/workspace/data/velocity/jma/vjma2001')
@@ -79,6 +80,40 @@ def read_1dvel(
 	"""
 	lines = src.read_text().splitlines()
 	return parse_1dvel_lines(lines, strict=strict)
+
+
+def read_vs_model_44mod(path: Path) -> pd.DataFrame:
+	if not path.is_file():
+		raise FileNotFoundError(f'vs model not found: {path}')
+
+	df = pd.read_csv(
+		path,
+		sep=r'\s+',
+		header=None,
+		names=['depth_m', 'vs_mps', 'sigma_mps'],
+		comment='#',
+		skiprows=1,
+	)
+
+	for c in ['depth_m', 'vs_mps', 'sigma_mps']:
+		df[c] = pd.to_numeric(df[c], errors='coerce')
+
+	df = df.dropna(subset=['depth_m', 'vs_mps']).copy()
+	if df.empty:
+		raise ValueError(f'no numeric rows found in: {path}')
+
+	df = (
+		df.sort_values('depth_m')
+		.drop_duplicates(subset=['depth_m'], keep='first')
+		.reset_index(drop=True)
+	)
+
+	if (df['depth_m'] < 0).any():
+		raise ValueError('depth_m must be non-negative')
+	if (df['vs_mps'] <= 0).any():
+		raise ValueError('vs_mps must be positive')
+
+	return df[['depth_m', 'vs_mps', 'sigma_mps']].copy()
 
 
 def to_nll_layer_lines(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 
 from common.core import validate_columns
@@ -55,3 +57,44 @@ def normalize_station_rows(
 		raise ValueError('stations_df is empty after station grouping')
 
 	return df
+
+
+def read_forge_stations_portal_depth(path: Path) -> pd.DataFrame:
+	if not path.is_file():
+		raise FileNotFoundError(f'stations csv not found: {path}')
+
+	df = pd.read_csv(path)
+	if df.empty:
+		raise ValueError(f'stations csv is empty: {path}')
+
+	if 'station' not in df.columns:
+		if 'station_id' in df.columns:
+			df = df.copy()
+			df['station'] = df['station_id'].astype(str)
+		else:
+			raise ValueError("stations csv must contain 'station' or 'station_id'")
+
+	if 'lat' not in df.columns or 'lon' not in df.columns:
+		raise ValueError("stations csv must contain 'lat' and 'lon'")
+
+	if 'depth_m' not in df.columns:
+		raise ValueError(
+			"stations csv must contain 'depth_m' (portal-based, meters, positive downward)"
+		)
+
+	df = df.copy()
+	df['station'] = df['station'].astype(str)
+	if df['station'].isna().any():
+		raise ValueError('station contains NaN')
+
+	df['lat'] = df['lat'].astype(float)
+	df['lon'] = df['lon'].astype(float)
+	df['depth_m'] = pd.to_numeric(df['depth_m'], errors='coerce')
+
+	if df['depth_m'].isna().any():
+		raise ValueError('depth_m has NaN; fix station metadata')
+	if (df['depth_m'] < 0).any():
+		raise ValueError('depth_m must be non-negative (portal-based depth)')
+
+	df['elevation_m'] = -df['depth_m'].astype(float)
+	return df[['station', 'lat', 'lon', 'depth_m', 'elevation_m']].copy()

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
-
+from common.stations import read_forge_stations_portal_depth
 from loki_tools.grid import propose_grid_from_stations, write_loki_header
 from nonlinloc.control import write_nll_control_files_ps
-from nonlinloc.vel1d import nll_layers_text_from_1d_model
+from nonlinloc.vel1d import nll_layers_text_from_1d_model, read_vs_model_44mod
 
 # =========================
 # User parameters (edit here)
@@ -54,91 +53,8 @@ DEPTH_KM_MODE = 'from_elevation'  # 'zero'|'from_elevation'
 GT_PLFD_EPS = 1.0e-3
 GT_PLFD_SWEEP = 0
 
-# =========================
-# Implementation
-# =========================
-
-
-def _read_vs_model(path: Path) -> pd.DataFrame:
-	if not path.is_file():
-		raise FileNotFoundError(f'vs model not found: {path}')
-
-	# 1st line is meaningless -> skiprows=1
-	df = pd.read_csv(
-		path,
-		sep=r'\s+',
-		header=None,
-		names=['depth_m', 'vs_mps', 'sigma_mps'],
-		comment='#',
-		skiprows=1,
-	)
-
-	for c in ['depth_m', 'vs_mps', 'sigma_mps']:
-		df[c] = pd.to_numeric(df[c], errors='coerce')
-
-	df = df.dropna(subset=['depth_m', 'vs_mps']).copy()
-	if df.empty:
-		raise ValueError(f'no numeric rows found in: {path}')
-
-	df = df.sort_values('depth_m').reset_index(drop=True)
-	df = df.drop_duplicates(subset=['depth_m'], keep='first').reset_index(drop=True)
-
-	if (df['depth_m'] < 0).any():
-		raise ValueError('depth_m must be non-negative')
-
-	if (df['vs_mps'] <= 0).any():
-		raise ValueError('vs_mps must be positive')
-
-	return df[['depth_m', 'vs_mps', 'sigma_mps']]
-
-
-def _read_stations(path: Path) -> pd.DataFrame:
-	if not path.is_file():
-		raise FileNotFoundError(f'stations csv not found: {path}')
-
-	df = pd.read_csv(path)
-	if df.empty:
-		raise ValueError(f'stations csv is empty: {path}')
-
-	# station id
-	if 'station' not in df.columns:
-		if 'station_id' in df.columns:
-			df = df.copy()
-			df['station'] = df['station_id'].astype(str)
-		else:
-			raise ValueError("stations csv must contain 'station' or 'station_id'")
-
-	# lat/lon
-	if 'lat' not in df.columns or 'lon' not in df.columns:
-		raise ValueError("stations csv must contain 'lat' and 'lon'")
-
-	# depth_m (portal-based, positive downward) is REQUIRED
-	if 'depth_m' not in df.columns:
-		raise ValueError(
-			"stations csv must contain 'depth_m' (portal-based depth in meters)"
-		)
-
-	df = df.copy()
-	df['station'] = df['station'].astype(str)
-	df['lat'] = df['lat'].astype(float)
-	df['lon'] = df['lon'].astype(float)
-	df['depth_m'] = pd.to_numeric(df['depth_m'], errors='coerce')
-
-	if df['depth_m'].isna().any():
-		raise ValueError('depth_m has NaN; fix station metadata')
-
-	if (df['depth_m'] < 0).any():
-		raise ValueError('depth_m must be non-negative (portal-based depth)')
-
-	# NonLinLoc helper expects elevation-like sign in some paths:
-	# elevation_m positive upward, so below the portal becomes negative.
-	df['elevation_m'] = -df['depth_m'].astype(float)
-
-	return df[['station', 'lat', 'lon', 'depth_m', 'elevation_m']].copy()
-
-
 def main() -> tuple[Path, Path, Path]:
-	df_vs = _read_vs_model(VS_MODEL_PATH)
+	df_vs = read_vs_model_44mod(VS_MODEL_PATH)
 	layers_text = nll_layers_text_from_1d_model(
 		z_m=df_vs['depth_m'].to_numpy(),
 		vs_mps=df_vs['vs_mps'].to_numpy(),
@@ -148,7 +64,7 @@ def main() -> tuple[Path, Path, Path]:
 	OUT_PATH.mkdir(parents=True, exist_ok=True)
 	LAYER_PATH.write_text(layers_text, encoding='utf-8')
 
-	stations_df = _read_stations(STATIONS_CSV_PATH)
+	stations_df = read_forge_stations_portal_depth(STATIONS_CSV_PATH)
 
 	grid = propose_grid_from_stations(
 		stations_df,
