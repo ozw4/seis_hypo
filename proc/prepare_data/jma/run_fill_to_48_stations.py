@@ -25,6 +25,7 @@ from jma.prepare.event_paths import (
 	resolve_txt_for_evt,
 )
 from jma.prepare.event_txt import read_event_txt_meta
+from jma.prepare.inventory import parse_network_code_from_name
 from jma.prepare.missing_io import read_missing_pairs
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
@@ -130,13 +131,6 @@ def _stations_in_active_ch(active_ch_path: Path) -> set[str]:
 	return set([s for s in stas if s])
 
 
-def _parse_network_code_from_cnt_name(cnt_path: Path) -> str:
-	parts = cnt_path.stem.split('_')
-	if len(parts) < 5 or parts[0] != 'win':
-		raise ValueError(f'unexpected cnt filename: {cnt_path.name}')
-	return parts[1]
-
-
 def _scan_cnt_present_station_rows(
 	cnt_path: Path, ch_path: Path
 ) -> tuple[set[str], dict[str, tuple[float, float]]]:
@@ -202,7 +196,7 @@ def _scan_continuous_inventory(cont_dir: Path) -> ContinuousInventory:
 		if not ch_path.is_file():
 			raise FileNotFoundError(f'missing .ch for .cnt: {cnt_path} -> {ch_path}')
 
-		net = normalize_network_code(_parse_network_code_from_cnt_name(cnt_path))
+		net = parse_network_code_from_name(cnt_path)
 		stas, coord = _scan_cnt_present_station_rows(cnt_path, ch_path)
 
 		if stas:

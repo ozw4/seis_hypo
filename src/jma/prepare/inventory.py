@@ -23,8 +23,9 @@ def _iso(dt0: datetime) -> str:
 	return dt0.strftime('%Y-%m-%d %H:%M:%S')
 
 
-def _parse_network_code_from_win_name(p: Path) -> str:
+def parse_network_code_from_name(name: str | Path) -> str:
 	# expected: win_{network}_{yyyymmddhhmm}_{span}m_{hash}.cnt
+	p = name if isinstance(name, Path) else Path(name)
 	parts = p.stem.split('_')
 	if len(parts) < 5 or parts[0] != 'win':
 		raise ValueError(f'unexpected win filename: {p.name}')
@@ -173,7 +174,7 @@ def _list_sources(event_dir: Path, cont_subdir: str) -> list[SourceSpec]:
 				raise FileNotFoundError(
 					f'missing .ch for .cnt: {cnt_path} -> {ch_path}'
 				)
-			net = _parse_network_code_from_win_name(cnt_path)
+			net = parse_network_code_from_name(cnt_path)
 			sid = f'cnt:{cnt_path.name}'
 			out.append(
 				SourceSpec(

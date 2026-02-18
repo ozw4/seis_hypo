@@ -10,7 +10,11 @@ import pandas as pd
 from common.core import validate_columns
 from common.geo import haversine_distance_km
 from common.geo import haversine_distance_pair_km as haversine_km
-from jma.stationcode_common import month_columns, normalize_code
+from jma.stationcode_common import (
+	month_columns,
+	normalize_code,
+	pick_preferred_network_code,
+)
 
 # =========================
 # CONFIG (edit here)
@@ -183,16 +187,6 @@ def months_between_inclusive(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> se
 		out.add(f'{cur.year:04d}-{cur.month:02d}')
 		cur = cur + pd.offsets.MonthBegin(1)
 	return out
-
-
-def pick_preferred_network_code(codes: Sequence[str]) -> str:
-	codes_norm = [normalize_code(c) for c in codes if normalize_code(c)]
-	if not codes_norm:
-		return ''
-	digits = [c for c in codes_norm if c.isdigit()]
-	if digits:
-		return sorted((int(c), c) for c in digits)[0][1]
-	return sorted(codes_norm)[0]
 
 
 def presence_months_from_row(row: pd.Series, months: Sequence[str]) -> set[str]:
