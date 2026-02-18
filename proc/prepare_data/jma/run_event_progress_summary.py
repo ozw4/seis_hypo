@@ -10,25 +10,11 @@ import pandas as pd
 from common.done_marker import read_done_json
 from common.json_io import read_json
 from jma.prepare.event_txt import read_event_txt_meta
+from jma.prepare.inventory import DEFAULT_AXIS_TAIL_CHARS, _axis_from_component
 from jma.prepare.missing_io import read_missing_by_network
+from jma.prepare.step1_rescue import write_csv
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_common import normalize_code, normalize_network_code
-
-
-def _axis_from_component(raw: str) -> str:
-	comp = normalize_code(raw)
-	if not comp:
-		return ''
-	tail = comp[-1]
-	if tail == 'Z':
-		return 'U'
-	if tail == 'Y':
-		return 'N'
-	if tail == 'X':
-		return 'E'
-	if tail in {'U', 'N', 'E'}:
-		return tail
-	return ''
 
 
 def _merge_axis_maps(dst: dict[str, set[str]], src: dict[str, set[str]]) -> None:
@@ -43,7 +29,7 @@ def _axis_map_from_ch(ch_path: Path) -> tuple[int, dict[str, set[str]]]:
 		sta = normalize_code(str(r.get('station', '')))
 		if not sta:
 			continue
-		ax = _axis_from_component(str(r.get('component', '')))
+		ax = _axis_from_component(str(r.get('component', '')), DEFAULT_AXIS_TAIL_CHARS)
 		if ax:
 			axis_by_sta[sta].add(ax)
 	return len(df), axis_by_sta
@@ -289,19 +275,6 @@ def summarize_event_root(
 					}
 				)
 	return rows
-
-
-def write_csv(out_path: Path, rows: list[dict[str, object]]) -> None:
-	if not rows:
-		raise RuntimeError('no rows to write')
-	out_path.parent.mkdir(parents=True, exist_ok=True)
-
-	cols = sorted(set().union(*(r.keys() for r in rows)))
-	with out_path.open('w', encoding='utf-8', errors='strict', newline='') as f:
-		w = csv.DictWriter(f, fieldnames=cols)
-		w.writeheader()
-		for r in rows:
-			w.writerow({k: r.get(k, '') for k in cols})
 
 
 EVENT_ROOT = Path('/workspace/data/waveform/jma/event')

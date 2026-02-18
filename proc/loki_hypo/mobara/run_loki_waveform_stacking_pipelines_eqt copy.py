@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import seisbench
-
 from common.config import (
 	EqTInputs,
 	LokiWaveformStackingInputs,
@@ -23,7 +21,6 @@ from viz.loki.coherence_xy import plot_loki_event_coherence_xy_overlay
 from viz.plot_config import PlotConfig
 from waveform.preprocess import spec_from_inputs
 
-seisbench.use_backup_repository()
 # ========= USER EDIT HERE =========
 PIPELINE_YAML = Path('/workspace/data/config/loki_waveform_pipeline_eqt.yaml')
 PIPELINE_PRESET = 'mobara_eqt_miyagi'

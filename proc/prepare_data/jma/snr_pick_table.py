@@ -11,17 +11,21 @@ import pandas as pd
 from scipy.signal import detrend as sp_detrend
 
 from common.geo import haversine_distance_km, latlon_to_local_xy_km
-from common.time_util import iso_to_ns
 from jma.picks import (
 	build_pick_table_for_event,
 	pick_time_to_index,
 )
 from jma.prepare.event_txt import read_event_txt_meta, read_origin_jst_iso
 from jma.prepare.inventory import build_inventory
+from jma.prepare.jma_waveform_loader import _qc_trace_raw
 from jma.station_reader import read_hinet_channel_table
 from jma.stationcode_mappingdb import load_mapping_db
 from jma.stationcode_presence import load_presence_db
 from jma.win32_reader import read_win32, scan_channel_sampling_rate_map_win32
+from pipelines.jma_dt_pick_error_table import (
+	_prepare_epicenters,
+	_resolve_epicenters_row,
+)
 from waveform.filters import bandpass_iir_filtfilt
 from waveform.preprocess import resample_window_poly
 from waveform.snr_metrics import SNRSpec, compute_snr_metrics
@@ -60,126 +64,10 @@ def _azimuth_deg_event_to_station(
 	return float((az + 360.0) % 360.0)
 
 
-def _qc_trace_raw(
-	x: np.ndarray, *, zero_frac_max: float, clip_frac_max: float
-) -> tuple[bool, str]:
-	if x.ndim != 1:
-		return False, f'bad_shape:{x.shape}'
-	if not np.isfinite(x).all():
-		return False, 'nan_or_inf'
-	if float(np.max(np.abs(x))) <= 0.0:
-		return False, 'all_zero'
-
-	zero_frac = float(np.mean(x == 0.0))
-	if zero_frac > float(zero_frac_max):
-		return False, f'too_many_zeros:{zero_frac:.3f}'
-
-	mx = float(np.max(x))
-	mn = float(np.min(x))
-	if mx == mn:
-		return False, 'constant'
-
-	frac_max = float(np.mean(x == mx))
-	frac_min = float(np.mean(x == mn))
-	if max(frac_max, frac_min) > float(clip_frac_max):
-		return False, f'clipped_suspect:{max(frac_max, frac_min):.3f}'
-
-	return True, ''
-
-
 def _preprocess_1d(x: np.ndarray, *, fs: float, spec: SNRSpec) -> np.ndarray:
 	y = sp_detrend(np.asarray(x, dtype=float), type='linear')
 	# bandpass design params are still controlled outside (below) for clarity
 	return np.asarray(y, dtype=np.float32)
-
-
-def _prepare_epicenters(epi_df: pd.DataFrame) -> pd.DataFrame:
-	req = {
-		'event_id',
-		'origin_time',
-		'latitude_deg',
-		'longitude_deg',
-		'depth_km',
-		'mag1',
-		'mag1_type',
-	}
-	miss = sorted(req - set(epi_df.columns))
-	if miss:
-		raise ValueError(f'epicenters csv missing columns: {miss}')
-
-	origin_str = epi_df['origin_time'].astype(str)
-	dt64 = pd.to_datetime(origin_str, format='ISO8601', errors='raise').to_numpy(
-		dtype='datetime64[ns]'
-	)
-	out = epi_df.copy()
-	out['_origin_ns'] = dt64.astype('int64')
-	out['_mag1_type_norm'] = out['mag1_type'].astype(str).str.strip()
-	return out
-
-
-def _resolve_epicenters_row(
-	epi_df2: pd.DataFrame,
-	*,
-	origin_iso: str,
-	txt_lat: float,
-	txt_lon: float,
-	mag1_types_allowed: set[str],
-	dist_tie_km: float = 0.1,
-) -> pd.Series | None:
-	ns = int(iso_to_ns(origin_iso))
-	cands = epi_df2.loc[epi_df2['_origin_ns'] == ns]
-	if cands.empty:
-		raise ValueError(f'epicenters row not found by origin_time: {origin_iso}')
-
-	allowed = {str(x).strip() for x in mag1_types_allowed if str(x).strip()}
-	if not allowed:
-		raise ValueError('mag1_types_allowed is empty')
-
-	cands2 = cands.loc[cands['_mag1_type_norm'].isin(sorted(allowed))]
-	if cands2.empty:
-		return None
-
-	if len(cands2) == 1:
-		return cands2.iloc[0]
-
-	d = haversine_distance_km(
-		lat0_deg=float(txt_lat),
-		lon0_deg=float(txt_lon),
-		lat_deg=cands2['latitude_deg'].astype(float).to_numpy(),
-		lon_deg=cands2['longitude_deg'].astype(float).to_numpy(),
-	)
-	order = np.argsort(d)
-	best_i = int(order[0])
-	best_d = float(d[best_i])
-
-	if len(order) >= 2:
-		second_d = float(d[int(order[1])])
-		if abs(second_d - best_d) <= float(dist_tie_km):
-			sub = cands2.copy()
-			sub['_dist_km'] = d
-			cols = ['latitude_deg', 'longitude_deg', 'depth_km', 'mag1']
-			uniq = sub[cols].nunique(dropna=False).max()
-			if int(uniq) == 1:
-				sub2 = sub.sort_values('event_id', ascending=True)
-				return sub2.iloc[0]
-
-			ids = sub.sort_values('_dist_km')[
-				[
-					'event_id',
-					'latitude_deg',
-					'longitude_deg',
-					'depth_km',
-					'mag1',
-					'mag1_type',
-				]
-			].head(10)
-			raise ValueError(
-				'ambiguous epicenters rows for same origin_time (and allowed mag1_type set). '
-				f'origin={origin_iso} txt_latlon=({txt_lat},{txt_lon}) '
-				f'top_candidates=\n{ids.to_string(index=False)}'
-			)
-
-	return cands2.iloc[best_i]
 
 
 def build_snr_pick_table(
@@ -277,7 +165,7 @@ def build_snr_pick_table(
 
 			txt_meta = read_event_txt_meta(txt_path)
 
-			epi_row = _resolve_epicenters_row(
+			epi_row, epi_reason = _resolve_epicenters_row(
 				epi_df2,
 				origin_iso=origin_iso,
 				txt_lat=float(txt_meta.lat),
@@ -285,7 +173,7 @@ def build_snr_pick_table(
 				mag1_types_allowed=set(mag1_types_allowed),
 				dist_tie_km=float(epicenters_dist_tie_km),
 			)
-			if epi_row is None:
+			if epi_reason == 'mag1_type_not_allowed':
 				skips.append(
 					{
 						'event_dir': str(ev_dir),
@@ -293,7 +181,22 @@ def build_snr_pick_table(
 						'reason': f'mag1_type_not_allowed:{sorted(mag1_types_allowed)}',
 					}
 				)
-				return
+				if epi_reason == 'mag1_type_not_allowed':
+					skips.append(
+						{
+							'event_dir': str(ev_dir),
+							'origin_jst': str(origin_iso),
+							'reason': f'mag1_type_not_allowed:{sorted(mag1_types_allowed)}',
+						}
+					)
+					return
+				if epi_reason == 'epicenters_origin_not_found':
+					raise ValueError(
+						f'epicenters row not found by origin_time: {origin_iso}'
+					)
+				raise ValueError(
+					f'failed to resolve epicenters row: {epi_reason} (origin_time={origin_iso})'
+				)
 
 			eid = int(epi_row['event_id'])
 

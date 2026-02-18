@@ -212,9 +212,9 @@ def render_compare_all_events(
 # =========================
 
 SETTING_DIRS = [
-	Path('/workspace/proc/loki_hypo/loki_output_mobara_optuna'),
-	Path('/workspace/proc/loki_hypo/loki_output_mobara_eqt'),
-	Path('/workspace/proc/loki_hypo/loki_output_mobara_eqt_trainmiyagi'),
+	Path('/workspace/proc/loki_hypo/mobara/loki_output_mobara_optuna'),
+	Path('/workspace/proc/loki_hypo/mobara/loki_output_mobara_eqt'),
+	Path('/workspace/proc/loki_hypo/mobara/loki_output_mobara_eqt_trainmiyagi'),
 ]
 
 FILENAME = 'coherence_xy_overlay_trial0.png'

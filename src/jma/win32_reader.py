@@ -822,6 +822,7 @@ def read_win32_resampled(
 	channels_hex: list[str] | None = None,  # 例: ["0003","0004","0005"]
 	station: str | None = None,  # 例: "N.AGWH"
 	components: list[str] | None = None,  # 例: ["U","N","E"]
+	missing_channel_policy: str = 'raise',  # 'raise' | 'drop' | 'zero'
 ) -> np.ndarray:
 	"""WIN32を読み、観測点ごとに埋め込まれたfsを使って復号し、target fsへ統一して返す。
 
@@ -836,6 +837,12 @@ def read_win32_resampled(
 		raise ValueError('target_sampling_rate_HZ must be positive')
 	if int(duration_SECOND) <= 0:
 		raise ValueError('duration_SECOND must be positive')
+	policy = str(missing_channel_policy).strip().lower()
+	if policy not in ['raise', 'drop', 'zero']:
+		raise ValueError(
+			'missing_channel_policy must be "raise", "drop", or "zero", '
+			f'got {missing_channel_policy!r}'
+		)
 
 	file_path = Path(file_path)
 	if not file_path.is_file():
@@ -858,20 +865,30 @@ def read_win32_resampled(
 		on_mixed='drop',
 	)
 	ch_ints = df['ch_int'].to_numpy(dtype=np.int32)
-	row_fs: list[int] = []
-	for ch in ch_ints.tolist():
-		if int(ch) not in fs_by_ch:
-			raise ValueError(
-				f'channel_no={int(ch)} not found in WIN32: {file_path.name}'
-			)
-		fs = int(fs_by_ch[int(ch)])
+	row_fs_by_idx: dict[int, int] = {}
+	missing_channels: list[int] = []
+	for i, ch in enumerate(ch_ints.tolist()):
+		ch_i = int(ch)
+		if ch_i not in fs_by_ch:
+			missing_channels.append(ch_i)
+			continue
+		fs = int(fs_by_ch[ch_i])
 		if fs <= 0:
-			raise ValueError(f'invalid fs in WIN32: channel_no={int(ch)} fs={fs}')
-		row_fs.append(fs)
+			raise ValueError(f'invalid fs in WIN32: channel_no={ch_i} fs={fs}')
+		row_fs_by_idx[int(i)] = int(fs)
+
+	if missing_channels:
+		uniq_missing = sorted(set(int(x) for x in missing_channels))
+		if policy == 'raise':
+			ex = uniq_missing[:20]
+			raise ValueError(
+				f'channels not found in WIN32: {file_path.name}; '
+				f'n_missing={len(uniq_missing)} examples={ex}'
+			)
 
 	# fsごとに行インデックスをまとめる（dfの行順を保持）
 	idx_by_fs: dict[int, list[int]] = {}
-	for i, fs in enumerate(row_fs):
+	for i, fs in row_fs_by_idx.items():
 		idx_by_fs.setdefault(int(fs), []).append(int(i))
 
 	out_len = int(duration_SECOND) * int(target_sampling_rate_HZ)

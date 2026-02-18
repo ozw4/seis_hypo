@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import zarr
 
+from common.core import validate_columns
+
 # =========================
 # 設定（ここだけ触ればOK）
 # =========================
@@ -68,10 +70,6 @@ SKIP_MISSING_EVENTS = True
 # =========================
 # util
 # =========================
-def _require_cols(df: pd.DataFrame, cols: list[str], name: str) -> None:
-	missing = [c for c in cols if c not in df.columns]
-	if missing:
-		raise ValueError(f'{name} missing columns: {missing}. cols={list(df.columns)}')
 
 
 def _parse_nav_time_utc(series: pd.Series) -> pd.Series:
@@ -88,7 +86,7 @@ def _read_events(event_csv: Path) -> pd.DataFrame:
 		raise FileNotFoundError(f'EVENT_CSV not found: {event_csv}')
 
 	df = pd.read_csv(event_csv)
-	_require_cols(df, [EVENTNUM_COL, NAV_TIME_COL], 'EVENT_CSV')
+	validate_columns(df, [EVENTNUM_COL, NAV_TIME_COL], 'EVENT_CSV')
 
 	out = df.copy()
 	out[EVENTNUM_COL] = out[EVENTNUM_COL].astype(int)
@@ -141,11 +139,11 @@ def _load_station_meta(path: Path) -> pd.DataFrame:
 		raise FileNotFoundError(f'STATION_META_CSV not found: {path}')
 
 	sta = pd.read_csv(path)
-	_require_cols(
+	validate_columns(
 		sta, [STATION_NAME_COL, ORDER_COL, FULL_CHANNEL_COL, WELL_COL], 'station_meta'
 	)
 	if WRITE_HEADER:
-		_require_cols(sta, ['lat', 'lon', 'elev_m'], 'station_meta(for header)')
+		validate_columns(sta, ['lat', 'lon', 'elev_m'], 'station_meta(for header)')
 
 	sta[ORDER_COL] = sta[ORDER_COL].astype(int)
 	sta[FULL_CHANNEL_COL] = sta[FULL_CHANNEL_COL].astype(int)

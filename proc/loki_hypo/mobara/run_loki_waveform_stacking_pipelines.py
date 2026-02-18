@@ -71,6 +71,7 @@ def main() -> None:
 			header_path=header_path,
 			trial=0,
 			dpi=200,
+			show_station_labels=False,
 		)
 		if out_png is None:
 			print(

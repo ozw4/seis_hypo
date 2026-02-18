@@ -15,6 +15,7 @@ def normalize_ch_table_components_to_une(
 	*,
 	comp_priority: dict[str, list[str]] | None = None,
 	axis_tail_chars: set[str] | None = None,
+	require_full_une: bool = True,
 ) -> pd.DataFrame:
 	"""Channel table の component を正規化して U/N/E の3成分に揃える。
 
@@ -57,17 +58,19 @@ def normalize_ch_table_components_to_une(
 	for sta in station_order:
 		best_row = best_rows_by_station.get(sta, {})
 		missing = [a for a in ('U', 'N', 'E') if a not in best_row]
-		if missing:
+		if missing and bool(require_full_une):
 			bad_missing.append(f'{sta} missing={missing}')
 			continue
 
 		for axis in ('U', 'N', 'E'):
+			if axis not in best_row:
+				continue
 			r2 = best_row[axis].copy()
 			r2['station'] = sta
 			r2['component'] = axis
 			out_rows.append(r2)
 
-	if bad_missing:
+	if bad_missing and bool(require_full_une):
 		raise ValueError(
 			f'stations missing U/N/E after normalization: {bad_missing[:30]}'
 		)

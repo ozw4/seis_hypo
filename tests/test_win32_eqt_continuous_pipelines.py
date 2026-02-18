@@ -22,6 +22,18 @@ def _basic_ch_table() -> pd.DataFrame:
 	)
 
 
+def _partial_ch_table() -> pd.DataFrame:
+	return pd.DataFrame(
+		{
+			'ch_hex': ['0001', '0002', '0003'],
+			'ch_int': [1, 2, 3],
+			'conv_coeff': [1.0, 1.0, 1.0],
+			'station': ['STA_A', 'STA_B', 'STA_B'],
+			'component': ['U', 'N', 'E'],
+		}
+	)
+
+
 def test_parse_win32_cnt_filename_ok_and_ng():
 	info = pl.parse_win32_cnt_filename('win_0301_200912170000_10m_4dd999af.cnt')
 	assert info.network_code == '0301'
@@ -57,6 +69,11 @@ def test_iter_win32_station_windows_hop_and_boundary(monkeypatch):
 		return out
 
 	monkeypatch.setattr(pl, 'read_win32', fake_read_win32)
+	monkeypatch.setattr(
+		pl,
+		'scan_channel_sampling_rate_map_win32',
+		lambda *args, **kwargs: {1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1},
+	)
 
 	cnt_paths = [
 		Path('win_0301_202001010000_1m_aaaaaaaa.cnt'),
@@ -78,6 +95,24 @@ def test_iter_win32_station_windows_hop_and_boundary(monkeypatch):
 	w0, m0 = windows[0]
 	assert w0.shape == (2, 3, 8)
 	assert m0.window_start_jst == dt.datetime(2020, 1, 1, 0, 0, 0)
+	assert np.allclose(
+		w0[0, 0, :], np.array([0, 1, 2, 3, 4, 5, 6, 7], dtype=float)
+	)
+	assert np.allclose(
+		w0[0, 1, :], np.array([1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007], dtype=float)
+	)
+	assert np.allclose(
+		w0[0, 2, :], np.array([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007], dtype=float)
+	)
+	assert np.allclose(
+		w0[1, 0, :], np.array([3000, 3001, 3002, 3003, 3004, 3005, 3006, 3007], dtype=float)
+	)
+	assert np.allclose(
+		w0[1, 1, :], np.array([4000, 4001, 4002, 4003, 4004, 4005, 4006, 4007], dtype=float)
+	)
+	assert np.allclose(
+		w0[1, 2, :], np.array([5000, 5001, 5002, 5003, 5004, 5005, 5006, 5007], dtype=float)
+	)
 
 	w1, m1 = windows[1]
 	assert m1.window_start_jst == dt.datetime(2020, 1, 1, 0, 0, 4)
@@ -89,6 +124,95 @@ def test_iter_win32_station_windows_hop_and_boundary(monkeypatch):
 		w_cross[0, 0, :],
 		np.array([56, 57, 58, 59, 60, 61, 62, 63], dtype=float),
 	)
+
+
+def test_iter_win32_station_windows_zero_pad_missing_components(monkeypatch):
+	def fake_read_win32(
+		file_path,
+		channel_table,
+		*,
+		base_sampling_rate_HZ,
+		duration_SECOND,
+		channels_hex=None,
+		station=None,
+		components=None,
+	):
+		n_ch = len(channel_table)
+		n_t = int(base_sampling_rate_HZ) * int(duration_SECOND)
+		t = np.arange(n_t, dtype=np.float32)
+		out = np.zeros((n_ch, n_t), dtype=np.float32)
+		for i in range(n_ch):
+			out[i, :] = t + float(i + 1) * 10.0
+		return out
+
+	monkeypatch.setattr(pl, 'read_win32', fake_read_win32)
+	monkeypatch.setattr(
+		pl,
+		'scan_channel_sampling_rate_map_win32',
+		lambda *args, **kwargs: {1: 1, 2: 1, 3: 1},
+	)
+
+	windows = list(
+		pl.iter_win32_station_windows(
+			cnt_paths=[Path('win_0301_202001010000_1m_aaaaaaaa.cnt')],
+			ch_table=_partial_ch_table(),
+			target_fs_hz=1.0,
+			eqt_in_samples=8,
+			eqt_overlap=4,
+			use_resampled=False,
+		)
+	)
+
+	assert len(windows) == 14
+	w0, m0 = windows[0]
+	assert w0.shape == (2, 3, 8)
+	assert m0.window_start_jst == dt.datetime(2020, 1, 1, 0, 0, 0)
+	assert np.allclose(
+		w0[0, 0, :], np.array([10, 11, 12, 13, 14, 15, 16, 17], dtype=float)
+	)
+	assert np.allclose(w0[0, 1, :], np.zeros(8, dtype=float))
+	assert np.allclose(w0[0, 2, :], np.zeros(8, dtype=float))
+	assert np.allclose(w0[1, 0, :], np.zeros(8, dtype=float))
+	assert np.allclose(
+		w0[1, 1, :], np.array([20, 21, 22, 23, 24, 25, 26, 27], dtype=float)
+	)
+	assert np.allclose(
+		w0[1, 2, :], np.array([30, 31, 32, 33, 34, 35, 36, 37], dtype=float)
+	)
+
+
+def test_iter_win32_station_windows_precheck_fixed_fs(monkeypatch):
+	monkeypatch.setattr(
+		pl,
+		'scan_channel_sampling_rate_map_win32',
+		lambda *args, **kwargs: {1: 100, 2: 200, 3: 100, 4: 100, 5: 100, 6: 100},
+	)
+
+	def should_not_call_read_win32(
+		file_path,
+		channel_table,
+		*,
+		base_sampling_rate_HZ,
+		duration_SECOND,
+		channels_hex=None,
+		station=None,
+		components=None,
+	):
+		raise AssertionError('read_win32 must not be called when fs precheck fails')
+
+	monkeypatch.setattr(pl, 'read_win32', should_not_call_read_win32)
+
+	with pytest.raises(ValueError, match='WIN32 fs precheck failed'):
+		list(
+			pl.iter_win32_station_windows(
+				cnt_paths=[Path('win_0301_202001010000_1m_aaaaaaaa.cnt')],
+				ch_table=_basic_ch_table(),
+				target_fs_hz=100.0,
+				eqt_in_samples=8,
+				eqt_overlap=4,
+				use_resampled=False,
+			)
+		)
 
 
 def test_pick_time_jst_iso_has_plus09(monkeypatch, tmp_path: Path):

@@ -13,7 +13,11 @@ import pandas as pd
 from common.core import as_int_rate
 from jma.ch_table_util import normalize_ch_table_components_to_une
 from jma.station_reader import read_hinet_channel_table
-from jma.win32_reader import read_win32, read_win32_resampled
+from jma.win32_reader import (
+	read_win32,
+	read_win32_resampled,
+	scan_channel_sampling_rate_map_win32,
+)
 from pipelines.das_pick_csv_accumulator import PickAccumulator
 
 _JST = dt.timezone(dt.timedelta(hours=9))
@@ -90,6 +94,55 @@ def parse_win32_cnt_filename(path: str | Path) -> Win32CntFileInfo:
 	)
 
 
+def _station_axis_layout_from_ch_une(
+	ch_une: pd.DataFrame,
+) -> tuple[list[str], np.ndarray, np.ndarray]:
+	if ch_une.empty:
+		raise ValueError('no station rows after U/N/E normalization')
+
+	axis_to_idx = {'U': 0, 'N': 1, 'E': 2}
+	station_codes: list[str] = []
+	station_to_idx: dict[str, int] = {}
+	row_station_idx: list[int] = []
+	row_axis_idx: list[int] = []
+	seen_pairs: set[tuple[int, int]] = set()
+
+	for i in range(len(ch_une)):
+		r = ch_une.iloc[int(i)]
+		sta = str(r['station'])
+		if not sta:
+			raise ValueError(f'empty station at normalized row index={i}')
+
+		comp = str(r['component']).upper()
+		axis_idx = axis_to_idx.get(comp)
+		if axis_idx is None:
+			raise ValueError(
+				f'invalid component at normalized row index={i}: {comp}'
+			)
+
+		sta_idx = station_to_idx.get(sta)
+		if sta_idx is None:
+			sta_idx = len(station_codes)
+			station_to_idx[sta] = sta_idx
+			station_codes.append(sta)
+
+		pair = (int(sta_idx), int(axis_idx))
+		if pair in seen_pairs:
+			raise ValueError(
+				f'duplicate station/axis rows after normalization: station={sta} axis={comp}'
+			)
+		seen_pairs.add(pair)
+
+		row_station_idx.append(int(sta_idx))
+		row_axis_idx.append(int(axis_idx))
+
+	return (
+		station_codes,
+		np.asarray(row_station_idx, dtype=np.int32),
+		np.asarray(row_axis_idx, dtype=np.int32),
+	)
+
+
 def prepare_win32_ch_table_une(
 	ch_table: pd.DataFrame | str | Path,
 ) -> tuple[pd.DataFrame, list[str]]:
@@ -98,45 +151,76 @@ def prepare_win32_ch_table_une(
 	else:
 		ch_df = ch_table.copy()
 
-	ch_une = normalize_ch_table_components_to_une(ch_df)
-	n_ch = len(ch_une)
-	if (n_ch % 3) != 0:
-		raise ValueError(f'normalized channel rows must be multiple of 3, got {n_ch}')
-
-	station_codes: list[str] = []
-	for i0 in range(0, n_ch, 3):
-		chk = ch_une.iloc[i0 : i0 + 3]
-		sta = str(chk.iloc[0]['station'])
-		if not (
-			str(chk.iloc[0]['station']) == sta
-			and str(chk.iloc[1]['station']) == sta
-			and str(chk.iloc[2]['station']) == sta
-		):
-			raise ValueError(f'channel rows [{i0}:{i0 + 3}) must share one station')
-		comps = chk['component'].astype(str).tolist()
-		if comps != ['U', 'N', 'E']:
-			raise ValueError(
-				f'normalized rows [{i0}:{i0 + 3}) must be U/N/E order, got {comps}'
-			)
-		station_codes.append(sta)
-
-	if len(station_codes) != len(set(station_codes)):
-		raise ValueError('station appears multiple times after U/N/E normalization')
-	if not station_codes:
-		raise ValueError('no station rows after U/N/E normalization')
-
-	return ch_une.reset_index(drop=True), station_codes
+	ch_une = normalize_ch_table_components_to_une(
+		ch_df,
+		require_full_une=False,
+	).reset_index(drop=True)
+	station_codes, _, _ = _station_axis_layout_from_ch_une(ch_une)
+	return ch_une, station_codes
 
 
-def _reshape_to_station_3c(arr_2d: np.ndarray, station_count: int) -> np.ndarray:
+def _scatter_to_station_3c(
+	arr_2d: np.ndarray,
+	*,
+	row_station_idx: np.ndarray,
+	row_axis_idx: np.ndarray,
+	station_count: int,
+) -> np.ndarray:
 	if arr_2d.ndim != 2:
 		raise ValueError(f'arr_2d must be 2D (n_ch, T), got {arr_2d.shape}')
 	n_ch, n_t = arr_2d.shape
-	if int(n_ch) != int(station_count) * 3:
+	if int(n_ch) != len(row_station_idx) or int(n_ch) != len(row_axis_idx):
 		raise ValueError(
-			f'n_ch mismatch: got {n_ch}, expected {int(station_count) * 3}'
+			'n_ch mismatch: '
+			f'got {n_ch}, expected {len(row_station_idx)}'
 		)
-	return np.asarray(arr_2d, dtype=np.float32).reshape(int(station_count), 3, int(n_t))
+	out = np.zeros((int(station_count), 3, int(n_t)), dtype=np.float32)
+	out[row_station_idx, row_axis_idx, :] = np.asarray(arr_2d, dtype=np.float32)
+	return out
+
+
+def _validate_cnt_channels_for_fixed_fs(
+	*,
+	cnt_path: Path,
+	ch_une: pd.DataFrame,
+	target_fs_hz: int,
+) -> None:
+	ch_ints = ch_une['ch_int'].to_numpy(dtype=np.int32)
+	req_set = set(int(x) for x in ch_ints.tolist())
+	fs_by_ch = scan_channel_sampling_rate_map_win32(
+		cnt_path,
+		channel_filter=req_set,
+		on_mixed='raise',
+	)
+
+	found_set = set(int(x) for x in fs_by_ch.keys())
+	missing = sorted(req_set - found_set)
+	bad = sorted(
+		(int(ch), int(fs))
+		for ch, fs in fs_by_ch.items()
+		if int(fs) != int(target_fs_hz)
+	)
+
+	if not missing and not bad:
+		return
+
+	lines = [
+		f'WIN32 fs precheck failed: {cnt_path.name}',
+		f'target_fs_hz={int(target_fs_hz)}',
+	]
+	if missing:
+		lines.append(
+			f'missing channel_no in WIN32: n={len(missing)} examples={missing[:20]}'
+		)
+	if bad:
+		lines.append(
+			'channel_no with fs != target: '
+			f'n={len(bad)} examples={bad[:20]}'
+		)
+	lines.append(
+		'use_resampled=True to decode by per-channel fs and resample to target fs'
+	)
+	raise ValueError('\n'.join(lines))
 
 
 def iter_win32_station_windows(
@@ -147,6 +231,7 @@ def iter_win32_station_windows(
 	eqt_in_samples: int,
 	eqt_overlap: int,
 	use_resampled: bool = False,
+	resampled_missing_channel_policy: str = 'zero',
 ) -> Iterator[tuple[np.ndarray, Win32WindowMeta]]:
 	if not cnt_paths:
 		raise ValueError('cnt_paths is empty')
@@ -163,6 +248,11 @@ def iter_win32_station_windows(
 		raise ValueError('hop length must be positive')
 
 	ch_une, station_codes = prepare_win32_ch_table_une(ch_table)
+	station_codes_chk, row_station_idx, row_axis_idx = _station_axis_layout_from_ch_une(
+		ch_une
+	)
+	if station_codes_chk != station_codes:
+		raise ValueError('internal error: station order mismatch in ch_une layout')
 	station_count = len(station_codes)
 
 	read_fn = read_win32_resampled if bool(use_resampled) else read_win32
@@ -196,8 +286,14 @@ def iter_win32_station_windows(
 				ch_une,
 				target_sampling_rate_HZ=int(fs_i),
 				duration_SECOND=int(duration_sec),
+				missing_channel_policy=str(resampled_missing_channel_policy),
 			)
 		else:
+			_validate_cnt_channels_for_fixed_fs(
+				cnt_path=cnt_path,
+				ch_une=ch_une,
+				target_fs_hz=int(fs_i),
+			)
 			arr_2d = read_fn(
 				cnt_path,
 				ch_une,
@@ -205,7 +301,12 @@ def iter_win32_station_windows(
 				duration_SECOND=int(duration_sec),
 			)
 
-		arr_3c = _reshape_to_station_3c(arr_2d, station_count=station_count)
+		arr_3c = _scatter_to_station_3c(
+			arr_2d,
+			row_station_idx=row_station_idx,
+			row_axis_idx=row_axis_idx,
+			station_count=station_count,
+		)
 
 		if buf_3c is None:
 			buf_3c = arr_3c
@@ -279,6 +380,7 @@ def pipeline_win32_eqt_pick_to_csv(
 	eqt_overlap: int = 3000,
 	eqt_batch_stations: int = 64,
 	use_resampled: bool = False,
+	resampled_missing_channel_policy: str = 'zero',
 	target_fs_hz: float = 100.0,
 	det_gate_enable: bool = True,
 	det_threshold: float = 0.30,
@@ -352,6 +454,7 @@ def pipeline_win32_eqt_pick_to_csv(
 			eqt_in_samples=int(eqt_in_samples),
 			eqt_overlap=int(eqt_overlap),
 			use_resampled=bool(use_resampled),
+			resampled_missing_channel_policy=str(resampled_missing_channel_policy),
 		):
 			if str(meta.network_code) != str(network_code):
 				raise ValueError(

@@ -46,7 +46,7 @@ def plot_hist_overlay(
 			bins=edges,
 			histtype='step',
 			density=bool(density),
-			label=f'{lbl} (n={s.size})',
+			label=f'{lbl}',
 			linewidth=2.0,
 		)
 

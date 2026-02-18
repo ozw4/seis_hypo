@@ -27,8 +27,8 @@ zarr
 numcodecs
 shapely
 python-dateutil
-git+https://github.com/AI4EPS/GaMMA.git@zenodo
-
+#git+https://github.com/AI4EPS/GaMMA.git@zenodo
+git+https://github.com/wayneweiqiang/GaMMA.git
 pytest
 pytest-cov
 seisai-pick @ git+https://github.com/ozw4/seisai.git@main#subdirectory=packages/seisai-pick
