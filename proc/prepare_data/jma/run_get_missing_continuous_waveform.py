@@ -14,13 +14,13 @@ from jma.download import (
 	create_hinet_client,
 	download_win_for_stations,
 )
+from jma.prepare.config import JmaMissingContinuousWaveformConfig
 from jma.prepare.event_dirs import (
 	event_dir_date_jst_from_name,
 	in_date_range,
 	list_event_dirs,
 	parse_date_yyyy_mm_dd,
 )
-from jma.prepare.config import JmaMissingContinuousWaveformConfig
 from jma.prepare.event_paths import resolve_missing_continuous, resolve_single_evt
 from jma.prepare.missing_io import read_missing_by_network
 from jma.win32_reader import get_evt_info
@@ -29,7 +29,9 @@ from jma.win32_reader import get_evt_info
 # 設定（YAML から読み込む）
 # =========================
 
-YAML_PATH = Path(__file__).resolve().parent / 'config' / 'missing_continuous_waveform.yaml'
+YAML_PATH = (
+	Path(__file__).resolve().parent / 'config' / 'missing_continuous_waveform.yaml'
+)
 PRESET = 'sample'
 
 

@@ -8,7 +8,6 @@ from jma.continuous_period_download import (
 	download_continuous_period,
 	read_station_list_txt,
 )
-
 from jma.download import create_hinet_client
 
 if __name__ == '__main__':
