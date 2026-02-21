@@ -5,8 +5,8 @@ sample:
   threads: 8
   cleanup: true
   skip_if_exists: true
-  date_min: "2023-02-10"
-  date_max: "2023-05-01"
+  date_min: "2023-05-01"
+  date_max: "2024-01-01"
   skip_if_done: true
   run_tag: v1
   max_retry_request_none: 5

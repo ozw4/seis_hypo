@@ -41,6 +41,10 @@ class JmaMissingContinuousWaveformConfig(JmaPrepareConfig):
 @dataclass(frozen=True)
 class JmaStep1RescueDownloadConfig(JmaPrepareConfig):
 	epi_csv: Path
+	tmp_download_dir: Path
+	out_rescue_targets_csv: Path
+	out_orphan_dirs_csv: Path
+	out_rescue_run_csv: Path
 	date_min: str | None = None
 	date_max: str | None = None
 	min_mag: float | None = None
@@ -48,9 +52,6 @@ class JmaStep1RescueDownloadConfig(JmaPrepareConfig):
 	request_window_min: int = 1
 	max_retry_get_event_waveform: int = 1
 	retry_sleep_sec: float = 2.0
-	tmp_download_dir: Path
-	out_rescue_targets_csv: Path
-	out_orphan_dirs_csv: Path
-	out_rescue_run_csv: Path
+
 	skip_if_already_ok: bool = True
 	download_run: bool = True

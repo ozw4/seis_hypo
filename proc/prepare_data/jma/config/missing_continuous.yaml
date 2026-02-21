@@ -9,4 +9,4 @@ sample:
   skip_if_no_active_ch: true
   skip_if_done: true
   date_min: "2023-02-09"
-  date_max: "2023-05-10"
+  date_max: "2024-01-01"
