@@ -19,12 +19,12 @@ from common.time_util import get_event_origin_utc, to_utc
 from io_util.stream import build_stream_from_downloaded_win32
 from loki_tools.build_loki import build_loki_with_header
 from loki_tools.prob_stream import build_loki_ps_prob_stream
+from pick.eqt_probs import build_probs_by_station
 from pipelines.event_filtering import (
 	EventContext,
 	extract_event_magnitude,
 	filter_event_dirs,
 )
-from pick.eqt_probs import build_probs_by_station
 from waveform.preprocess import (
 	preprocess_stream_detrend_bandpass,
 	spec_from_inputs,

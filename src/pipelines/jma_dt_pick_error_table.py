@@ -4,7 +4,6 @@ import logging
 import traceback
 import warnings
 from collections.abc import Callable
-from datetime import datetime, timedelta
 from math import sqrt
 from pathlib import Path
 from typing import Any
@@ -26,6 +25,7 @@ from pick.dt_eval import eval_dt_row
 from pick.picks_from_probs import extract_pick_near_ref
 from pick.prob_picker import build_probs_by_station
 from pick.stalta_probs import StaltaProbSpec
+
 _DT_TOL_REQUIRED = [0.05, 0.10, 0.20]
 _DT_TABLE_COLUMNS = [
 	'run_id',

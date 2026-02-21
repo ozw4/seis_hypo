@@ -102,7 +102,7 @@ def decide_mea_to_ch_for_month(
 		]
 		weak = [(h, r) for h, r in pairs_in_month if _rule_prefix(r) == 'B']
 
-		bucket = pref0 if pref0 else (strong if strong else weak)
+		bucket = pref0 or (strong or weak)
 		if len(bucket) != 1:
 			return MappingDecision(
 				status='ambiguous_in_month',

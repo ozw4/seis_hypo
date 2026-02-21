@@ -476,7 +476,7 @@ def _sanitize_filename(s: str) -> str:
 		s = s.replace(ch, '_')
 	s = s.replace('\n', ' ').replace('\r', ' ')
 	s = ' '.join(s.split())
-	return s if s else 'Unknown'
+	return s or 'Unknown'
 
 
 def plot_stations_by_original_affiliation_from_station_csv(
