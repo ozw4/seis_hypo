@@ -12,7 +12,7 @@ from jma.win32_reader import get_evt_info
 # =========================
 
 # 取得対象の「イベント発生時刻の範囲」（JST）
-EVENTS_START_JST = '202402030025'
+EVENTS_START_JST = '202404111804'
 EVENTS_END_JST = '202501010000'
 
 # イベントの絞り込み（必要なら）
