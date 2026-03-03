@@ -162,6 +162,90 @@ def test_load_config_accepts_surface_only_station_subset(tmp_path: Path) -> None
 	assert cfg.station_subset['surface_indices'] == 'all'
 
 
+def test_load_config_event_subsample_stride_and_keep(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj['event_subsample'] = {'stride_ijk': [5, 5, 5]}
+	_write_yaml(cfg_path, obj)
+	cfg = load_config(cfg_path)
+	assert cfg.event_subsample == {'stride_ijk': [5, 5, 5]}
+
+	obj['event_subsample'] = {'keep_n_xyz': [4, 3, 2]}
+	_write_yaml(cfg_path, obj)
+	cfg = load_config(cfg_path)
+	assert cfg.event_subsample == {'keep_n_xyz': [4, 3, 2]}
+
+
+def test_load_config_event_filter_z_range(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+	obj['event_filter'] = {'z_range_m': [100.0, None]}
+	_write_yaml(cfg_path, obj)
+	cfg = load_config(cfg_path)
+	assert cfg.event_filter == {'z_range_m': [100.0, None]}
+
+	obj['event_filter'] = {'z_range_m': [None, 500.0]}
+	_write_yaml(cfg_path, obj)
+	cfg = load_config(cfg_path)
+	assert cfg.event_filter == {'z_range_m': [None, 500.0]}
+
+
+def test_load_config_rejects_invalid_event_subsample(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+
+	obj['event_subsample'] = {'stride_ijk': [5, 5, 5], 'keep_n_xyz': [2, 2, 2]}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='cannot be specified at the same time'):
+		load_config(cfg_path)
+
+	obj['event_subsample'] = {'stride_ijk': [5, 0, 5]}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='>= 1'):
+		load_config(cfg_path)
+
+	obj['event_subsample'] = {'stride_ijk': [5, 5]}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='exactly 3'):
+		load_config(cfg_path)
+
+
+def test_load_config_rejects_invalid_event_filter(tmp_path: Path) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_cfg_dict(
+		dataset_dir=tmp_path / 'dataset',
+		template_cmd=tmp_path / 'template.cmd',
+		hypoinverse_exe=tmp_path / 'hyp1',
+	)
+
+	obj['event_filter'] = {'z_range_m': [100.0]}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='exactly 2'):
+		load_config(cfg_path)
+
+	obj['event_filter'] = {'z_range_m': [200.0, 100.0]}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='zmin_m must be <= zmax_m'):
+		load_config(cfg_path)
+
+	obj['event_filter'] = {'z_range_m': [100.0, 'x']}
+	_write_yaml(cfg_path, obj)
+	with pytest.raises(ValueError, match='number or null'):
+		load_config(cfg_path)
+
+
 @pytest.mark.parametrize(
 	'station_subset',
 	[

@@ -70,6 +70,8 @@ def _write_config(
 	cre_reference_margin_m: float = 0.0,
 	cre_typical_station_elevation_m: float | None = None,
 	cre_n_layers: int = 1,
+	event_filter: dict | None = None,
+	event_subsample: dict | None = None,
 ) -> None:
 	obj: dict = {
 		'dataset_dir': str(dataset_dir),
@@ -98,6 +100,10 @@ def _write_config(
 	}
 	if use_station_elev is not None:
 		obj['use_station_elev'] = bool(use_station_elev)
+	if event_filter is not None:
+		obj['event_filter'] = event_filter
+	if event_subsample is not None:
+		obj['event_subsample'] = event_subsample
 
 	path.write_text(yaml.safe_dump(obj, sort_keys=False), encoding='utf-8')
 
@@ -251,6 +257,178 @@ def test_run_synth_eval_passes_z_is_depth_positive_to_build_station_df(
 	assert seen['z_is_depth_positive'] is False
 	assert seen['force_zero_pdelays'] is False
 	assert write_crh_calls == ['SYNTH_P', 'SYNTH_S']
+
+
+def test_run_synth_eval_passes_event_subsample_to_build_truth_df(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	dataset_dir, sim_yaml_name, recv_name = _prepare_dataset(tmp_path)
+
+	template_cmd = tmp_path / 'template.cmd'
+	hyp_exe = tmp_path / 'hyp1'
+	template_cmd.write_text("STA 'x'\nCRH 1 'x'\nCRH 2 'x'\n", encoding='utf-8')
+	hyp_exe.write_text('', encoding='utf-8')
+
+	cfg_path = tmp_path / 'cfg.yaml'
+	_write_config(
+		cfg_path,
+		dataset_dir=dataset_dir,
+		sim_yaml=sim_yaml_name,
+		receiver_geometry=recv_name,
+		outputs_dir='out',
+		template_cmd=template_cmd,
+		hypoinverse_exe=hyp_exe,
+		model_type='CRH',
+		use_station_elev=False,
+		apply_station_elevation_delay=False,
+		z_is_depth_positive=True,
+		event_subsample={'stride_ijk': [5, 5, 5]},
+	)
+
+	monkeypatch.setattr(pl, 'validate_elevation_correction_config', lambda **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'build_station_df',
+		lambda *_a, **_k: pd.DataFrame(
+			{
+				'station_code': ['S0001'],
+				'Latitude_deg': [35.0],
+				'Longitude_deg': [140.0],
+				'Elevation_m': [100],
+			}
+		),
+	)
+
+	seen: dict[str, object] = {}
+
+	def _build_truth_df(*_a: object, **kwargs: object) -> pd.DataFrame:
+		seen['event_stride_ijk'] = kwargs.get('event_stride_ijk')
+		seen['event_keep_n_xyz'] = kwargs.get('event_keep_n_xyz')
+		return pd.DataFrame({'id': [1]})
+
+	monkeypatch.setattr(pl, 'build_truth_df', _build_truth_df)
+	monkeypatch.setattr(
+		pl, 'build_epic_df', lambda *_a, **_k: pd.DataFrame({'id': [1]})
+	)
+	monkeypatch.setattr(
+		pl, 'build_meas_df', lambda *_a, **_k: pd.DataFrame({'id': [1]})
+	)
+	monkeypatch.setattr(pl, 'write_station_csv', lambda *_a, **_k: None)
+	monkeypatch.setattr(pl, 'write_hypoinverse_sta', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl, 'extract_phase_records', lambda *_a, **_k: pd.DataFrame({'x': [1]})
+	)
+	monkeypatch.setattr(
+		pl, 'override_phase_weight_by_station_prefix', lambda phases, **_k: phases
+	)
+	monkeypatch.setattr(pl, 'write_hypoinverse_arc_from_phases', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'write_cmd_from_template',
+		lambda _tmpl, out_cmd: out_cmd.write_text('\n', encoding='utf-8', newline='\n'),
+	)
+	monkeypatch.setattr(pl, 'write_crh', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'run_hypoinverse',
+		lambda _exe, _cmd, run_dir: (
+			(run_dir / 'hypoinverse_run.prt').write_text('prt', encoding='utf-8'),
+			(run_dir / 'hypoinverse_run.sum').write_text('sum', encoding='utf-8'),
+			(run_dir / 'hypoinverse_run_out.arc').write_text('arc', encoding='utf-8'),
+		),
+	)
+	monkeypatch.setattr(pl, 'evaluate', lambda *_a, **_k: _stub_eval_df())
+
+	pl.run_synth_eval(cfg_path, runs_root=tmp_path / 'runs')
+
+	assert seen['event_stride_ijk'] == [5, 5, 5]
+	assert seen['event_keep_n_xyz'] is None
+
+
+def test_run_synth_eval_passes_event_filter_to_build_truth_df(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	dataset_dir, sim_yaml_name, recv_name = _prepare_dataset(tmp_path)
+
+	template_cmd = tmp_path / 'template.cmd'
+	hyp_exe = tmp_path / 'hyp1'
+	template_cmd.write_text("STA 'x'\nCRH 1 'x'\nCRH 2 'x'\n", encoding='utf-8')
+	hyp_exe.write_text('', encoding='utf-8')
+
+	cfg_path = tmp_path / 'cfg.yaml'
+	_write_config(
+		cfg_path,
+		dataset_dir=dataset_dir,
+		sim_yaml=sim_yaml_name,
+		receiver_geometry=recv_name,
+		outputs_dir='out',
+		template_cmd=template_cmd,
+		hypoinverse_exe=hyp_exe,
+		model_type='CRH',
+		use_station_elev=False,
+		apply_station_elevation_delay=False,
+		z_is_depth_positive=True,
+		event_filter={'z_range_m': [100.0, None]},
+	)
+
+	monkeypatch.setattr(pl, 'validate_elevation_correction_config', lambda **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'build_station_df',
+		lambda *_a, **_k: pd.DataFrame(
+			{
+				'station_code': ['S0001'],
+				'Latitude_deg': [35.0],
+				'Longitude_deg': [140.0],
+				'Elevation_m': [100],
+			}
+		),
+	)
+
+	seen: dict[str, object] = {}
+
+	def _build_truth_df(*_a: object, **kwargs: object) -> pd.DataFrame:
+		seen['event_z_range_m'] = kwargs.get('event_z_range_m')
+		return pd.DataFrame({'id': [1]})
+
+	monkeypatch.setattr(pl, 'build_truth_df', _build_truth_df)
+	monkeypatch.setattr(
+		pl, 'build_epic_df', lambda *_a, **_k: pd.DataFrame({'id': [1]})
+	)
+	monkeypatch.setattr(
+		pl, 'build_meas_df', lambda *_a, **_k: pd.DataFrame({'id': [1]})
+	)
+	monkeypatch.setattr(pl, 'write_station_csv', lambda *_a, **_k: None)
+	monkeypatch.setattr(pl, 'write_hypoinverse_sta', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl, 'extract_phase_records', lambda *_a, **_k: pd.DataFrame({'x': [1]})
+	)
+	monkeypatch.setattr(
+		pl, 'override_phase_weight_by_station_prefix', lambda phases, **_k: phases
+	)
+	monkeypatch.setattr(pl, 'write_hypoinverse_arc_from_phases', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'write_cmd_from_template',
+		lambda _tmpl, out_cmd: out_cmd.write_text('\n', encoding='utf-8', newline='\n'),
+	)
+	monkeypatch.setattr(pl, 'write_crh', lambda *_a, **_k: None)
+	monkeypatch.setattr(
+		pl,
+		'run_hypoinverse',
+		lambda _exe, _cmd, run_dir: (
+			(run_dir / 'hypoinverse_run.prt').write_text('prt', encoding='utf-8'),
+			(run_dir / 'hypoinverse_run.sum').write_text('sum', encoding='utf-8'),
+			(run_dir / 'hypoinverse_run_out.arc').write_text('arc', encoding='utf-8'),
+		),
+	)
+	monkeypatch.setattr(pl, 'evaluate', lambda *_a, **_k: _stub_eval_df())
+
+	pl.run_synth_eval(cfg_path, runs_root=tmp_path / 'runs')
+
+	assert seen['event_z_range_m'] == [100.0, None]
 
 
 @pytest.mark.parametrize(

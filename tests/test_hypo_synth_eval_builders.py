@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-import numpy as np
+from pathlib import Path
 
-from hypo.synth_eval.builders import build_station_df
+import numpy as np
+import pandas as pd
+import pytest
+
+from hypo.synth_eval.builders import build_station_df, build_truth_df
 
 
 def test_build_station_df_elevation_from_depth_positive() -> None:
@@ -51,3 +55,159 @@ def test_build_station_df_elevation_from_up_positive() -> None:
 	expected = (z_m).round().astype(int)
 	got = df['Elevation_m'].to_numpy()
 	assert np.array_equal(got, expected)
+
+
+def _write_index_csv(path: Path) -> None:
+	rows = []
+	eid = 0
+	for k in range(4):
+		for j in range(4):
+			for i in range(4):
+				rows.append(
+					{
+						'event_id': f'ev_{eid:06d}',
+						'x_m': float(i),
+						'y_m': float(j),
+						'z_m': float(k),
+					}
+				)
+				eid += 1
+	pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def test_build_truth_df_stride_subsample_and_max_events_order(tmp_path: Path) -> None:
+	index_csv = tmp_path / 'index.csv'
+	_write_index_csv(index_csv)
+
+	df = build_truth_df(
+		index_csv,
+		35.0,
+		140.0,
+		pd.Timestamp('2020-01-01T00:00:00Z'),
+		0.1,
+		2,
+		event_stride_ijk=[2, 2, 2],
+	)
+
+	assert len(df) == 2
+	assert df['event_id'].tolist() == [0, 2]
+
+
+def test_build_truth_df_z_range_filter_bounds(tmp_path: Path) -> None:
+	index_csv = tmp_path / 'index.csv'
+	_write_index_csv(index_csv)
+
+	df = build_truth_df(
+		index_csv,
+		35.0,
+		140.0,
+		pd.Timestamp('2020-01-01T00:00:00Z'),
+		0.1,
+		0,
+		event_z_range_m=[2.0, None],
+	)
+	assert len(df) == 32
+	assert df['z_m_true'].min() >= 2.0
+
+	df = build_truth_df(
+		index_csv,
+		35.0,
+		140.0,
+		pd.Timestamp('2020-01-01T00:00:00Z'),
+		0.1,
+		0,
+		event_z_range_m=[None, 1.0],
+	)
+	assert len(df) == 32
+	assert df['z_m_true'].max() <= 1.0
+
+
+def test_build_truth_df_order_z_filter_then_subsample_then_max_events(
+	tmp_path: Path,
+) -> None:
+	index_csv = tmp_path / 'index.csv'
+	_write_index_csv(index_csv)
+
+	df = build_truth_df(
+		index_csv,
+		35.0,
+		140.0,
+		pd.Timestamp('2020-01-01T00:00:00Z'),
+		0.1,
+		3,
+		event_z_range_m=[2.0, None],
+		event_stride_ijk=[2, 2, 2],
+	)
+
+	assert len(df) == 3
+	assert df['event_id'].tolist() == [32, 34, 40]
+
+
+def test_build_truth_df_keep_n_xyz_subsample(tmp_path: Path) -> None:
+	index_csv = tmp_path / 'index.csv'
+	_write_index_csv(index_csv)
+
+	df = build_truth_df(
+		index_csv,
+		35.0,
+		140.0,
+		pd.Timestamp('2020-01-01T00:00:00Z'),
+		0.1,
+		0,
+		event_keep_n_xyz=[2, 2, 2],
+	)
+
+	assert len(df) == 8
+	assert set(np.rint(df['x_m_true'].to_numpy()).astype(int).tolist()) == {0, 3}
+	assert set(np.rint(df['y_m_true'].to_numpy()).astype(int).tolist()) == {0, 3}
+	assert set(np.rint(df['z_m_true'].to_numpy()).astype(int).tolist()) == {0, 3}
+
+
+def test_build_truth_df_rejects_invalid_event_subsample(tmp_path: Path) -> None:
+	index_csv = tmp_path / 'index.csv'
+	_write_index_csv(index_csv)
+
+	with pytest.raises(ValueError, match='cannot be specified at the same time'):
+		build_truth_df(
+			index_csv,
+			35.0,
+			140.0,
+			pd.Timestamp('2020-01-01T00:00:00Z'),
+			0.1,
+			0,
+			event_stride_ijk=[2, 2, 2],
+			event_keep_n_xyz=[2, 2, 2],
+		)
+
+	with pytest.raises(ValueError, match='>= 1'):
+		build_truth_df(
+			index_csv,
+			35.0,
+			140.0,
+			pd.Timestamp('2020-01-01T00:00:00Z'),
+			0.1,
+			0,
+			event_stride_ijk=[1, 0, 1],
+		)
+
+	with pytest.raises(ValueError, match='exceeds unique grid counts'):
+		build_truth_df(
+			index_csv,
+			35.0,
+			140.0,
+			pd.Timestamp('2020-01-01T00:00:00Z'),
+			0.1,
+			0,
+			event_keep_n_xyz=[5, 1, 1],
+		)
+
+	with pytest.raises(ValueError, match='zmin_m must be <= zmax_m'):
+		build_truth_df(
+			index_csv,
+			35.0,
+			140.0,
+			pd.Timestamp('2020-01-01T00:00:00Z'),
+			0.1,
+			0,
+			event_z_range_m=[3.0, 1.0],
+		)

@@ -82,12 +82,103 @@ class Config:
 
 	das_station_prefix: str
 	das_phase_weight_code: int
+	event_filter: dict[str, list[float | None]] | None
+	event_subsample: dict[str, list[int]] | None
 
 
 @dataclass(frozen=True)
 class SimParams:
 	vp_kms: float
 	vs_kms: float
+
+
+def _validate_event_subsample_config(
+	event_subsample: object,
+) -> dict[str, list[int]] | None:
+	if event_subsample is None:
+		return None
+	if not isinstance(event_subsample, dict):
+		raise ValueError('event_subsample must be a mapping')
+
+	allowed = {'stride_ijk', 'keep_n_xyz'}
+	extra = set(event_subsample.keys()) - allowed
+	if extra:
+		raise ValueError(
+			f'event_subsample contains unknown keys: {sorted(extra)!r}; '
+			f'allowed: {sorted(allowed)!r}'
+		)
+
+	has_stride = 'stride_ijk' in event_subsample
+	has_keep = 'keep_n_xyz' in event_subsample
+	if has_stride and has_keep:
+		raise ValueError(
+			'event_subsample.stride_ijk and event_subsample.keep_n_xyz '
+			'cannot be specified at the same time'
+		)
+
+	def _to_3ints(name: str, raw: object) -> list[int]:
+		if isinstance(raw, (str, bytes)) or not isinstance(raw, (list, tuple)):
+			raise ValueError(f'event_subsample.{name} must be a list of 3 integers')
+		if len(raw) != 3:
+			raise ValueError(f'event_subsample.{name} must have exactly 3 elements')
+		out: list[int] = []
+		for i, v in enumerate(raw):
+			if isinstance(v, bool) or not isinstance(v, int):
+				raise ValueError(f'event_subsample.{name}[{i}] must be an integer >= 1')
+			vi = int(v)
+			if vi < 1:
+				raise ValueError(f'event_subsample.{name}[{i}] must be an integer >= 1')
+			out.append(vi)
+		return out
+
+	if has_stride:
+		return {'stride_ijk': _to_3ints('stride_ijk', event_subsample['stride_ijk'])}
+	if has_keep:
+		return {'keep_n_xyz': _to_3ints('keep_n_xyz', event_subsample['keep_n_xyz'])}
+	return None
+
+
+def _validate_event_filter_config(
+	event_filter: object,
+) -> dict[str, list[float | None]] | None:
+	if event_filter is None:
+		return None
+	if not isinstance(event_filter, dict):
+		raise ValueError('event_filter must be a mapping')
+
+	allowed = {'z_range_m'}
+	extra = set(event_filter.keys()) - allowed
+	if extra:
+		raise ValueError(
+			f'event_filter contains unknown keys: {sorted(extra)!r}; '
+			f'allowed: {sorted(allowed)!r}'
+		)
+	if 'z_range_m' not in event_filter:
+		return None
+
+	raw = event_filter['z_range_m']
+	if isinstance(raw, (str, bytes)) or not isinstance(raw, (list, tuple)):
+		raise ValueError('event_filter.z_range_m must be a list of [zmin_m, zmax_m]')
+	if len(raw) != 2:
+		raise ValueError('event_filter.z_range_m must have exactly 2 elements')
+
+	out: list[float | None] = []
+	for i, v in enumerate(raw):
+		if v is None:
+			out.append(None)
+			continue
+		if isinstance(v, bool) or not isinstance(v, (int, float)):
+			raise ValueError(
+				f'event_filter.z_range_m[{i}] must be a number or null'
+			)
+		out.append(float(v))
+
+	zmin, zmax = out
+	if zmin is not None and zmax is not None and zmin > zmax:
+		raise ValueError(
+			'event_filter.z_range_m invalid range: zmin_m must be <= zmax_m'
+		)
+	return {'z_range_m': out}
 
 
 def load_config(path: Path) -> Config:
@@ -108,6 +199,8 @@ def load_config(path: Path) -> Config:
 
 	typ_m = obj.get('cre_typical_station_elevation_m', None)
 	typical_m = float(typ_m) if typ_m is not None else None
+	event_filter = _validate_event_filter_config(obj.get('event_filter'))
+	event_subsample = _validate_event_subsample_config(obj.get('event_subsample'))
 
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),
@@ -138,6 +231,8 @@ def load_config(path: Path) -> Config:
 		),
 		das_station_prefix=str(obj.get('das_station_prefix', 'D')),
 		das_phase_weight_code=int(obj.get('das_phase_weight_code', 3)),
+		event_filter=event_filter,
+		event_subsample=event_subsample,
 	)
 
 
@@ -395,8 +490,23 @@ def run_synth_eval(
 		)
 
 	truth_df = build_truth_df(
-		index_csv, cfg.lat0, cfg.lon0, origin0, cfg.dt_sec, cfg.max_events
+		index_csv,
+		cfg.lat0,
+		cfg.lon0,
+		origin0,
+		cfg.dt_sec,
+		cfg.max_events,
+		event_z_range_m=(
+			cfg.event_filter.get('z_range_m') if cfg.event_filter else None
+		),
+		event_stride_ijk=(
+			cfg.event_subsample.get('stride_ijk') if cfg.event_subsample else None
+		),
+		event_keep_n_xyz=(
+			cfg.event_subsample.get('keep_n_xyz') if cfg.event_subsample else None
+		),
 	)
+	print(f'[INFO] selected events: {len(truth_df)}')
 	epic_df = build_epic_df(truth_df, cfg.default_depth_km)
 	meas_df = build_meas_df(events_dir, truth_df, station_df)
 

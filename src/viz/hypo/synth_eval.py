@@ -656,8 +656,8 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		cy_xy = float(pred_xyz[i, 1])
 		cx_xz = float(pred_xyz[i, 0])
 		cy_xz = float(pred_xyz[i, 2])
-		cx_yz = float(pred_xyz[i, 1])
-		cy_yz = float(pred_xyz[i, 2])
+		cx_yz = float(pred_xyz[i, 2])
+		cy_yz = float(pred_xyz[i, 1])
 
 		poly_xy = _ellipse_polyline(
 			cx=cx_xy,
@@ -683,7 +683,6 @@ def save_true_pred_xyz_3view_with_uncertainty(
 			theta_rad=th_yz,
 			n_points=int(n_ellipse_points),
 		)
-		poly_yz = poly_yz[:, [1, 0]]
 
 		is_poor = float(ell['ell_3d_max_km']) > float(poor_thresh_km)
 		if is_poor:

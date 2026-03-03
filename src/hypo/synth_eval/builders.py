@@ -18,6 +18,104 @@ def _event_code_to_int(event_code: str) -> int:
 	return int(tail)
 
 
+def _parse_event_subsample_3ints(
+	value: object, *, key: str, min_value: int
+) -> tuple[int, int, int]:
+	if value is None:
+		raise ValueError(f'event_subsample.{key} must be provided')
+	if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+		raise ValueError(f'event_subsample.{key} must be a list of 3 integers')
+	if len(value) != 3:
+		raise ValueError(f'event_subsample.{key} must have exactly 3 elements')
+
+	out: list[int] = []
+	for i, raw in enumerate(value):
+		if isinstance(raw, bool) or not isinstance(raw, (int, np.integer)):
+			raise ValueError(
+				f'event_subsample.{key}[{i}] must be an integer >= {min_value}'
+			)
+		v = int(raw)
+		if v < min_value:
+			raise ValueError(
+				f'event_subsample.{key}[{i}] must be an integer >= {min_value}'
+			)
+		out.append(v)
+	return (out[0], out[1], out[2])
+
+
+def _parse_event_z_range_m(
+	value: object,
+) -> tuple[float | None, float | None]:
+	if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+		raise ValueError('event_filter.z_range_m must be a list of [zmin_m, zmax_m]')
+	if len(value) != 2:
+		raise ValueError('event_filter.z_range_m must have exactly 2 elements')
+
+	out: list[float | None] = []
+	for i, raw in enumerate(value):
+		if raw is None:
+			out.append(None)
+			continue
+		if isinstance(raw, bool) or not isinstance(raw, (int, float, np.number)):
+			raise ValueError(
+				f'event_filter.z_range_m[{i}] must be a number or null'
+			)
+		out.append(float(raw))
+
+	zmin, zmax = out
+	if zmin is not None and zmax is not None and zmin > zmax:
+		raise ValueError(
+			'event_filter.z_range_m invalid range: zmin_m must be <= zmax_m'
+		)
+	return zmin, zmax
+
+
+def _event_subsample_mask_from_xyz(
+	df: pd.DataFrame,
+	*,
+	stride_ijk: tuple[int, int, int] | None,
+	keep_n_xyz: tuple[int, int, int] | None,
+) -> np.ndarray:
+	if stride_ijk is not None and keep_n_xyz is not None:
+		raise ValueError(
+			'event_subsample.stride_ijk and event_subsample.keep_n_xyz '
+			'cannot be specified at the same time'
+		)
+
+	xi = np.rint(df['x_m'].astype(float).to_numpy()).astype(int)
+	yi = np.rint(df['y_m'].astype(float).to_numpy()).astype(int)
+	zi = np.rint(df['z_m'].astype(float).to_numpy()).astype(int)
+
+	ux = np.unique(xi)
+	uy = np.unique(yi)
+	uz = np.unique(zi)
+
+	x_ijk = np.searchsorted(ux, xi).astype(int)
+	y_ijk = np.searchsorted(uy, yi).astype(int)
+	z_ijk = np.searchsorted(uz, zi).astype(int)
+
+	if keep_n_xyz is not None:
+		nx, ny, nz = keep_n_xyz
+		if nx > int(ux.size) or ny > int(uy.size) or nz > int(uz.size):
+			raise ValueError(
+				'event_subsample.keep_n_xyz exceeds unique grid counts: '
+				f'keep={keep_n_xyz} unique=({int(ux.size)}, {int(uy.size)}, {int(uz.size)})'
+			)
+		x_keep = np.unique(np.rint(np.linspace(0, ux.size - 1, nx)).astype(int))
+		y_keep = np.unique(np.rint(np.linspace(0, uy.size - 1, ny)).astype(int))
+		z_keep = np.unique(np.rint(np.linspace(0, uz.size - 1, nz)).astype(int))
+		return (
+			np.isin(x_ijk, x_keep)
+			& np.isin(y_ijk, y_keep)
+			& np.isin(z_ijk, z_keep)
+		)
+
+	if stride_ijk is None:
+		stride_ijk = (1, 1, 1)
+	sx, sy, sz = stride_ijk
+	return ((x_ijk % sx) == 0) & ((y_ijk % sy) == 0) & ((z_ijk % sz) == 0)
+
+
 def build_station_df(
 	recv_xyz_m: np.ndarray,
 	receiver_indices: np.ndarray,
@@ -96,6 +194,9 @@ def build_truth_df(
 	origin0: pd.Timestamp,
 	dt_sec: float,
 	max_events: int,
+	event_z_range_m: tuple[float | None, float | None] | list[float | None] | None = None,
+	event_stride_ijk: tuple[int, int, int] | list[int] | None = None,
+	event_keep_n_xyz: tuple[int, int, int] | list[int] | None = None,
 ) -> pd.DataFrame:
 	df = pd.read_csv(index_csv)
 	for c in ['event_id', 'x_m', 'y_m', 'z_m']:
@@ -104,6 +205,34 @@ def build_truth_df(
 
 	df['event_int'] = df['event_id'].map(_event_code_to_int).astype(int)
 	df = df.sort_values('event_int').reset_index(drop=True)
+	total0 = len(df)
+
+	if event_z_range_m is not None:
+		zmin_m, zmax_m = _parse_event_z_range_m(event_z_range_m)
+		if zmin_m is not None:
+			df = df.loc[df['z_m'].astype(float) >= float(zmin_m)]
+		if zmax_m is not None:
+			df = df.loc[df['z_m'].astype(float) <= float(zmax_m)]
+		df = df.reset_index(drop=True)
+	print(f'[INFO] event selection after z_filter: {len(df)}/{total0}')
+
+	stride_ijk: tuple[int, int, int] | None = None
+	if event_stride_ijk is not None:
+		stride_ijk = _parse_event_subsample_3ints(
+			event_stride_ijk, key='stride_ijk', min_value=1
+		)
+	keep_n_xyz: tuple[int, int, int] | None = None
+	if event_keep_n_xyz is not None:
+		keep_n_xyz = _parse_event_subsample_3ints(
+			event_keep_n_xyz, key='keep_n_xyz', min_value=1
+		)
+
+	mask = _event_subsample_mask_from_xyz(df, stride_ijk=stride_ijk, keep_n_xyz=keep_n_xyz)
+	df = df.loc[mask].reset_index(drop=True)
+	print(
+		f'[INFO] event selection after subsample: '
+		f'{int(mask.sum())}/{int(mask.size)}'
+	)
 
 	if max_events > 0:
 		df = df.iloc[:max_events].copy()
