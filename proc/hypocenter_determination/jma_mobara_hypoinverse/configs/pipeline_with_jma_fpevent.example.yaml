@@ -1,0 +1,53 @@
+# Example:
+#   python proc/hypocenter_determination/jma_mobara_hypoinverse/pipeline_with_jma_fpevent.py \
+#     --config proc/hypocenter_determination/jma_mobara_hypoinverse/configs/pipeline_with_jma_fpevent.example.yaml
+
+paths:
+  # Hypoinverse station / velocity / executable / template cmd paths.
+  sta_file: /workspace/data/station/jma/stations_hypoinverse_w_das.sta
+  pcrh_file: /workspace/data/velocity/jma_crh/JMA2001A_P.crh
+  scrh_file: /workspace/data/velocity/jma_crh/JMA2001A_S.crh
+  exe_file: /workspace/external_source/hyp1.40/hypoinverse.exe
+  cmd_file: /workspace/proc/hypocenter_determination/jma_mobara_hypoinverse/template/jma2001a_with_das.cmd
+
+  # Input tables and pick/station metadata.
+  measurement_csv: /home/dcuser/mobara2025/proc/proc_continuous/outputs/hinet_gather_events_mobaranet1/eqt_picks_hinet_eqt_for_hypoinverse.csv
+  das_measurement_csv: /home/dcuser/mobara2025/proc/proc_continuous_das/das_picks_20200215_20200301.csv
+  das_epicenter_csv: /home/dcuser/mobara2025/proc/proc_continuous_das/events_summary_20200215_20200301.csv
+  pick_npz: /home/dcuser/mobara2025/proc/proc_continuous/outputs/hinet_gather_events_mobaranet1/eqt_input_hinet_mobaranet1_60s_3ch.npz
+  station_with_das_csv: /workspace/data/station/jma/station_with_das.csv
+
+  # Plot inputs and output root.
+  prefecture_shp: /workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp
+  plot_config_yaml: /workspace/data/config/plot_config.yaml
+  run_dir: ./result/test_mobara2020_jma_fpevent
+
+plot:
+  # Preset name inside plot_config_yaml.
+  plot_setting: mobara_default
+
+time_filter:
+  # target_end is exclusive.
+  target_start: '2020-02-15 00:00:00'
+  target_end: '2020-03-02 00:00:00'
+
+initial_event:
+  # Initial hypocenter/origin-time controls for ARC generation.
+  use_jma_flag: false
+  fix_depth: false
+  default_depth_km: 10.0
+  p_centroid_top_n: 5
+  origin_time_offset_sec: 3.0
+
+das_filter:
+  # DAS pick filtering / decimation parameters.
+  dt_sec: 0.01
+  fiber_spacing_m: 1.0
+  channel_start: 200
+  win_half_samples: 500
+  residual_thresh_s: 0.05
+  spacing_m: 25.0
+
+das_phase:
+  # JMA-DAS event matching tolerance in phase generation.
+  max_dt_sec: 10.0

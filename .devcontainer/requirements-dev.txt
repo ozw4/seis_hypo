@@ -1,6 +1,6 @@
 # Devcontainer python deps (trimmed to what this repo actually imports / uses)
 
-numpy<2
+numpy
 pandas
 scipy
 matplotlib

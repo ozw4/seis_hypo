@@ -9,6 +9,16 @@ from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 _SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
 _NSTA_HEADER_RE = re.compile(r'^\s*NSTA\s+NPHS\b', re.IGNORECASE)
 _ELL_TRIPLET_RE = re.compile(r'<\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+)\s+([+-]?\d+)\s*>')
+_UNSOLVED_EVENT_RE = re.compile(r'\b(?:CANT SOLVE|ABANDON EVENT)\b', re.IGNORECASE)
+_SEQUENCE_HEADER_RE = re.compile(
+	r'\bSEQUENCE NO\.\s*\d+,\s*ID NO\.\s*\d+\b',
+	re.IGNORECASE,
+)
+_EIGENVALUE_KEYS = ['eig_adj1', 'eig_adj2', 'eig_adj3', 'eig_adj4']
+
+
+def _has_dummy_unsolved_coordinates(rec: dict) -> bool:
+	return rec['lat_deg_hyp'] == 0.0 and rec['lon_deg_hyp'] == 0.0
 
 
 def parse_summary_line(line: str) -> dict:
@@ -76,14 +86,19 @@ def parse_summary_line(line: str) -> dict:
 	hemi = s[38]
 	lon_min_str = s[39:44].strip()
 
-	if not lon_deg_str or hemi not in ('E', 'W'):
+	if not lon_deg_str:
 		raise ValueError(f'invalid longitude fields: {s!r}')
 
 	lon_deg = float(lon_deg_str)
 	lon_min = float(lon_min_str) if lon_min_str else 0.0
-	lon = lon_deg + lon_min / 60.0
-	if hemi == 'W':
-		lon = -lon
+	if hemi in ('E', 'W'):
+		lon = lon_deg + lon_min / 60.0
+		if hemi == 'W':
+			lon = -lon
+	elif hemi == ' ' and lon_deg == 0.0 and lon_min == 0.0:
+		lon = 0.0
+	else:
+		raise ValueError(f'invalid longitude fields: {s!r}')
 
 	# --- depth / RMS / ERH / ERZ ---
 	# 46–50 : depth_km (F5.2, 例 '12.00')
@@ -232,12 +247,27 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	pending_error_ellipse: dict | None = None
 	pending_eigenvalues: dict | None = None
 	records: list[dict] = []
+	current_event_unsolved = False
+	current_record_idx: int | None = None
 
 	i = 0
 	while i < len(lines):
 		line = lines[i]
 		s = line.strip()
 		u = s.upper()
+
+		if _UNSOLVED_EVENT_RE.search(line):
+			current_event_unsolved = True
+			if current_record_idx is not None:
+				records[current_record_idx]['_skip_event'] = True
+			i += 1
+			continue
+
+		if _SEQUENCE_HEADER_RE.search(line):
+			current_event_unsolved = False
+			current_record_idx = None
+			i += 1
+			continue
 
 		if u == 'EIGENVALUES':
 			if pending_eigenvalues is not None:
@@ -255,39 +285,37 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 			continue
 
 		if _SUMMARY_RE.match(line):
-			if pending_error_ellipse is None:
-				raise ValueError(
-					f'ERROR ELLIPSE is missing for event summary: {line!r}'
-				)
-
 			rec = parse_summary_line(line)
-			rec.update(pending_error_ellipse)
-			if pending_eigenvalues is not None:
-				rec.update(pending_eigenvalues)
-			else:
-				rec.update(
-					{
-						'eig_adj1': None,
-						'eig_adj2': None,
-						'eig_adj3': None,
-						'eig_adj4': None,
-					}
-				)
+			should_skip_event = current_event_unsolved
+			should_skip_event = should_skip_event or _has_dummy_unsolved_coordinates(rec)
+			rec['_skip_event'] = should_skip_event
+
+			if not rec['_skip_event']:
+				if pending_error_ellipse is None:
+					raise ValueError(
+						f'ERROR ELLIPSE is missing for event summary: {line!r}'
+					)
+				rec.update(pending_error_ellipse)
+				if pending_eigenvalues is not None:
+					rec.update(pending_eigenvalues)
+				else:
+					rec.update(dict.fromkeys(_EIGENVALUE_KEYS))
 
 			records.append(rec)
+			current_record_idx = len(records) - 1
 			pending_error_ellipse = None
 			pending_eigenvalues = None
 			i += 1
 			continue
 
 		if _NSTA_HEADER_RE.match(line):
-			if not records:
+			if current_record_idx is None:
 				raise ValueError('NSTA/NPHS block found before any event summary')
 			if i + 1 >= len(lines):
 				raise ValueError(
 					'NSTA/NPHS header line is truncated: missing values line'
 				)
-			records[-1].update(parse_nsta_line(lines[i + 1]))
+			records[current_record_idx].update(parse_nsta_line(lines[i + 1]))
 			i += 2
 			continue
 
@@ -298,6 +326,10 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 
 	if not records:
 		raise RuntimeError('no events parsed from .prt')
+
+	valid_records = [rec for rec in records if not rec.get('_skip_event', False)]
+	if not valid_records:
+		raise RuntimeError('no valid solved events parsed from .prt')
 
 	required_nsta_keys = [
 		'NSTA',
@@ -313,15 +345,23 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	]
 	required_ell_keys = list(ELLIPSE_COLS)
 
-	for j, rec in enumerate(records, start=1):
+	for j, rec in enumerate(valid_records, start=1):
 		missing = [k for k in required_ell_keys if k not in rec]
 		if missing:
 			raise RuntimeError(f'missing error-ellipse fields for event {j}: {missing}')
 		missing = [k for k in required_nsta_keys if k not in rec]
 		if missing:
 			raise RuntimeError(f'missing NSTA/NPHS fields for event {j}: {missing}')
+		missing = [k for k in _EIGENVALUE_KEYS if rec.get(k) is None]
+		if missing:
+			raise RuntimeError(f'missing EIGENVALUES fields for event {j}: {missing}')
 
-	df = pd.DataFrame(records)
+	df = pd.DataFrame(
+		[
+			{k: v for k, v in rec.items() if not k.startswith('_')}
+			for rec in valid_records
+		]
+	)
 	# hypoinverse 側の通し番号 seq（.arc のイベント順と対応させる）
 	df['seq'] = range(1, len(df) + 1)
 	return df

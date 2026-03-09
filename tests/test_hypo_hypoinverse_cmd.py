@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hypo.hypoinverse_cmd import cmd_token, force_err_erc
+from hypo.hypoinverse_cmd import (
+	cmd_token,
+	force_err_erc,
+	patch_cmd_template_paths,
+)
 from hypo.synth_eval.hypoinverse_runner import (
 	patch_cmd_template,
 	patch_cmd_template_for_cre,
@@ -145,3 +149,31 @@ def test_patch_cmd_template_for_cre_forces_err_erc_before_loc(tmp_path: Path) ->
 	assert lines[:loc].count('ERC 0') == 1
 	assert lines.index('ERR 1.0') < loc
 	assert lines.index('ERC 0') < loc
+
+
+def test_patch_cmd_template_paths_replaces_sta_and_preserves_model_tokens() -> None:
+	lines = [
+		'* keep comment',
+		"STA 'old.sta'",
+		"CRH 1 'old_p.crh'",
+		"CRT 2 'old_s.crh'",
+		"WET 1.0 0.5 0.3 0.2",
+		'LOC',
+	]
+
+	patched = patch_cmd_template_paths(
+		lines,
+		sta_file='new.sta',
+		pcrh_file='new_p.crh',
+		scrh_file='new_s.crh',
+	)
+
+	assert patched[0] == '* keep comment'
+	assert "STA 'new.sta'" in patched
+	assert "CRH 1 'new_p.crh'" in patched
+	assert "CRT 2 'new_s.crh'" in patched
+	assert 'WET 1.0 0.5 0.3 0.2' in patched
+
+	loc = patched.index('LOC')
+	assert patched[:loc].count('ERR 1.0') == 1
+	assert patched[:loc].count('ERC 0') == 1

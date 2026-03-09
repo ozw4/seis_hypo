@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def cmd_token(line: str) -> str | None:
 	s = str(line).strip()
 	if not s or s.startswith('*'):
 		return None
 	return s.split()[0].upper()
+
+
+def _parse_cmd_model_number(token: str) -> int:
+	t = str(token).strip()
+	if not t:
+		raise ValueError('empty model number token')
+
+	sign = ''
+	if t[0] in ('+', '-'):
+		sign = t[0]
+		t = t[1:]
+
+	if not t.isdigit():
+		raise ValueError(f'invalid model number token: {token!r}')
+	return int(sign + t) if sign else int(t)
 
 
 def _is_sal_12(line: str) -> bool:
@@ -120,3 +137,85 @@ def force_err_erc(lines: list[str]) -> list[str]:
 			raise ValueError('ERC 0 must appear before LOC')
 
 	return out
+
+
+def patch_cmd_template_paths(
+	lines: list[str],
+	*,
+	sta_file: str,
+	pcrh_file: str,
+	scrh_file: str,
+) -> list[str]:
+	out: list[str] = []
+	found_sta = False
+	found_p_model = False
+	found_s_model = False
+
+	for line in lines:
+		tok = cmd_token(line)
+		if tok is None:
+			out.append(line)
+			continue
+
+		parts = line.strip().split()
+
+		if tok == 'STA':
+			out.append(f"STA '{sta_file}'")
+			found_sta = True
+			continue
+
+		if tok in ('CRH', 'CRT', 'CRE'):
+			if len(parts) < 2:
+				raise ValueError(f'invalid crust-model line: {line!r}')
+
+			model_number = _parse_cmd_model_number(parts[1])
+			if model_number == 1:
+				out.append(f"{tok} 1 '{pcrh_file}'")
+				found_p_model = True
+				continue
+			if model_number == 2:
+				out.append(f"{tok} 2 '{scrh_file}'")
+				found_s_model = True
+				continue
+
+		if tok == 'PRT':
+			out.append("PRT 'hypoinverse_run.prt'")
+			continue
+		if tok == 'SUM':
+			out.append("SUM 'hypoinverse_run.sum'")
+			continue
+		if tok == 'ARC':
+			out.append("ARC 'hypoinverse_run_out.arc'")
+			continue
+		if tok == 'PHS':
+			out.append("PHS 'hypoinverse_input.arc'")
+			continue
+
+		out.append(line)
+
+	if not found_sta:
+		raise ValueError('template cmd is missing a STA line to replace')
+	if not found_p_model:
+		raise ValueError('template cmd is missing a CRH/CRT/CRE 1 line to replace')
+	if not found_s_model:
+		raise ValueError('template cmd is missing a CRH/CRT/CRE 2 line to replace')
+
+	return force_err_erc(out)
+
+
+def write_cmd_template_paths(
+	template_cmd: Path,
+	out_cmd: Path,
+	*,
+	sta_file: str,
+	pcrh_file: str,
+	scrh_file: str,
+) -> None:
+	lines = template_cmd.read_text(encoding='utf-8').splitlines()
+	patched = patch_cmd_template_paths(
+		lines,
+		sta_file=sta_file,
+		pcrh_file=pcrh_file,
+		scrh_file=scrh_file,
+	)
+	out_cmd.write_text('\n'.join(patched) + '\n', encoding='utf-8', newline='\n')
