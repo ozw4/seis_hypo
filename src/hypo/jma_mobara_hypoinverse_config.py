@@ -264,6 +264,30 @@ class JmaMobaraHypoinverseDasPhase:
 
 
 @dataclass(frozen=True)
+class JmaMobaraHypoinversePlotQualityFilter:
+	max_erh_km: float
+	max_erz_km: float
+
+	def __post_init__(self) -> None:
+		object.__setattr__(
+			self,
+			'max_erh_km',
+			_require_non_negative_float(
+				self.max_erh_km,
+				label='plot_quality_filter.max_erh_km',
+			),
+		)
+		object.__setattr__(
+			self,
+			'max_erz_km',
+			_require_non_negative_float(
+				self.max_erz_km,
+				label='plot_quality_filter.max_erz_km',
+			),
+		)
+
+
+@dataclass(frozen=True)
 class JmaMobaraHypoinverseConfig:
 	paths: JmaMobaraHypoinversePaths
 	plot: JmaMobaraHypoinversePlot
@@ -271,6 +295,7 @@ class JmaMobaraHypoinverseConfig:
 	initial_event: JmaMobaraHypoinverseInitialEvent
 	das_filter: JmaMobaraHypoinverseDasFilter
 	das_phase: JmaMobaraHypoinverseDasPhase
+	plot_quality_filter: JmaMobaraHypoinversePlotQualityFilter
 
 
 def _build_paths(params: object, *, base_dir: Path) -> JmaMobaraHypoinversePaths:
@@ -310,6 +335,7 @@ def load_jma_mobara_hypoinverse_config(
 		'initial_event',
 		'das_filter',
 		'das_phase',
+		'plot_quality_filter',
 	}
 	missing_sections = sorted(required_sections.difference(obj))
 	if missing_sections:
@@ -346,5 +372,10 @@ def load_jma_mobara_hypoinverse_config(
 			JmaMobaraHypoinverseDasPhase,
 			obj['das_phase'],
 			label='das_phase',
+		),
+		plot_quality_filter=_build_dataclass(
+			JmaMobaraHypoinversePlotQualityFilter,
+			obj['plot_quality_filter'],
+			label='plot_quality_filter',
 		),
 	)

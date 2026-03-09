@@ -61,6 +61,10 @@ def _base_config_dict(tmp_path: Path) -> dict:
 		'das_phase': {
 			'max_dt_sec': 10.0,
 		},
+		'plot_quality_filter': {
+			'max_erh_km': 5.0,
+			'max_erz_km': 5.0,
+		},
 	}
 
 
@@ -84,6 +88,8 @@ def test_load_jma_mobara_hypoinverse_config_ok(tmp_path: Path) -> None:
 	assert cfg.initial_event.use_jma_flag is False
 	assert cfg.das_filter.spacing_m == 25.0
 	assert cfg.das_phase.max_dt_sec == 10.0
+	assert cfg.plot_quality_filter.max_erh_km == 5.0
+	assert cfg.plot_quality_filter.max_erz_km == 5.0
 
 
 def test_load_jma_mobara_hypoinverse_config_resolves_relative_paths_from_config_dir(
@@ -175,4 +181,16 @@ def test_load_jma_mobara_hypoinverse_config_rejects_non_positive_spacing(
 	_write_yaml(cfg_path, obj)
 
 	with pytest.raises(ValueError, match='spacing_m'):
+		load_jma_mobara_hypoinverse_config(cfg_path)
+
+
+def test_load_jma_mobara_hypoinverse_config_rejects_negative_plot_quality_filter(
+	tmp_path: Path,
+) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_config_dict(tmp_path)
+	obj['plot_quality_filter']['max_erh_km'] = -0.1
+	_write_yaml(cfg_path, obj)
+
+	with pytest.raises(ValueError, match='max_erh_km'):
 		load_jma_mobara_hypoinverse_config(cfg_path)
