@@ -152,8 +152,11 @@ def _filter_plot_df_by_quality(
 	*,
 	max_erh_km: float,
 	max_erz_km: float,
+	max_origin_time_err_sec: float | None,
 ) -> pd.DataFrame:
 	required_cols = ['ERH', 'ERZ']
+	if max_origin_time_err_sec is not None:
+		required_cols.append('origin_time_err_sec')
 	missing = [col for col in required_cols if col not in df.columns]
 	if missing:
 		raise KeyError(f'plot quality filter requires columns: {missing}')
@@ -164,6 +167,7 @@ def _filter_plot_df_by_quality(
 		f'count_before={count_before}',
 		f'max_erh_km={max_erh_km}',
 		f'max_erz_km={max_erz_km}',
+		f'max_origin_time_err_sec={max_origin_time_err_sec}',
 	)
 
 	mask = (
@@ -172,9 +176,21 @@ def _filter_plot_df_by_quality(
 		& (df['ERH'] <= max_erh_km)
 		& (df['ERZ'] <= max_erz_km)
 	)
+	if max_origin_time_err_sec is not None:
+		mask = (
+			mask
+			& df['origin_time_err_sec'].notna()
+			& (df['origin_time_err_sec'] <= max_origin_time_err_sec)
+		)
 	filtered_df = df.loc[mask].reset_index(drop=True)
 	count_after = len(filtered_df)
-	print('plot_quality_filter:', f'count_after={count_after}')
+	print(
+		'plot_quality_filter:',
+		f'count_after={count_after}',
+		f'max_erh_km={max_erh_km}',
+		f'max_erz_km={max_erz_km}',
+		f'max_origin_time_err_sec={max_origin_time_err_sec}',
+	)
 
 	if count_after == 0:
 		raise RuntimeError(
@@ -182,7 +198,8 @@ def _filter_plot_df_by_quality(
 			f'count_before={count_before}, '
 			f'count_after={count_after}, '
 			f'max_erh_km={max_erh_km}, '
-			f'max_erz_km={max_erz_km}'
+			f'max_erz_km={max_erz_km}, '
+			f'max_origin_time_err_sec={max_origin_time_err_sec}'
 		)
 
 	return filtered_df
@@ -298,6 +315,7 @@ def run_pipeline(
 		prt_df,
 		max_erh_km=config.plot_quality_filter.max_erh_km,
 		max_erz_km=config.plot_quality_filter.max_erz_km,
+		max_origin_time_err_sec=config.plot_quality_filter.max_origin_time_err_sec,
 	)
 	plot_events_map_and_sections(
 		df=prt_plot_df,

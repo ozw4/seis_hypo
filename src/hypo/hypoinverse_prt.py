@@ -9,12 +9,20 @@ from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 _SUMMARY_RE = re.compile(r'^\s*\d{4}-\d{2}-\d{2}')
 _NSTA_HEADER_RE = re.compile(r'^\s*NSTA\s+NPHS\b', re.IGNORECASE)
 _ELL_TRIPLET_RE = re.compile(r'<\s*([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+)\s+([+-]?\d+)\s*>')
+_EIGENVECTOR_ERRORS_HEADER_RE = re.compile(
+	r'^\s*EIGENVECTORS OF ADJUSTMENT\b.*\bERRORS\s*$',
+	re.IGNORECASE,
+)
+_OT_ERROR_LINE_RE = re.compile(
+	r'^\s*OT\s+\([^)]*\)\s+\([^)]*\)\s+([+-]?\d+(?:\.\d+)?)\s*$'
+)
 _UNSOLVED_EVENT_RE = re.compile(r'\b(?:CANT SOLVE|ABANDON EVENT)\b', re.IGNORECASE)
 _SEQUENCE_HEADER_RE = re.compile(
 	r'\bSEQUENCE NO\.\s*\d+,\s*ID NO\.\s*\d+\b',
 	re.IGNORECASE,
 )
 _EIGENVALUE_KEYS = ['eig_adj1', 'eig_adj2', 'eig_adj3', 'eig_adj4']
+_ORIGIN_TIME_ERROR_KEY = 'origin_time_err_sec'
 
 
 def _has_dummy_unsolved_coordinates(rec: dict) -> bool:
@@ -228,12 +236,29 @@ def parse_eigenvalues_block(lines: list[str], i: int) -> tuple[dict, int]:
 	)
 
 
+def parse_origin_time_error_block(lines: list[str], i: int) -> tuple[dict, int]:
+	"""EIGENVECTORS / ERRORS ヘッダ行 + 次行の OT error をパースして返す。"""
+	if i < 0 or i >= len(lines):
+		raise IndexError(f'line index out of range: {i}')
+	if _EIGENVECTOR_ERRORS_HEADER_RE.match(lines[i]) is None:
+		raise ValueError(f'not an EIGENVECTORS/ERRORS header line: {lines[i]!r}')
+	if i + 1 >= len(lines):
+		raise ValueError('EIGENVECTORS/ERRORS block is truncated: missing OT line')
+
+	ot_line = lines[i + 1]
+	m = _OT_ERROR_LINE_RE.match(ot_line)
+	if m is None:
+		raise ValueError(f'invalid OT error line in EIGENVECTORS/ERRORS block: {ot_line!r}')
+
+	return ({_ORIGIN_TIME_ERROR_KEY: float(m.group(1))}, i + 2)
+
+
 def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	"""hypoinverse_run.prt からイベント summary + 幾何情報を DataFrame にする。
 
 	カラム:
 	  origin_time_hyp, lat_deg_hyp, lon_deg_hyp, depth_km_hyp,
-	  RMS, ERH, ERZ,
+	  RMS, ERH, ERZ, origin_time_err_sec,
 	  NSTA, NPHS, DMIN, MODEL, GAP, ITR, NFM, NWR, NWS, NVR,
 	  ell_s1_km, ell_az1_deg, ell_dip1_deg,
 	  ell_s2_km, ell_az2_deg, ell_dip2_deg,
@@ -246,6 +271,7 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 
 	pending_error_ellipse: dict | None = None
 	pending_eigenvalues: dict | None = None
+	pending_origin_time_error: dict | None = None
 	records: list[dict] = []
 	current_event_unsolved = False
 	current_record_idx: int | None = None
@@ -277,6 +303,16 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 			i = next_i
 			continue
 
+		if _EIGENVECTOR_ERRORS_HEADER_RE.match(line):
+			if pending_origin_time_error is not None:
+				raise ValueError(
+					'multiple EIGENVECTORS/ERRORS blocks before an event summary'
+				)
+			vals, next_i = parse_origin_time_error_block(lines, i)
+			pending_origin_time_error = vals
+			i = next_i
+			continue
+
 		if 'ERROR ELLIPSE' in u:
 			if pending_error_ellipse is not None:
 				raise ValueError('multiple ERROR ELLIPSE lines before an event summary')
@@ -300,11 +336,16 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 					rec.update(pending_eigenvalues)
 				else:
 					rec.update(dict.fromkeys(_EIGENVALUE_KEYS))
+				if pending_origin_time_error is not None:
+					rec.update(pending_origin_time_error)
+				else:
+					rec[_ORIGIN_TIME_ERROR_KEY] = None
 
 			records.append(rec)
 			current_record_idx = len(records) - 1
 			pending_error_ellipse = None
 			pending_eigenvalues = None
+			pending_origin_time_error = None
 			i += 1
 			continue
 
@@ -323,6 +364,10 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 
 	if pending_error_ellipse is not None:
 		raise ValueError('found ERROR ELLIPSE without a following event summary')
+	if pending_origin_time_error is not None:
+		raise ValueError(
+			'found EIGENVECTORS/ERRORS block without a following event summary'
+		)
 
 	if not records:
 		raise RuntimeError('no events parsed from .prt')

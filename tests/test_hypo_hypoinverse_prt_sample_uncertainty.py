@@ -18,7 +18,7 @@ def _sample_prt_path() -> Path:
 
 # A) 実サンプル統合テスト:
 # - 全イベントが落ちずに取れる
-# - ell_* / NSTA系 / eig_* が揃う
+# - ell_* / NSTA系 / eig_* / origin_time_err_sec が揃う
 def test_prt_sample_parses_all_events_and_required_fields() -> None:
 	prt = _sample_prt_path()
 	df = load_hypoinverse_summary_from_prt(prt)
@@ -50,14 +50,16 @@ def test_prt_sample_parses_all_events_and_required_fields() -> None:
 		'NVR',
 	]
 	eig_cols = ['eig_adj1', 'eig_adj2', 'eig_adj3', 'eig_adj4']
+	time_err_cols = ['origin_time_err_sec']
 
-	for c in ell_cols + nsta_cols + eig_cols:
+	for c in ell_cols + nsta_cols + eig_cols + time_err_cols:
 		assert c in df.columns
 
 	assert df[ell_cols].notna().all().all()
 	assert df[nsta_cols].notna().all().all()
 	# このサンプルは全イベントに EIGENVALUES がある前提
 	assert df[eig_cols].notna().all().all()
+	assert df[time_err_cols].notna().all().all()
 
 
 # B) ゴールデン値チェック（1イベントだけ）
@@ -83,6 +85,7 @@ def test_prt_sample_first_event_error_ellipse_has_expected_values() -> None:
 	assert row0['eig_adj2'] == pytest.approx(1.950, rel=0, abs=1e-12)
 	assert row0['eig_adj3'] == pytest.approx(1.683, rel=0, abs=1e-12)
 	assert row0['eig_adj4'] == pytest.approx(1.245, rel=0, abs=1e-12)
+	assert row0['origin_time_err_sec'] == pytest.approx(0.022, rel=0, abs=1e-12)
 
 
 # C) サンプル改変ネガティブ（最小2本）

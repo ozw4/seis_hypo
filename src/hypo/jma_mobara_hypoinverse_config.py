@@ -81,6 +81,16 @@ def _require_positive_float(value: object, *, label: str) -> float:
 	return out
 
 
+def _require_optional_non_negative_float(
+	value: object,
+	*,
+	label: str,
+) -> float | None:
+	if value is None:
+		return None
+	return _require_non_negative_float(value, label=label)
+
+
 def _require_non_negative_int(value: object, *, label: str) -> int:
 	if isinstance(value, bool) or not isinstance(value, int):
 		raise TypeError(f'{label} must be an integer')
@@ -267,6 +277,7 @@ class JmaMobaraHypoinverseDasPhase:
 class JmaMobaraHypoinversePlotQualityFilter:
 	max_erh_km: float
 	max_erz_km: float
+	max_origin_time_err_sec: float | None
 
 	def __post_init__(self) -> None:
 		object.__setattr__(
@@ -283,6 +294,14 @@ class JmaMobaraHypoinversePlotQualityFilter:
 			_require_non_negative_float(
 				self.max_erz_km,
 				label='plot_quality_filter.max_erz_km',
+			),
+		)
+		object.__setattr__(
+			self,
+			'max_origin_time_err_sec',
+			_require_optional_non_negative_float(
+				self.max_origin_time_err_sec,
+				label='plot_quality_filter.max_origin_time_err_sec',
 			),
 		)
 

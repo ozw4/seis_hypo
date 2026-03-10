@@ -64,6 +64,7 @@ def _base_config_dict(tmp_path: Path) -> dict:
 		'plot_quality_filter': {
 			'max_erh_km': 5.0,
 			'max_erz_km': 5.0,
+			'max_origin_time_err_sec': None,
 		},
 	}
 
@@ -90,6 +91,7 @@ def test_load_jma_mobara_hypoinverse_config_ok(tmp_path: Path) -> None:
 	assert cfg.das_phase.max_dt_sec == 10.0
 	assert cfg.plot_quality_filter.max_erh_km == 5.0
 	assert cfg.plot_quality_filter.max_erz_km == 5.0
+	assert cfg.plot_quality_filter.max_origin_time_err_sec is None
 
 
 def test_load_jma_mobara_hypoinverse_config_resolves_relative_paths_from_config_dir(
@@ -193,4 +195,29 @@ def test_load_jma_mobara_hypoinverse_config_rejects_negative_plot_quality_filter
 	_write_yaml(cfg_path, obj)
 
 	with pytest.raises(ValueError, match='max_erh_km'):
+		load_jma_mobara_hypoinverse_config(cfg_path)
+
+
+def test_load_jma_mobara_hypoinverse_config_reads_origin_time_error_threshold(
+	tmp_path: Path,
+) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_config_dict(tmp_path)
+	obj['plot_quality_filter']['max_origin_time_err_sec'] = 0.5
+	_write_yaml(cfg_path, obj)
+
+	cfg = load_jma_mobara_hypoinverse_config(cfg_path)
+
+	assert cfg.plot_quality_filter.max_origin_time_err_sec == 0.5
+
+
+def test_load_jma_mobara_hypoinverse_config_rejects_negative_origin_time_error_threshold(
+	tmp_path: Path,
+) -> None:
+	cfg_path = tmp_path / 'cfg.yaml'
+	obj = _base_config_dict(tmp_path)
+	obj['plot_quality_filter']['max_origin_time_err_sec'] = -0.1
+	_write_yaml(cfg_path, obj)
+
+	with pytest.raises(ValueError, match='max_origin_time_err_sec'):
 		load_jma_mobara_hypoinverse_config(cfg_path)
