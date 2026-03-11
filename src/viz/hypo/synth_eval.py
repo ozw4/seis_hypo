@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -128,19 +130,285 @@ def save_hist(series: pd.Series, out_png: Path, title: str, xlabel: str) -> None
 
 
 from viz.core.sections3 import (
-	freeze_limits,
 	make_3view_axes,
-	plot_links_3view,
 	ranges_from_xyz,
 	scatter_points_3view,
 	sync_xyz_ranges,
 )
 
 
+@dataclass(frozen=True)
+class _SliceSpec:
+	enabled: bool
+	coord_m: float
+	half_thickness_m: float
+
+
+def _normalize_event_masks_by_plane(
+	event_masks_by_plane: dict[str, np.ndarray] | None,
+	*,
+	n_events: int,
+) -> dict[str, np.ndarray]:
+	planes = ('xy', 'xz', 'yz')
+	if event_masks_by_plane is None:
+		return {plane: np.ones(n_events, dtype=bool) for plane in planes}
+
+	if set(event_masks_by_plane.keys()) != set(planes):
+		raise ValueError("event_masks_by_plane must contain exactly 'xy', 'xz', 'yz'")
+
+	out: dict[str, np.ndarray] = {}
+	for plane in planes:
+		mask = np.asarray(event_masks_by_plane[plane]).reshape(-1)
+		if mask.size != n_events:
+			raise ValueError(
+				f'event mask length mismatch for {plane}: {mask.size} vs {n_events}'
+			)
+		if mask.dtype == bool:
+			out[plane] = mask
+		elif mask.dtype.kind in ('b', 'i', 'u'):
+			out[plane] = mask.astype(bool)
+		else:
+			raise TypeError(f'event mask for {plane} must be bool/int array')
+	return out
+
+
+def _panel_xy_from_xyz(plane: str, xyz_km: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+	xyz = np.asarray(xyz_km, float).reshape(-1, 3)
+	if plane == 'xy':
+		return xyz[:, 0], xyz[:, 1]
+	if plane == 'xz':
+		return xyz[:, 0], xyz[:, 2]
+	if plane == 'yz':
+		return xyz[:, 2], xyz[:, 1]
+	raise ValueError(f'unknown plane: {plane!r}')
+
+
+def _plot_links_on_panel(
+	ax: plt.Axes,
+	*,
+	plane: str,
+	true_xyz: np.ndarray,
+	pred_xyz: np.ndarray,
+	color: str,
+	linewidth: float,
+	alpha: float,
+	linestyle: str,
+	zorder: float,
+) -> None:
+	for a, b in zip(true_xyz, pred_xyz, strict=True):
+		x1, y1 = _panel_xy_from_xyz(plane, np.asarray(a, float).reshape(1, 3))
+		x2, y2 = _panel_xy_from_xyz(plane, np.asarray(b, float).reshape(1, 3))
+		ax.plot(
+			[float(x1[0]), float(x2[0])],
+			[float(y1[0]), float(y2[0])],
+			color=color,
+			linewidth=float(linewidth),
+			alpha=float(alpha),
+			linestyle=linestyle,
+			zorder=zorder,
+		)
+
+
+def _plot_true_pred_events_on_3view(
+	ax_xy: plt.Axes,
+	ax_xz: plt.Axes,
+	ax_yz: plt.Axes,
+	*,
+	true_xyz: np.ndarray,
+	pred_xyz: np.ndarray,
+	event_masks_by_plane: dict[str, np.ndarray],
+	marker_size: float,
+	z_true: float,
+	z_pred: float,
+	z_link: float,
+) -> tuple[object, object]:
+	plane_to_ax = {'xy': ax_xy, 'xz': ax_xz, 'yz': ax_yz}
+	h_true = None
+	h_pred = None
+
+	for plane, ax in plane_to_ax.items():
+		mask = event_masks_by_plane[plane]
+		true_sel = true_xyz[mask]
+		pred_sel = pred_xyz[mask]
+		x_true, y_true = _panel_xy_from_xyz(plane, true_sel)
+		x_pred, y_pred = _panel_xy_from_xyz(plane, pred_sel)
+
+		if plane == 'xy':
+			h_true = ax.scatter(
+				x_true,
+				y_true,
+				s=marker_size,
+				marker='o',
+				label='True',
+				alpha=0.8,
+				zorder=z_true,
+			)
+			h_pred = ax.scatter(
+				x_pred,
+				y_pred,
+				s=marker_size,
+				marker='x',
+				label='Pred',
+				alpha=0.8,
+				zorder=z_pred,
+			)
+		else:
+			ax.scatter(
+				x_true,
+				y_true,
+				s=marker_size,
+				marker='o',
+				alpha=0.8,
+				zorder=z_true,
+			)
+			ax.scatter(
+				x_pred,
+				y_pred,
+				s=marker_size,
+				marker='x',
+				alpha=0.8,
+				zorder=z_pred,
+			)
+
+		_plot_links_on_panel(
+			ax,
+			plane=plane,
+			true_xyz=true_sel,
+			pred_xyz=pred_sel,
+			color='black',
+			linewidth=0.6,
+			alpha=0.35,
+			linestyle=':',
+			zorder=z_link,
+		)
+
+	if h_true is None or h_pred is None:
+		raise RuntimeError('failed to create event legend handles')
+	return h_true, h_pred
+
+
+def _normalize_display_mode(display_mode: str) -> str:
+	mode = str(display_mode).strip().lower()
+	if mode not in {'projection', 'slice'}:
+		raise ValueError(
+			f"display_mode must be 'projection' or 'slice', got {display_mode!r}"
+		)
+	return mode
+
+
+def _validate_exact_keys(
+	obj: dict[str, Any], *, field: str, required: set[str]
+) -> None:
+	got = set(obj.keys())
+	if got != required:
+		missing = sorted(required - got)
+		extra = sorted(got - required)
+		parts = []
+		if missing:
+			parts.append(f'missing={missing}')
+		if extra:
+			parts.append(f'extra={extra}')
+		raise ValueError(
+			f'{field} must contain exactly {sorted(required)} ({", ".join(parts)})'
+		)
+
+
+def _normalize_slice_specs(
+	*,
+	display_mode: str,
+	slice_specs: dict[str, dict[str, float | bool]] | None,
+) -> dict[str, _SliceSpec] | None:
+	mode = _normalize_display_mode(display_mode)
+	if mode != 'slice':
+		return None
+
+	if slice_specs is None:
+		raise ValueError('slice_specs is required when display_mode=slice')
+
+	if not isinstance(slice_specs, dict):
+		raise ValueError('slice_specs must be a mapping')
+	_validate_exact_keys(
+		slice_specs,
+		field='slice_specs',
+		required={'xy', 'xz', 'yz'},
+	)
+
+	out: dict[str, _SliceSpec] = {}
+	for plane in ('xy', 'xz', 'yz'):
+		spec = slice_specs[plane]
+		if not isinstance(spec, dict):
+			raise ValueError(f'slice_specs.{plane} must be a mapping')
+		_validate_exact_keys(
+			spec,
+			field=f'slice_specs.{plane}',
+			required={'enabled', 'coord_m', 'half_thickness_m'},
+		)
+		enabled = spec['enabled']
+		if not isinstance(enabled, bool):
+			raise ValueError(f'slice_specs.{plane}.enabled must be a boolean')
+		try:
+			coord_m = float(spec['coord_m'])
+			half = float(spec['half_thickness_m'])
+		except (TypeError, ValueError) as e:
+			raise ValueError(
+				f'slice_specs.{plane} coord/thickness must be finite floats'
+			) from e
+		if not np.isfinite(coord_m):
+			raise ValueError(f'slice_specs.{plane}.coord_m must be finite')
+		if not np.isfinite(half) or half < 0.0:
+			raise ValueError(
+				f'slice_specs.{plane}.half_thickness_m must be finite and >= 0'
+			)
+		out[plane] = _SliceSpec(
+			enabled=enabled,
+			coord_m=coord_m,
+			half_thickness_m=half,
+		)
+
+	return out
+
+
+def _event_masks_for_display_mode(
+	true_xyz_m: np.ndarray,
+	*,
+	display_mode: str,
+	slice_specs: dict[str, _SliceSpec] | None,
+) -> dict[str, np.ndarray]:
+	mode = _normalize_display_mode(display_mode)
+	true_xyz = np.asarray(true_xyz_m, float).reshape(-1, 3)
+	if mode == 'projection':
+		return _normalize_event_masks_by_plane(None, n_events=true_xyz.shape[0])
+	if slice_specs is None:
+		raise ValueError('slice_specs is required when display_mode=slice')
+
+	index_by_plane = {'xy': 2, 'xz': 1, 'yz': 0}
+	out: dict[str, np.ndarray] = {}
+	for plane, axis_idx in index_by_plane.items():
+		spec = slice_specs[plane]
+		if not spec.enabled:
+			out[plane] = np.zeros(true_xyz.shape[0], dtype=bool)
+			continue
+		out[plane] = np.abs(true_xyz[:, axis_idx] - float(spec.coord_m)) <= float(
+			spec.half_thickness_m
+		)
+	return out
+
+
+def _slice_panel_title(plane: str, spec: _SliceSpec, *, n_events: int) -> str:
+	label_by_plane = {'xy': 'XY', 'xz': 'XZ', 'yz': 'YZ'}
+	coord_by_plane = {'xy': 'z', 'xz': 'y', 'yz': 'x'}
+	status = '' if spec.enabled else ' [disabled]'
+	return (
+		f'{label_by_plane[plane]} slice {coord_by_plane[plane]}={spec.coord_m:g} m '
+		f'+/-{spec.half_thickness_m:g} m{status} ({n_events} events)'
+	)
+
+
 def _build_true_pred_xyz_3view_figure(
 	true_xyz_m: np.ndarray,
 	pred_xyz_m: np.ndarray,
 	*,
+	event_masks_by_plane: dict[str, np.ndarray] | None,
 	stations_xyz_m: np.ndarray | None,
 	stations_is_das: np.ndarray | None,
 	marker_size: float,
@@ -169,6 +437,10 @@ def _build_true_pred_xyz_3view_figure(
 		raise ValueError(
 			f'true/pred shape mismatch: {true_xyz.shape} vs {pred_xyz.shape}'
 		)
+	event_masks = _normalize_event_masks_by_plane(
+		event_masks_by_plane,
+		n_events=true_xyz.shape[0],
+	)
 
 	st_xyz = None
 	if stations_xyz_m is not None:
@@ -207,57 +479,17 @@ def _build_true_pred_xyz_3view_figure(
 	z_true = 30.0
 	z_pred = 40.0
 
-	h_true = ax_xy.scatter(
-		true_xyz[:, 0],
-		true_xyz[:, 1],
-		s=marker_size,
-		marker='o',
-		label='True',
-		alpha=0.8,
-		zorder=z_true,
-	)
-	h_pred = ax_xy.scatter(
-		pred_xyz[:, 0],
-		pred_xyz[:, 1],
-		s=marker_size,
-		marker='x',
-		label='Pred',
-		alpha=0.8,
-		zorder=z_pred,
-	)
-
-	ax_xz.scatter(
-		true_xyz[:, 0],
-		true_xyz[:, 2],
-		s=marker_size,
-		marker='o',
-		alpha=0.8,
-		zorder=z_true,
-	)
-	ax_xz.scatter(
-		pred_xyz[:, 0],
-		pred_xyz[:, 2],
-		s=marker_size,
-		marker='x',
-		alpha=0.8,
-		zorder=z_pred,
-	)
-
-	ax_yz.scatter(
-		true_xyz[:, 2],
-		true_xyz[:, 1],
-		s=marker_size,
-		marker='o',
-		alpha=0.8,
-		zorder=z_true,
-	)
-	ax_yz.scatter(
-		pred_xyz[:, 2],
-		pred_xyz[:, 1],
-		s=marker_size,
-		marker='x',
-		alpha=0.8,
-		zorder=z_pred,
+	h_true, h_pred = _plot_true_pred_events_on_3view(
+		ax_xy,
+		ax_xz,
+		ax_yz,
+		true_xyz=true_xyz,
+		pred_xyz=pred_xyz,
+		event_masks_by_plane=event_masks,
+		marker_size=marker_size,
+		z_true=z_true,
+		z_pred=z_pred,
+		z_link=z_link,
 	)
 
 	h_sta = None
@@ -334,25 +566,6 @@ def _build_true_pred_xyz_3view_figure(
 					**kw_das,
 				)
 
-	pairs = [
-		((a[0], a[1], a[2]), (b[0], b[1], b[2]))
-		for a, b in zip(true_xyz, pred_xyz, strict=True)
-	]
-
-	with freeze_limits(ax_xy), freeze_limits(ax_xz), freeze_limits(ax_yz):
-		plot_links_3view(
-			ax_xy,
-			ax_xz,
-			ax_yz,
-			pairs_xyz=pairs,
-			color='black',
-			linewidth=0.6,
-			alpha=0.35,
-			linestyle=':',
-			zorder=z_link,
-			yz_mode='z-y',
-		)
-
 	handles: list[object] = [h_true, h_pred]
 	if mask_is_das is None:
 		if h_sta is not None:
@@ -389,6 +602,7 @@ def _finalize_true_pred_xyz_3view(
 	z_range: tuple[float, float],
 	handles: list[object],
 	title: str | None,
+	panel_titles: dict[str, str] | None,
 	out_png: Path,
 ) -> None:
 	sync_xyz_ranges(
@@ -414,6 +628,10 @@ def _finalize_true_pred_xyz_3view(
 	ax_yz.set_xlabel('Depth (km)')
 	ax_yz.set_ylabel('Y (km)')
 	ax_yz.grid(True)
+	if panel_titles is not None:
+		ax_xy.set_title(panel_titles.get('xy', ''))
+		ax_xz.set_title(panel_titles.get('xz', ''))
+		ax_yz.set_title(panel_titles.get('yz', ''))
 
 	for ax in (ax_xy, ax_xz, ax_yz):
 		ax.xaxis.labelpad = 2
@@ -466,6 +684,7 @@ def save_true_pred_xyz_3view(
 	) = _build_true_pred_xyz_3view_figure(
 		true_xyz_m,
 		pred_xyz_m,
+		event_masks_by_plane=None,
 		stations_xyz_m=stations_xyz_m,
 		stations_is_das=stations_is_das,
 		marker_size=marker_size,
@@ -492,6 +711,7 @@ def save_true_pred_xyz_3view(
 		z_range=(float(zr[0]), float(zr[1])),
 		handles=handles,
 		title=title,
+		panel_titles=None,
 		out_png=out_png,
 	)
 
@@ -563,8 +783,17 @@ def save_true_pred_xyz_3view_with_uncertainty(
 	ellipse_alpha: float = 0.85,
 	ellipse_color_ok: str = 'tab:orange',
 	ellipse_color_poor: str = 'tab:red',
+	display_mode: str = 'projection',
+	slice_specs: dict[str, dict[str, float | bool]] | None = None,
 ) -> None:
 	from hypo.uncertainty_ellipsoid import projected_ellipses_from_record
+
+	true_xyz_raw_m = np.asarray(true_xyz_m, float).reshape(-1, 3)
+	pred_xyz_raw_m = np.asarray(pred_xyz_m, float).reshape(-1, 3)
+	if true_xyz_raw_m.shape != pred_xyz_raw_m.shape:
+		raise ValueError(
+			f'true/pred shape mismatch: {true_xyz_raw_m.shape} vs {pred_xyz_raw_m.shape}'
+		)
 
 	if sigma_scale_sec <= 0.0 or not np.isfinite(float(sigma_scale_sec)):
 		raise ValueError(f'invalid sigma_scale_sec: {sigma_scale_sec!r}')
@@ -572,6 +801,28 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		raise ValueError(f'invalid poor_thresh_km: {poor_thresh_km!r}')
 	if clip_km <= 0.0 or not np.isfinite(float(clip_km)):
 		raise ValueError(f'invalid clip_km: {clip_km!r}')
+
+	mode = _normalize_display_mode(display_mode)
+	slice_cfg = _normalize_slice_specs(
+		display_mode=mode,
+		slice_specs=slice_specs,
+	)
+	event_masks = _event_masks_for_display_mode(
+		true_xyz_raw_m,
+		display_mode=mode,
+		slice_specs=slice_cfg,
+	)
+	panel_titles = None
+	if mode == 'slice':
+		assert slice_cfg is not None
+		panel_titles = {
+			plane: _slice_panel_title(
+				plane,
+				slice_cfg[plane],
+				n_events=int(np.count_nonzero(event_masks[plane])),
+			)
+			for plane in ('xy', 'xz', 'yz')
+		}
 
 	missing = [c for c in ELLIPSE_COLS if c not in df_eval.columns]
 	if missing:
@@ -594,6 +845,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 	) = _build_true_pred_xyz_3view_figure(
 		true_xyz_m,
 		pred_xyz_m,
+		event_masks_by_plane=event_masks,
 		stations_xyz_m=stations_xyz_m,
 		stations_is_das=stations_is_das,
 		marker_size=marker_size,
@@ -644,55 +896,57 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		th_xz = float(ell['theta_xz_rad'])
 		th_yz = float(ell['theta_yz_rad'])
 
-		hx_xy, hy_xy = _ellipse_axis_aligned_halfwidth(a_xy, b_xy, th_xy)
-		hx_xz, hz_xz = _ellipse_axis_aligned_halfwidth(a_xz, b_xz, th_xz)
-		hz_yz, hy_yz = _ellipse_axis_aligned_halfwidth(a_yz, b_yz, th_yz)
-
-		pad_x = float(max(pad_x, hx_xy, hx_xz))
-		pad_y = float(max(pad_y, hy_xy, hy_yz))
-		pad_z = float(max(pad_z, hz_xz, hz_yz))
-
-		cx_xy = float(pred_xyz[i, 0])
-		cy_xy = float(pred_xyz[i, 1])
-		cx_xz = float(pred_xyz[i, 0])
-		cy_xz = float(pred_xyz[i, 2])
-		cx_yz = float(pred_xyz[i, 2])
-		cy_yz = float(pred_xyz[i, 1])
-
-		poly_xy = _ellipse_polyline(
-			cx=cx_xy,
-			cy=cy_xy,
-			a_km=a_xy,
-			b_km=b_xy,
-			theta_rad=th_xy,
-			n_points=int(n_ellipse_points),
-		)
-		poly_xz = _ellipse_polyline(
-			cx=cx_xz,
-			cy=cy_xz,
-			a_km=a_xz,
-			b_km=b_xz,
-			theta_rad=th_xz,
-			n_points=int(n_ellipse_points),
-		)
-		poly_yz = _ellipse_polyline(
-			cx=cx_yz,
-			cy=cy_yz,
-			a_km=a_yz,
-			b_km=b_yz,
-			theta_rad=th_yz,
-			n_points=int(n_ellipse_points),
-		)
-
 		is_poor = float(ell['ell_3d_max_km']) > float(poor_thresh_km)
-		if is_poor:
-			segs_xy_poor.append(poly_xy)
-			segs_xz_poor.append(poly_xz)
-			segs_yz_poor.append(poly_yz)
-		else:
-			segs_xy_ok.append(poly_xy)
-			segs_xz_ok.append(poly_xz)
-			segs_yz_ok.append(poly_yz)
+		if event_masks['xy'][i]:
+			hx_xy, hy_xy = _ellipse_axis_aligned_halfwidth(a_xy, b_xy, th_xy)
+			pad_x = float(max(pad_x, hx_xy))
+			pad_y = float(max(pad_y, hy_xy))
+			poly_xy = _ellipse_polyline(
+				cx=float(pred_xyz[i, 0]),
+				cy=float(pred_xyz[i, 1]),
+				a_km=a_xy,
+				b_km=b_xy,
+				theta_rad=th_xy,
+				n_points=int(n_ellipse_points),
+			)
+			if is_poor:
+				segs_xy_poor.append(poly_xy)
+			else:
+				segs_xy_ok.append(poly_xy)
+
+		if event_masks['xz'][i]:
+			hx_xz, hz_xz = _ellipse_axis_aligned_halfwidth(a_xz, b_xz, th_xz)
+			pad_x = float(max(pad_x, hx_xz))
+			pad_z = float(max(pad_z, hz_xz))
+			poly_xz = _ellipse_polyline(
+				cx=float(pred_xyz[i, 0]),
+				cy=float(pred_xyz[i, 2]),
+				a_km=a_xz,
+				b_km=b_xz,
+				theta_rad=th_xz,
+				n_points=int(n_ellipse_points),
+			)
+			if is_poor:
+				segs_xz_poor.append(poly_xz)
+			else:
+				segs_xz_ok.append(poly_xz)
+
+		if event_masks['yz'][i]:
+			hz_yz, hy_yz = _ellipse_axis_aligned_halfwidth(a_yz, b_yz, th_yz)
+			pad_z = float(max(pad_z, hz_yz))
+			pad_y = float(max(pad_y, hy_yz))
+			poly_yz = _ellipse_polyline(
+				cx=float(pred_xyz[i, 2]),
+				cy=float(pred_xyz[i, 1]),
+				a_km=a_yz,
+				b_km=b_yz,
+				theta_rad=th_yz,
+				n_points=int(n_ellipse_points),
+			)
+			if is_poor:
+				segs_yz_poor.append(poly_yz)
+			else:
+				segs_yz_ok.append(poly_yz)
 
 	if segs_xy_ok:
 		ax_xy.add_collection(
@@ -705,6 +959,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				zorder=z_ell,
 			)
 		)
+	if segs_xz_ok:
 		ax_xz.add_collection(
 			LineCollection(
 				segs_xz_ok,
@@ -715,6 +970,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				zorder=z_ell,
 			)
 		)
+	if segs_yz_ok:
 		ax_yz.add_collection(
 			LineCollection(
 				segs_yz_ok,
@@ -736,6 +992,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				zorder=z_ell,
 			)
 		)
+	if segs_xz_poor:
 		ax_xz.add_collection(
 			LineCollection(
 				segs_xz_poor,
@@ -745,6 +1002,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 				zorder=z_ell,
 			)
 		)
+	if segs_yz_poor:
 		ax_yz.add_collection(
 			LineCollection(
 				segs_yz_poor,
@@ -762,13 +1020,13 @@ def save_true_pred_xyz_3view_with_uncertainty(
 	yr2 = (float(yr[0]) - float(pad_y), float(yr[1]) + float(pad_y))
 	zr2 = (float(zr[0]) - float(pad_z), float(zr[1]) + float(pad_z))
 
-	if segs_xy_ok:
+	if segs_xy_ok or segs_xz_ok or segs_yz_ok:
 		handles.append(
 			Line2D(
 				[0.0], [0.0], color=str(ellipse_color_ok), lw=1.2, label='1σ ellipse'
 			)
 		)
-	if segs_xy_poor:
+	if segs_xy_poor or segs_xz_poor or segs_yz_poor:
 		handles.append(
 			Line2D(
 				[0.0],
@@ -790,6 +1048,7 @@ def save_true_pred_xyz_3view_with_uncertainty(
 		z_range=zr2,
 		handles=handles,
 		title=title,
+		panel_titles=panel_titles,
 		out_png=out_png,
 	)
 

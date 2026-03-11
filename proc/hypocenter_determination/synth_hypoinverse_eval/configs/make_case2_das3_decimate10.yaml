@@ -18,7 +18,7 @@ selection:
   das:
     wells: ["das_well_01", "das_well_03", "das_well_08"]
     depth_range_m: [0.0, 1000.0]
-    decimate: 2
+    decimate: 1
 
 output:
   config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das3.yaml"

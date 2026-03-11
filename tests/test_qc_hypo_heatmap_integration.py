@@ -108,3 +108,52 @@ def test_run_heatmap_qc_integration(tmp_path: Path) -> None:
 		for p in pngs['xy'] + pngs['xz'] + pngs['yz']:
 			assert p.is_file()
 			assert p.stat().st_size > 0
+
+
+def test_run_heatmap_qc_integration_with_explicit_scale(tmp_path: Path) -> None:
+	dataset_dir = tmp_path / 'dataset'
+	run_dir = tmp_path / 'run'
+	run_dir.mkdir(parents=True, exist_ok=True)
+
+	_make_index_csv(dataset_dir)
+	df_eval = _make_eval_df()
+
+	cfg = HeatmapConfig(
+		enabled=True,
+		metrics=['err3d_m', 'horiz_m', 'dz_m'],
+		slices=HeatmapSlicesConfig(
+			xy_all_depths=True, xz_center_y=True, yz_center_x=True
+		),
+		scale=HeatmapScaleConfig(
+			percentile=99.0,
+			global_across_slices=True,
+			dz_symmetric=True,
+			vmin=-2.0,
+			vmax=20.0,
+		),
+		output=HeatmapOutputConfig(
+			save_npy=True, save_axes_json=True, out_dirname='heatmaps_explicit'
+		),
+	)
+
+	art = run_heatmap_qc(
+		df_eval=df_eval,
+		dataset_dir=dataset_dir,
+		run_dir=run_dir,
+		cfg=cfg,
+	)
+
+	assert art.axes_json is not None
+	assert art.axes_json.is_file()
+
+	for metric in cfg.metrics:
+		assert metric in art.metric_npy
+		assert art.metric_npy[metric].is_file()
+
+		pngs = art.metric_pngs[metric]
+		assert len(pngs['xy']) == 2
+		assert len(pngs['xz']) == 1
+		assert len(pngs['yz']) == 1
+		for p in pngs['xy'] + pngs['xz'] + pngs['yz']:
+			assert p.is_file()
+			assert p.stat().st_size > 0

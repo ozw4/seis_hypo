@@ -22,6 +22,8 @@ class HeatmapScaleConfig:
 	percentile: float
 	global_across_slices: bool
 	dz_symmetric: bool
+	vmin: float | None = None
+	vmax: float | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,36 @@ def compute_vmin_vmax(
 	return (0.0, vmax)
 
 
+def resolve_vmin_vmax(
+	metric: str,
+	grid_zyx: np.ndarray,
+	*,
+	scale: HeatmapScaleConfig,
+) -> tuple[float, float]:
+	"""Resolve plot scale, preferring explicit config when both bounds exist."""
+	if (scale.vmin is None) != (scale.vmax is None):
+		raise ValueError(
+			'heatmap.scale.vmin and heatmap.scale.vmax '
+			'must be both specified or both omitted'
+		)
+
+	if scale.vmin is not None and scale.vmax is not None:
+		vmin = float(scale.vmin)
+		vmax = float(scale.vmax)
+		if not np.isfinite(vmin) or not np.isfinite(vmax):
+			raise ValueError('heatmap.scale.vmin and heatmap.scale.vmax must be finite')
+		if vmax <= vmin:
+			raise ValueError('heatmap.scale.vmax must be > heatmap.scale.vmin')
+		return (vmin, vmax)
+
+	return compute_vmin_vmax(
+		metric,
+		grid_zyx,
+		percentile=scale.percentile,
+		dz_symmetric=scale.dz_symmetric,
+	)
+
+
 def write_axes_json(out_json: Path, axes: GridAxes) -> Path:
 	"""Save axes.json with x_m/y_m/z_m + shape/order/center metadata."""
 	out_json.parent.mkdir(parents=True, exist_ok=True)
@@ -270,6 +302,8 @@ def run_heatmap_qc(
 		raise ValueError('heatmap.metrics must be non-empty')
 	if not cfg.scale.global_across_slices:
 		raise ValueError('heatmap.scale.global_across_slices must be True (fixed)')
+	if not cfg.scale.dz_symmetric:
+		raise ValueError('heatmap.scale.dz_symmetric must be True (fixed)')
 
 	index_csv = dataset_dir / 'index.csv'
 	axes = load_grid_axes_from_index_csv(index_csv)
@@ -296,12 +330,7 @@ def run_heatmap_qc(
 
 	metric_pngs: dict[str, dict[str, list[Path]]] = {}
 	for metric, grid in grids.items():
-		vmin, vmax = compute_vmin_vmax(
-			metric,
-			grid,
-			percentile=cfg.scale.percentile,
-			dz_symmetric=cfg.scale.dz_symmetric,
-		)
+		vmin, vmax = resolve_vmin_vmax(metric, grid, scale=cfg.scale)
 		metric_dir = out_root / metric
 		metric_dir.mkdir(parents=True, exist_ok=True)
 

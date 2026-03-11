@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import yaml
 
+from hypo.synth_eval.builders import _event_subsample_mask_from_xyz
+from hypo.synth_eval.pipeline import _validate_event_subsample_config
 from hypo.synth_eval.validation import (
 	require_abs,
 	require_dirname_only,
@@ -38,29 +41,225 @@ class Config:
 
 
 @dataclass(frozen=True)
+class UncertaintySlicePlaneConfig:
+	enabled: bool
+	coord_m: float
+	half_thickness_m: float
+
+
+@dataclass(frozen=True)
+class UncertaintySliceConfig:
+	xy: UncertaintySlicePlaneConfig
+	xz: UncertaintySlicePlaneConfig
+	yz: UncertaintySlicePlaneConfig
+
+	def to_plot_specs(self) -> dict[str, dict[str, float | bool]]:
+		return {
+			'xy': {
+				'enabled': bool(self.xy.enabled),
+				'coord_m': float(self.xy.coord_m),
+				'half_thickness_m': float(self.xy.half_thickness_m),
+			},
+			'xz': {
+				'enabled': bool(self.xz.enabled),
+				'coord_m': float(self.xz.coord_m),
+				'half_thickness_m': float(self.xz.half_thickness_m),
+			},
+			'yz': {
+				'enabled': bool(self.yz.enabled),
+				'coord_m': float(self.yz.coord_m),
+				'half_thickness_m': float(self.yz.half_thickness_m),
+			},
+		}
+
+
+@dataclass(frozen=True)
 class UncertaintyPlotConfig:
 	enabled: bool
+	display_mode: str
 	sigma_scale_sec: float
 	poor_thresh_km: float
 	clip_km: float
 	n_ellipse_points: int
 	ellipse_lw: float
 	ellipse_alpha: float
+	event_subsample: dict[str, list[int]] | None
+	slice: UncertaintySliceConfig | None
+
+
+def _require_mapping(obj: Any, field: str) -> dict[str, Any]:
+	if not isinstance(obj, dict):
+		raise ValueError(f'{field} must be a mapping')
+	return obj
+
+
+def _read_bool(
+	obj: dict[str, Any], key: str, *, field: str, default: bool | None = None
+) -> bool:
+	if key not in obj:
+		if default is None:
+			raise ValueError(f'{field} is required')
+		return bool(default)
+	val = obj[key]
+	if not isinstance(val, bool):
+		raise ValueError(f'{field} must be a boolean')
+	return val
+
+
+def _read_finite_float(
+	obj: dict[str, Any], key: str, *, field: str, default: float | None = None
+) -> float:
+	if key not in obj:
+		if default is None:
+			raise ValueError(f'{field} is required')
+		val = default
+	else:
+		val = obj[key]
+	try:
+		out = float(val)
+	except (TypeError, ValueError) as e:
+		raise ValueError(f'{field} must be a finite float') from e
+	if not np.isfinite(out):
+		raise ValueError(f'{field} must be a finite float')
+	return out
+
+
+def _read_nonneg_finite_float(obj: dict[str, Any], key: str, *, field: str) -> float:
+	out = _read_finite_float(obj, key, field=field)
+	if out < 0.0:
+		raise ValueError(f'{field} must be >= 0')
+	return out
+
+
+def _read_display_mode(
+	obj: dict[str, Any], *, key: str = 'display_mode', field: str
+) -> str:
+	if key not in obj:
+		return 'projection'
+	val = obj[key]
+	if not isinstance(val, str):
+		raise ValueError(f'{field} must be projection or slice')
+	mode = val.strip().lower()
+	if mode not in {'projection', 'slice'}:
+		raise ValueError(f'{field} must be projection or slice')
+	return mode
+
+
+def _validate_exact_keys(
+	obj: dict[str, Any], *, field: str, required: set[str]
+) -> None:
+	got = set(obj.keys())
+	if got != required:
+		missing = sorted(required - got)
+		extra = sorted(got - required)
+		parts = []
+		if missing:
+			parts.append(f'missing={missing}')
+		if extra:
+			parts.append(f'extra={extra}')
+		detail = ', '.join(parts) if parts else 'invalid keys'
+		raise ValueError(f'{field} must contain exactly {sorted(required)} ({detail})')
+
+
+def _load_uncertainty_slice_plane_config(
+	obj: Any, *, field: str
+) -> UncertaintySlicePlaneConfig:
+	plane = _require_mapping(obj, field)
+	_validate_exact_keys(
+		plane,
+		field=field,
+		required={'enabled', 'coord_m', 'half_thickness_m'},
+	)
+	return UncertaintySlicePlaneConfig(
+		enabled=_read_bool(plane, 'enabled', field=f'{field}.enabled'),
+		coord_m=_read_finite_float(plane, 'coord_m', field=f'{field}.coord_m'),
+		half_thickness_m=_read_nonneg_finite_float(
+			plane,
+			'half_thickness_m',
+			field=f'{field}.half_thickness_m',
+		),
+	)
+
+
+def _load_uncertainty_slice_config(
+	obj: Any, *, field: str, required: bool
+) -> UncertaintySliceConfig | None:
+	if obj is None:
+		if required:
+			raise ValueError(
+				f'{field} is required when uncertainty_plot.display_mode=slice'
+			)
+		return None
+	slc = _require_mapping(obj, field)
+	_validate_exact_keys(slc, field=field, required={'xy', 'xz', 'yz'})
+	return UncertaintySliceConfig(
+		xy=_load_uncertainty_slice_plane_config(slc['xy'], field=f'{field}.xy'),
+		xz=_load_uncertainty_slice_plane_config(slc['xz'], field=f'{field}.xz'),
+		yz=_load_uncertainty_slice_plane_config(slc['yz'], field=f'{field}.yz'),
+	)
+
+
+def _apply_uncertainty_plot_event_subsample(
+	df_plot: pd.DataFrame,
+	true_xyz_m: np.ndarray,
+	pred_xyz_m: np.ndarray,
+	event_subsample: dict[str, list[int]] | None,
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
+	if event_subsample is None:
+		return df_plot, true_xyz_m, pred_xyz_m
+
+	mask = _event_subsample_mask_from_xyz(
+		pd.DataFrame(
+			{
+				'x_m': df_plot['x_m_true'],
+				'y_m': df_plot['y_m_true'],
+				'z_m': df_plot['z_m_true'],
+			}
+		),
+		stride_ijk=tuple(event_subsample['stride_ijk']),
+		keep_n_xyz=None,
+	)
+	return (
+		df_plot.loc[mask].reset_index(drop=True),
+		true_xyz_m[mask],
+		pred_xyz_m[mask],
+	)
 
 
 def load_config(path: Path) -> Config:
 	obj = yaml.safe_load(path.read_text(encoding='utf-8'))
-	up = obj.get('uncertainty_plot') or {}
+	obj = _require_mapping(obj, 'config')
+	up_obj = obj.get('uncertainty_plot')
+	up = {} if up_obj is None else _require_mapping(up_obj, 'uncertainty_plot')
+	up_display_mode = _read_display_mode(up, field='uncertainty_plot.display_mode')
+	up_slice_cfg = None
+	if up_display_mode == 'slice':
+		up_slice_cfg = _load_uncertainty_slice_config(
+			up.get('slice'),
+			field='uncertainty_plot.slice',
+			required=True,
+		)
+	up_event_subsample = _validate_event_subsample_config(
+		up.get('event_subsample'),
+		field='uncertainty_plot.event_subsample',
+		allow_keep_n_xyz=False,
+	)
 	up_cfg = UncertaintyPlotConfig(
-		enabled=bool(up.get('enabled', True)),
+		enabled=_read_bool(
+			up, 'enabled', field='uncertainty_plot.enabled', default=True
+		),
+		display_mode=up_display_mode,
 		sigma_scale_sec=float(up.get('sigma_scale_sec', 1.0)),
 		poor_thresh_km=float(up.get('poor_thresh_km', 5.0)),
 		clip_km=float(up.get('clip_km', 10.0)),
 		n_ellipse_points=int(up.get('n_ellipse_points', 100)),
 		ellipse_lw=float(up.get('ellipse_lw', 0.8)),
 		ellipse_alpha=float(up.get('ellipse_alpha', 0.85)),
+		event_subsample=up_event_subsample,
+		slice=up_slice_cfg,
 	)
-	hm = obj.get('heatmap') or {}
+	hm_obj = obj.get('heatmap')
+	hm = {} if hm_obj is None else hm_obj
 	hm_slices = hm.get('slices') or {}
 	hm_scale = hm.get('scale') or {}
 	hm_output = hm.get('output') or {}
@@ -80,6 +279,20 @@ def load_config(path: Path) -> Config:
 	hm_percentile = float(hm_scale.get('percentile', 99.0))
 	if not (0.0 < hm_percentile <= 100.0):
 		raise ValueError('heatmap.scale.percentile must satisfy 0.0 < p <= 100.0')
+	hm_has_vmin = 'vmin' in hm_scale
+	hm_has_vmax = 'vmax' in hm_scale
+	if hm_has_vmin != hm_has_vmax:
+		raise ValueError(
+			'heatmap.scale.vmin and heatmap.scale.vmax '
+			'must be both specified or both omitted'
+		)
+	hm_vmin: float | None = None
+	hm_vmax: float | None = None
+	if hm_has_vmin and hm_has_vmax:
+		hm_vmin = _read_finite_float(hm_scale, 'vmin', field='heatmap.scale.vmin')
+		hm_vmax = _read_finite_float(hm_scale, 'vmax', field='heatmap.scale.vmax')
+		if hm_vmax <= hm_vmin:
+			raise ValueError('heatmap.scale.vmax must be > heatmap.scale.vmin')
 	hm_cfg = HeatmapConfig(
 		enabled=bool(hm.get('enabled', False)),
 		metrics=[str(m) for m in hm_metrics],
@@ -92,6 +305,8 @@ def load_config(path: Path) -> Config:
 			percentile=hm_percentile,
 			global_across_slices=bool(hm_global),
 			dz_symmetric=bool(hm_dz_symmetric),
+			vmin=hm_vmin,
+			vmax=hm_vmax,
 		),
 		output=HeatmapOutputConfig(
 			save_npy=bool(hm_output.get('save_npy', True)),
@@ -106,6 +321,44 @@ def load_config(path: Path) -> Config:
 		uncertainty_plot=up_cfg,
 		heatmap=hm_cfg,
 	)
+
+
+def _format_slice_meta_value(val: object) -> str:
+	if val is None:
+		return 'null'
+	return str(val)
+
+
+def _uncertainty_slice_meta_lines(
+	slc: UncertaintySliceConfig | None,
+) -> list[str]:
+	lines: list[str] = []
+	plane_cfgs = {
+		'xy': slc.xy if slc is not None else None,
+		'xz': slc.xz if slc is not None else None,
+		'yz': slc.yz if slc is not None else None,
+	}
+	for plane, cfg in plane_cfgs.items():
+		lines.append(
+			f'slice.{plane}.enabled: '
+			f'{_format_slice_meta_value(None if cfg is None else cfg.enabled)}'
+		)
+		lines.append(
+			f'slice.{plane}.coord_m: '
+			f'{_format_slice_meta_value(None if cfg is None else cfg.coord_m)}'
+		)
+		lines.append(
+			f'slice.{plane}.half_thickness_m: '
+			f'{_format_slice_meta_value(None if cfg is None else cfg.half_thickness_m)}'
+		)
+	return lines
+
+
+def _uncertainty_title(up: UncertaintyPlotConfig) -> str:
+	base = 'True vs HypoInverse (3-view) + 1σ ellipses'
+	if up.display_mode == 'projection':
+		return f'{base} [projection]'
+	return f'{base} [slice]'
 
 
 def _load_stations_from_run_output(
@@ -315,12 +568,35 @@ def run_qc(config_path: Path) -> None:
 
 	print(
 		'[INFO] uncertainty_plot: '
+		f'display_mode={up.display_mode} '
 		f'sigma_scale_sec={up.sigma_scale_sec} '
 		f'poor_thresh_km={up.poor_thresh_km} '
 		f'clip_km={up.clip_km} '
 		f'n_ellipse_points={up.n_ellipse_points} '
 		f'ellipse_lw={up.ellipse_lw} '
 		f'ellipse_alpha={up.ellipse_alpha}'
+	)
+	if up.slice is not None:
+		print(
+			'[INFO] uncertainty_plot.slice: '
+			f'xy(enabled={up.slice.xy.enabled}, coord_m={up.slice.xy.coord_m}, '
+			f'half_thickness_m={up.slice.xy.half_thickness_m}) '
+			f'xz(enabled={up.slice.xz.enabled}, coord_m={up.slice.xz.coord_m}, '
+			f'half_thickness_m={up.slice.xz.half_thickness_m}) '
+			f'yz(enabled={up.slice.yz.enabled}, coord_m={up.slice.yz.coord_m}, '
+			f'half_thickness_m={up.slice.yz.half_thickness_m})'
+		)
+	if up.event_subsample is not None:
+		print(
+			'[INFO] uncertainty_plot.event_subsample.'
+			f"stride_ijk={up.event_subsample['stride_ijk']}"
+		)
+
+	df_plot, true_xyz_m, pred_xyz_m = _apply_uncertainty_plot_event_subsample(
+		df_plot,
+		true_xyz_m,
+		pred_xyz_m,
+		up.event_subsample,
 	)
 
 	missing_ell = [c for c in ELLIPSE_COLS if c not in df_plot.columns]
@@ -336,24 +612,33 @@ def run_qc(config_path: Path) -> None:
 		xy_unc_png,
 		stations_xyz_m=stations_xyz_m,
 		stations_is_das=stations_is_das,
-		title='True vs HypoInverse (3-view) + 1σ ellipses',
+		title=_uncertainty_title(up),
 		sigma_scale_sec=float(up.sigma_scale_sec),
 		poor_thresh_km=float(up.poor_thresh_km),
 		clip_km=float(up.clip_km),
 		n_ellipse_points=int(up.n_ellipse_points),
 		ellipse_lw=float(up.ellipse_lw),
 		ellipse_alpha=float(up.ellipse_alpha),
+		display_mode=up.display_mode,
+		slice_specs=None if up.slice is None else up.slice.to_plot_specs(),
 	)
 	print(f'[OK] wrote: {xy_unc_png}')
 
 	meta_path = run_dir / 'uncertainty_plot_meta.txt'
 	meta_lines = [
+		f'display_mode: {up.display_mode}',
 		f'sigma_scale_sec: {up.sigma_scale_sec}',
 		f'poor_thresh_km: {up.poor_thresh_km}',
 		f'clip_km: {up.clip_km}',
 		f'n_ellipse_points: {up.n_ellipse_points}',
 		f'ellipse_lw: {up.ellipse_lw}',
 		f'ellipse_alpha: {up.ellipse_alpha}',
+		(
+			'event_subsample: null'
+			if up.event_subsample is None
+			else f"event_subsample.stride_ijk: {up.event_subsample['stride_ijk']}"
+		),
+		*_uncertainty_slice_meta_lines(up.slice),
 		'ERR: 1.0',
 		'ERC: 0',
 	]

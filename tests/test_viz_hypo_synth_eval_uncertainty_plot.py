@@ -9,7 +9,8 @@ matplotlib.use('Agg', force=True)
 import numpy as np
 import pandas as pd
 import pytest
-from matplotlib.collections import LineCollection
+import yaml
+from matplotlib.collections import LineCollection, PathCollection
 
 # -----------------------------
 # viz.hypo.synth_eval 側のテスト
@@ -43,6 +44,50 @@ def _patch_save_figure_capture(monkeypatch: pytest.MonkeyPatch):
 
 	monkeypatch.setattr(m, 'save_figure', _save_figure)
 	return cap
+
+
+def _make_uncertainty_df(n_events: int, *, poor_last: bool = False) -> pd.DataFrame:
+	ell_s1 = [0.2] * n_events
+	if poor_last and n_events > 0:
+		ell_s1[-1] = 100.0
+	return pd.DataFrame(
+		{
+			'ell_s1_km': ell_s1,
+			'ell_az1_deg': [90] * n_events,
+			'ell_dip1_deg': [0] * n_events,
+			'ell_s2_km': [0.1] * n_events,
+			'ell_az2_deg': [0] * n_events,
+			'ell_dip2_deg': [0] * n_events,
+			'ell_s3_km': [0.05] * n_events,
+			'ell_az3_deg': [0] * n_events,
+			'ell_dip3_deg': [90] * n_events,
+		}
+	)
+
+
+def _axes_by_view(fig) -> dict[str, object]:
+	axes: dict[str, object] = {}
+	for ax in fig.axes:
+		key = (ax.get_xlabel(), ax.get_ylabel())
+		if key == ('X (km)', 'Y (km)'):
+			axes['xy'] = ax
+		elif key == ('X (km)', 'Depth (km)'):
+			axes['xz'] = ax
+		elif key == ('Depth (km)', 'Y (km)'):
+			axes['yz'] = ax
+	return axes
+
+
+def _scatter_counts(ax) -> list[int]:
+	return [
+		len(c.get_offsets()) for c in ax.collections if isinstance(c, PathCollection)
+	]
+
+
+def _ellipse_segment_counts(ax) -> list[int]:
+	return [
+		len(c.get_segments()) for c in ax.collections if isinstance(c, LineCollection)
+	]
 
 
 def test_save_true_pred_xyz_3view_still_saves_png(
@@ -155,6 +200,24 @@ def test_save_true_pred_xyz_3view_with_uncertainty_validates_inputs(
 			sigma_scale_sec=0.0,
 		)
 
+	with pytest.raises(ValueError, match='display_mode'):
+		m.save_true_pred_xyz_3view_with_uncertainty(
+			true_xyz_m,
+			pred_xyz_m,
+			df_ok,
+			tmp_path / 'u4.png',
+			display_mode='bad',
+		)
+
+	with pytest.raises(ValueError, match='slice_specs is required'):
+		m.save_true_pred_xyz_3view_with_uncertainty(
+			true_xyz_m,
+			pred_xyz_m,
+			df_ok,
+			tmp_path / 'u5.png',
+			display_mode='slice',
+		)
+
 
 def test_save_true_pred_xyz_3view_with_uncertainty_adds_ellipses_and_legend(
 	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -228,6 +291,138 @@ def test_save_true_pred_xyz_3view_with_uncertainty_adds_ellipses_and_legend(
 	assert '1σ ellipse (poor)' in labels
 
 
+def test_uncertainty_projection_mode_keeps_all_events_on_all_panels(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import viz.hypo.synth_eval as m
+
+	cap = _patch_save_figure_capture(monkeypatch)
+
+	true_xyz_m = np.array(
+		[
+			[0.0, 0.0, 1000.0],
+			[300.0, 100.0, 2000.0],
+			[100.0, 200.0, 3000.0],
+		],
+		dtype=float,
+	)
+	pred_xyz_m = true_xyz_m + np.array(
+		[
+			[10.0, -20.0, 5.0],
+			[-15.0, 30.0, -10.0],
+			[20.0, -10.0, 15.0],
+		],
+		dtype=float,
+	)
+
+	m.save_true_pred_xyz_3view_with_uncertainty(
+		true_xyz_m,
+		pred_xyz_m,
+		_make_uncertainty_df(3),
+		tmp_path / 'projection.png',
+		display_mode='projection',
+		slice_specs={
+			'xy': {'enabled': True, 'coord_m': 1000.0, 'half_thickness_m': 1.0},
+		},
+	)
+
+	axes = _axes_by_view(cap['fig'])
+	assert set(axes) == {'xy', 'xz', 'yz'}
+	for ax in axes.values():
+		assert _scatter_counts(ax) == [3, 3]
+		assert _ellipse_segment_counts(ax) == [3]
+
+
+def test_uncertainty_slice_mode_filters_each_panel_by_true_coordinates(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import viz.hypo.synth_eval as m
+
+	cap = _patch_save_figure_capture(monkeypatch)
+
+	true_xyz_m = np.array(
+		[
+			[0.0, 0.0, 1000.0],
+			[300.0, 100.0, 2000.0],
+			[100.0, 200.0, 3000.0],
+		],
+		dtype=float,
+	)
+	pred_xyz_m = np.array(
+		[
+			[10.0, -20.0, 9000.0],
+			[0.0, 120.0, 1980.0],
+			[110.0, 0.0, 2990.0],
+		],
+		dtype=float,
+	)
+	slice_specs = {
+		'xy': {'enabled': True, 'coord_m': 1000.0, 'half_thickness_m': 1.0},
+		'xz': {'enabled': True, 'coord_m': 200.0, 'half_thickness_m': 1.0},
+		'yz': {'enabled': True, 'coord_m': 300.0, 'half_thickness_m': 1.0},
+	}
+
+	m.save_true_pred_xyz_3view_with_uncertainty(
+		true_xyz_m,
+		pred_xyz_m,
+		_make_uncertainty_df(3),
+		tmp_path / 'slice.png',
+		display_mode='slice',
+		slice_specs=slice_specs,
+	)
+
+	axes = _axes_by_view(cap['fig'])
+	assert set(axes) == {'xy', 'xz', 'yz'}
+	assert _scatter_counts(axes['xy']) == [1, 1]
+	assert _scatter_counts(axes['xz']) == [1, 1]
+	assert _scatter_counts(axes['yz']) == [1, 1]
+	assert _ellipse_segment_counts(axes['xy']) == [1]
+	assert _ellipse_segment_counts(axes['xz']) == [1]
+	assert _ellipse_segment_counts(axes['yz']) == [1]
+	assert 'XY slice z=1000 m +/-1 m (1 events)' in axes['xy'].get_title()
+	assert 'XZ slice y=200 m +/-1 m (1 events)' in axes['xz'].get_title()
+	assert 'YZ slice x=300 m +/-1 m (1 events)' in axes['yz'].get_title()
+
+
+def test_uncertainty_slice_mode_empty_slice_still_saves_png(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import viz.hypo.synth_eval as m
+
+	cap = _patch_save_figure_capture(monkeypatch)
+
+	true_xyz_m = np.array([[0.0, 0.0, 1000.0]], dtype=float)
+	pred_xyz_m = np.array([[10.0, 20.0, 1100.0]], dtype=float)
+	out_png = tmp_path / 'slice_empty.png'
+
+	m.save_true_pred_xyz_3view_with_uncertainty(
+		true_xyz_m,
+		pred_xyz_m,
+		_make_uncertainty_df(1),
+		out_png,
+		display_mode='slice',
+		slice_specs={
+			'xy': {'enabled': True, 'coord_m': 9999.0, 'half_thickness_m': 0.5},
+			'xz': {'enabled': False, 'coord_m': 0.0, 'half_thickness_m': 1.0},
+			'yz': {'enabled': True, 'coord_m': 9999.0, 'half_thickness_m': 0.5},
+		},
+	)
+
+	assert out_png.is_file()
+	assert out_png.stat().st_size > 0
+
+	axes = _axes_by_view(cap['fig'])
+	assert _scatter_counts(axes['xy']) == [0, 0]
+	assert _scatter_counts(axes['xz']) == [0, 0]
+	assert _scatter_counts(axes['yz']) == [0, 0]
+	assert _ellipse_segment_counts(axes['xy']) == []
+	assert _ellipse_segment_counts(axes['xz']) == []
+	assert _ellipse_segment_counts(axes['yz']) == []
+	assert '(0 events)' in axes['xy'].get_title()
+	assert '(0 events)' in axes['xz'].get_title()
+	assert '(0 events)' in axes['yz'].get_title()
+
+
 # -----------------------------
 # qc.hypo.synth_eval 側のテスト
 # -----------------------------
@@ -284,6 +479,265 @@ def _write_qc_fixture(
 	config_path.write_text(cfg, encoding='utf-8')
 
 	return config_path
+
+
+def _write_qc_config_with_uncertainty(
+	tmp_path: Path, *, uncertainty_plot: object
+) -> Path:
+	cfg_path = tmp_path / 'qc_config.yaml'
+	cfg = {
+		'dataset_dir': str((tmp_path / 'dataset').resolve()),
+		'outputs_dir': 'run1',
+		'receiver_geometry': 'geom.npy',
+		'uncertainty_plot': uncertainty_plot,
+	}
+	cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding='utf-8')
+	return cfg_path
+
+
+def test_qc_load_config_reads_uncertainty_slice_settings(tmp_path: Path) -> None:
+	import qc.hypo.synth_eval as q
+
+	cfg_path = _write_qc_config_with_uncertainty(
+		tmp_path,
+		uncertainty_plot={
+			'enabled': True,
+			'display_mode': 'slice',
+			'sigma_scale_sec': 0.05,
+			'poor_thresh_km': 5.0,
+			'clip_km': 10.0,
+			'n_ellipse_points': 100,
+			'ellipse_lw': 0.8,
+			'ellipse_alpha': 0.85,
+			'slice': {
+				'xy': {
+					'enabled': True,
+					'coord_m': 1000.0,
+					'half_thickness_m': 1.0,
+				},
+				'xz': {
+					'enabled': False,
+					'coord_m': 200.0,
+					'half_thickness_m': 2.0,
+				},
+				'yz': {
+					'enabled': True,
+					'coord_m': 300.0,
+					'half_thickness_m': 3.0,
+				},
+			},
+		},
+	)
+
+	cfg = q.load_config(cfg_path)
+
+	assert cfg.uncertainty_plot.display_mode == 'slice'
+	assert cfg.uncertainty_plot.slice is not None
+	assert cfg.uncertainty_plot.slice.xy.coord_m == 1000.0
+	assert cfg.uncertainty_plot.slice.xz.enabled is False
+	assert cfg.uncertainty_plot.slice.yz.half_thickness_m == 3.0
+
+
+def test_qc_load_config_reads_uncertainty_event_subsample(tmp_path: Path) -> None:
+	import qc.hypo.synth_eval as q
+
+	cfg_path = _write_qc_config_with_uncertainty(
+		tmp_path,
+		uncertainty_plot={
+			'enabled': True,
+			'event_subsample': {'stride_ijk': [2, 2, 1]},
+		},
+	)
+
+	cfg = q.load_config(cfg_path)
+
+	assert cfg.uncertainty_plot.event_subsample == {'stride_ijk': [2, 2, 1]}
+
+
+def test_qc_load_config_ignores_projection_slice_block(tmp_path: Path) -> None:
+	import qc.hypo.synth_eval as q
+
+	cfg_path = _write_qc_config_with_uncertainty(
+		tmp_path,
+		uncertainty_plot={
+			'display_mode': 'projection',
+			'slice': {
+				'xy': {
+					'enabled': True,
+					'coord_m': 0.0,
+					'half_thickness_m': 1.0,
+				},
+			},
+		},
+	)
+
+	cfg = q.load_config(cfg_path)
+
+	assert cfg.uncertainty_plot.display_mode == 'projection'
+	assert cfg.uncertainty_plot.slice is None
+
+
+@pytest.mark.parametrize(
+	'uncertainty_plot,match',
+	[
+		(
+			[],
+			'uncertainty_plot',
+		),
+		(
+			{
+				'display_mode': 'bad',
+			},
+			'display_mode',
+		),
+		(
+			{
+				'display_mode': 'slice',
+				'slice': {
+					'xy': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+					'xz': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+				},
+			},
+			'uncertainty_plot.slice',
+		),
+		(
+			{
+				'display_mode': 'slice',
+				'slice': {
+					'xy': {
+						'enabled': True,
+						'coord_m': 'nan',
+						'half_thickness_m': 1.0,
+					},
+					'xz': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+					'yz': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+				},
+			},
+			'coord_m',
+		),
+		(
+			{
+				'display_mode': 'slice',
+				'slice': {
+					'xy': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': -1.0,
+					},
+					'xz': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+					'yz': {
+						'enabled': True,
+						'coord_m': 0.0,
+						'half_thickness_m': 1.0,
+					},
+				},
+			},
+			'>= 0',
+		),
+		(
+			{
+				'event_subsample': {
+					'keep_n_xyz': [1, 1, 1],
+				},
+			},
+			'keep_n_xyz',
+		),
+		(
+			{
+				'event_subsample': {
+					'stride_ijk': [2, 2],
+				},
+			},
+			'exactly 3',
+		),
+		(
+			{
+				'event_subsample': {
+					'stride_ijk': [2, 0, 1],
+				},
+			},
+			'>= 1',
+		),
+		(
+			{
+				'event_subsample': {
+					'stride_ijk': [2, -1, 1],
+				},
+			},
+			'>= 1',
+		),
+	],
+)
+def test_qc_load_config_rejects_invalid_uncertainty_settings(
+	tmp_path: Path,
+	uncertainty_plot: object,
+	match: str,
+) -> None:
+	import qc.hypo.synth_eval as q
+
+	cfg_path = _write_qc_config_with_uncertainty(
+		tmp_path, uncertainty_plot=uncertainty_plot
+	)
+
+	with pytest.raises(ValueError, match=match):
+		q.load_config(cfg_path)
+
+
+def test_apply_uncertainty_plot_event_subsample_uses_residual_event_grid() -> None:
+	import qc.hypo.synth_eval as q
+
+	df_plot = pd.DataFrame(
+		{
+			'x_m_true': [0.0, 0.0, 2000.0, 2000.0],
+			'y_m_true': [0.0, 1000.0, 0.0, 1000.0],
+			'z_m_true': [500.0, 500.0, 500.0, 500.0],
+		}
+	)
+	true_xyz_m = df_plot[['x_m_true', 'y_m_true', 'z_m_true']].to_numpy(float)
+	pred_xyz_m = true_xyz_m + 10.0
+
+	df_sub, true_sub, pred_sub = q._apply_uncertainty_plot_event_subsample(
+		df_plot,
+		true_xyz_m,
+		pred_xyz_m,
+		{'stride_ijk': [2, 1, 1]},
+	)
+
+	# 解析後に x=[0, 2000] だけ残った集合では、残存イベント基準の x-index は
+	# [0, 1] に振り直される。stride_x=2 なら x=0 側だけが残る。
+	assert list(df_sub['x_m_true']) == [0.0, 0.0]
+	assert list(df_sub['y_m_true']) == [0.0, 1000.0]
+	assert np.array_equal(
+		true_sub,
+		np.array(
+			[
+				[0.0, 0.0, 500.0],
+				[0.0, 1000.0, 500.0],
+			],
+			dtype=float,
+		),
+	)
+	assert np.array_equal(true_sub + 10.0, pred_sub)
 
 
 def test_run_qc_skips_uncertainty_when_missing_columns(
@@ -385,6 +839,8 @@ def test_run_qc_passes_masked_df_to_uncertainty(
 
 		# reset_index(drop=True) の確認：残る行が元index=1なので、resetされて0になるはず
 		assert list(df_plot.index) == [0]
+		assert kwargs['display_mode'] == 'projection'
+		assert kwargs['slice_specs'] is None
 
 		_touch_png(Path(out_png))
 		called['ok'] = True
@@ -397,3 +853,182 @@ def test_run_qc_passes_masked_df_to_uncertainty(
 	run_dir = config_path.resolve().parent.parent / 'runs' / 'run1'
 	assert (run_dir / 'xy_true_vs_hyp.png').is_file()
 	assert (run_dir / 'xy_true_vs_hyp_uncertainty.png').is_file()
+
+
+def test_run_qc_passes_slice_settings_and_writes_meta(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	import qc.hypo.synth_eval as q
+
+	df = pd.DataFrame(
+		{
+			'horiz_m': [1.0],
+			'dz_m': [1.0],
+			'err3d_m': [1.5],
+			'x_m_true': [300.0],
+			'y_m_true': [200.0],
+			'z_m_true': [1000.0],
+			'x_m_hyp': [0.0],
+			'y_m_hyp': [0.0],
+			'z_m_hyp': [900.0],
+			'ell_s1_km': [0.2],
+			'ell_az1_deg': [90],
+			'ell_dip1_deg': [0],
+			'ell_s2_km': [0.1],
+			'ell_az2_deg': [0],
+			'ell_dip2_deg': [0],
+			'ell_s3_km': [0.05],
+			'ell_az3_deg': [0],
+			'ell_dip3_deg': [90],
+		}
+	)
+	config_path = _write_qc_fixture(tmp_path, eval_df=df)
+
+	cfg = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+	cfg['uncertainty_plot'] = {
+		'enabled': True,
+		'display_mode': 'slice',
+		'sigma_scale_sec': 0.05,
+		'poor_thresh_km': 5.0,
+		'clip_km': 10.0,
+		'n_ellipse_points': 100,
+		'ellipse_lw': 0.8,
+		'ellipse_alpha': 0.85,
+		'slice': {
+			'xy': {'enabled': True, 'coord_m': 1000.0, 'half_thickness_m': 1.0},
+			'xz': {'enabled': True, 'coord_m': 200.0, 'half_thickness_m': 2.0},
+			'yz': {'enabled': False, 'coord_m': 300.0, 'half_thickness_m': 3.0},
+		},
+	}
+	config_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding='utf-8')
+
+	def _touch_png(path: Path) -> None:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_bytes(b'x')
+
+	monkeypatch.setattr(q, 'save_hist', lambda *a, **k: _touch_png(Path(a[1])))
+	monkeypatch.setattr(q, 'save_dxdy_scatter', lambda *a, **k: _touch_png(Path(a[2])))
+	monkeypatch.setattr(
+		q, 'save_true_pred_xyz_3view', lambda *a, **k: _touch_png(Path(a[2]))
+	)
+
+	called: dict[str, object] = {}
+
+	def _unc(true_xyz_m, pred_xyz_m, df_plot, out_png, **kwargs):
+		_touch_png(Path(out_png))
+		called['display_mode'] = kwargs['display_mode']
+		called['slice_specs'] = kwargs['slice_specs']
+		called['title'] = kwargs['title']
+
+	monkeypatch.setattr(q, 'save_true_pred_xyz_3view_with_uncertainty', _unc)
+
+	q.run_qc(config_path)
+
+	assert called['display_mode'] == 'slice'
+	assert called['slice_specs'] == {
+		'xy': {'enabled': True, 'coord_m': 1000.0, 'half_thickness_m': 1.0},
+		'xz': {'enabled': True, 'coord_m': 200.0, 'half_thickness_m': 2.0},
+		'yz': {'enabled': False, 'coord_m': 300.0, 'half_thickness_m': 3.0},
+	}
+	assert called['title'] == 'True vs HypoInverse (3-view) + 1σ ellipses [slice]'
+
+	run_dir = config_path.resolve().parent.parent / 'runs' / 'run1'
+	meta = (run_dir / 'uncertainty_plot_meta.txt').read_text(encoding='utf-8')
+	assert 'display_mode: slice' in meta
+	assert 'event_subsample: null' in meta
+	assert 'slice.xy.enabled: True' in meta
+	assert 'slice.xy.coord_m: 1000.0' in meta
+	assert 'slice.xz.half_thickness_m: 2.0' in meta
+	assert 'slice.yz.enabled: False' in meta
+
+
+def test_run_qc_applies_uncertainty_event_subsample_on_residual_events(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	import qc.hypo.synth_eval as q
+
+	df = pd.DataFrame(
+		{
+			'horiz_m': [1.0, 1.1, 1.2, 1.3],
+			'dz_m': [0.1, 0.2, 0.3, 0.4],
+			'err3d_m': [1.0, 1.1, 1.2, 1.3],
+			'x_m_true': [0.0, 0.0, 2000.0, 2000.0],
+			'y_m_true': [0.0, 1000.0, 0.0, 1000.0],
+			'z_m_true': [500.0, 500.0, 500.0, 500.0],
+			'x_m_hyp': [10.0, 10.0, 2010.0, 2010.0],
+			'y_m_hyp': [20.0, 1020.0, 20.0, 1020.0],
+			'z_m_hyp': [490.0, 490.0, 490.0, 490.0],
+			'ell_s1_km': [0.2, 0.2, 0.2, 0.2],
+			'ell_az1_deg': [90, 90, 90, 90],
+			'ell_dip1_deg': [0, 0, 0, 0],
+			'ell_s2_km': [0.1, 0.1, 0.1, 0.1],
+			'ell_az2_deg': [0, 0, 0, 0],
+			'ell_dip2_deg': [0, 0, 0, 0],
+			'ell_s3_km': [0.05, 0.05, 0.05, 0.05],
+			'ell_az3_deg': [0, 0, 0, 0],
+			'ell_dip3_deg': [90, 90, 90, 90],
+		}
+	)
+	config_path = _write_qc_fixture(tmp_path, eval_df=df)
+
+	cfg = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+	cfg['uncertainty_plot'] = {
+		'enabled': True,
+		'event_subsample': {'stride_ijk': [2, 1, 1]},
+	}
+	config_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding='utf-8')
+
+	def _touch_png(path: Path) -> None:
+		path.parent.mkdir(parents=True, exist_ok=True)
+		path.write_bytes(b'x')
+
+	monkeypatch.setattr(q, 'save_hist', lambda *a, **k: _touch_png(Path(a[1])))
+	monkeypatch.setattr(q, 'save_dxdy_scatter', lambda *a, **k: _touch_png(Path(a[2])))
+	monkeypatch.setattr(
+		q, 'save_true_pred_xyz_3view', lambda *a, **k: _touch_png(Path(a[2]))
+	)
+
+	called: dict[str, object] = {}
+
+	def _unc(true_xyz_m, pred_xyz_m, df_plot, out_png, **kwargs):
+		_touch_png(Path(out_png))
+		called['x_m_true'] = list(df_plot['x_m_true'])
+		called['y_m_true'] = list(df_plot['y_m_true'])
+		called['true_xyz_m'] = np.asarray(true_xyz_m, float)
+		called['pred_xyz_m'] = np.asarray(pred_xyz_m, float)
+
+	monkeypatch.setattr(q, 'save_true_pred_xyz_3view_with_uncertainty', _unc)
+
+	q.run_qc(config_path)
+
+	assert called['x_m_true'] == [0.0, 0.0]
+	assert called['y_m_true'] == [0.0, 1000.0]
+	assert np.array_equal(
+		called['true_xyz_m'],
+		np.array(
+			[
+				[0.0, 0.0, 500.0],
+				[0.0, 1000.0, 500.0],
+			],
+			dtype=float,
+		),
+	)
+	assert np.array_equal(
+		called['pred_xyz_m'],
+		np.array(
+			[
+				[10.0, 20.0, 490.0],
+				[10.0, 1020.0, 490.0],
+			],
+			dtype=float,
+		),
+	)
+
+	out = capsys.readouterr().out
+	assert '[INFO] uncertainty_plot.event_subsample.stride_ijk=[2, 1, 1]' in out
+
+	run_dir = config_path.resolve().parent.parent / 'runs' / 'run1'
+	meta = (run_dir / 'uncertainty_plot_meta.txt').read_text(encoding='utf-8')
+	assert 'event_subsample.stride_ijk: [2, 1, 1]' in meta

@@ -7,12 +7,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import qc.hypo.heatmap as hm
+import viz.hypo.synth_eval as hviz
 from qc.hypo.heatmap import (
+	HeatmapConfig,
+	HeatmapOutputConfig,
+	HeatmapScaleConfig,
+	HeatmapSlicesConfig,
 	build_metric_grid_zyx,
 	build_metric_grids_zyx,
 	compute_vmin_vmax,
 	load_grid_axes_from_index_csv,
 	map_true_xyz_to_zyx_indices,
+	run_heatmap_qc,
 	write_axes_json,
 	write_metric_grid_npy,
 )
@@ -112,6 +119,74 @@ def test_compute_vmin_vmax_err3d_and_dz() -> None:
 	expected = np.nanpercentile(np.abs(grid_dz), percentile)
 	assert np.isclose(vmax_dz, expected)
 	assert np.isclose(vmin_dz, -expected)
+
+
+def test_run_heatmap_qc_uses_explicit_scale_without_compute(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	dataset_dir = tmp_path / 'dataset'
+	dataset_dir.mkdir(parents=True, exist_ok=True)
+	pd.DataFrame({'x_m': [0], 'y_m': [0], 'z_m': [0]}).to_csv(
+		dataset_dir / 'index.csv', index=False
+	)
+	df_eval = pd.DataFrame(
+		{
+			'x_m_true': [0],
+			'y_m_true': [0],
+			'z_m_true': [0],
+			'dz_m': [123.0],
+		}
+	)
+
+	def _raise_compute(*_args, **_kwargs):
+		raise AssertionError('compute_vmin_vmax must not be called')
+
+	monkeypatch.setattr(hm, 'compute_vmin_vmax', _raise_compute)
+
+	captured: list[tuple[str, float, float]] = []
+
+	def _save_xy(*args, metric, vmin, vmax, **_kwargs):
+		out_dir = args[2]
+		captured.append((metric, float(vmin), float(vmax)))
+		return [Path(out_dir) / 'xy_z0m.png']
+
+	monkeypatch.setattr(hviz, 'save_heatmap_xy_slices', _save_xy)
+
+	def _raise_xz(*_args, **_kwargs):
+		raise AssertionError('save_heatmap_xz_center_y must not be called')
+
+	def _raise_yz(*_args, **_kwargs):
+		raise AssertionError('save_heatmap_yz_center_x must not be called')
+
+	monkeypatch.setattr(hviz, 'save_heatmap_xz_center_y', _raise_xz)
+	monkeypatch.setattr(hviz, 'save_heatmap_yz_center_x', _raise_yz)
+
+	cfg = HeatmapConfig(
+		enabled=True,
+		metrics=['dz_m'],
+		slices=HeatmapSlicesConfig(
+			xy_all_depths=True, xz_center_y=False, yz_center_x=False
+		),
+		scale=HeatmapScaleConfig(
+			percentile=99.0,
+			global_across_slices=True,
+			dz_symmetric=True,
+			vmin=-10.0,
+			vmax=5.0,
+		),
+		output=HeatmapOutputConfig(
+			save_npy=False, save_axes_json=False, out_dirname='heatmaps'
+		),
+	)
+
+	run_heatmap_qc(
+		df_eval=df_eval,
+		dataset_dir=dataset_dir,
+		run_dir=tmp_path / 'run',
+		cfg=cfg,
+	)
+
+	assert captured == [('dz_m', -10.0, 5.0)]
 
 
 def test_write_axes_json_and_metric_grid_npy(tmp_path: Path) -> None:

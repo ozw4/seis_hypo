@@ -138,26 +138,23 @@ def parse_summary_line(line: str) -> dict:
 
 
 def parse_nsta_line(line: str) -> dict:
-	"""NSTA NPHS 行の「値の行」を split ベースでパースする。
+	"""HypoInverse .prt の NSTA/NPHS 値行を固定カラムでパースする。"""
+	s = line
 
-	例:
-	  NSTA NPHS  DMIN MODEL GAP ITR NFM NWR NWS NVR ...
-		15   15  11.8  JMAS  97   8   0  15   8  15
-	"""
-	parts = line.split()
-	if len(parts) < 10:
+	# FORMAT(1X,I4,I5,F6.1,2X,A3,A1,6I4,...)
+	if len(s) < 46:
 		raise ValueError(f'NSTA line too short: {line!r}')
 
-	nsta = int(parts[0])
-	nphs = int(parts[1])
-	dmin = float(parts[2])
-	model = parts[3]
-	gap = int(parts[4])
-	itr = int(parts[5])
-	nfm = int(parts[6])
-	nwr = int(parts[7])
-	nws = int(parts[8])
-	nvr = int(parts[9])
+	nsta = int(s[1:5])
+	nphs = int(s[5:10])
+	dmin = float(s[10:16])
+	model = (s[18:21] + s[21]).strip()
+	gap = int(s[22:26])
+	itr = int(s[26:30])
+	nfm = int(s[30:34])
+	nwr = int(s[34:38])
+	nws = int(s[38:42])
+	nvr = int(s[42:46])
 
 	return {
 		'NSTA': nsta,
@@ -248,7 +245,9 @@ def parse_origin_time_error_block(lines: list[str], i: int) -> tuple[dict, int]:
 	ot_line = lines[i + 1]
 	m = _OT_ERROR_LINE_RE.match(ot_line)
 	if m is None:
-		raise ValueError(f'invalid OT error line in EIGENVECTORS/ERRORS block: {ot_line!r}')
+		raise ValueError(
+			f'invalid OT error line in EIGENVECTORS/ERRORS block: {ot_line!r}'
+		)
 
 	return ({_ORIGIN_TIME_ERROR_KEY: float(m.group(1))}, i + 2)
 
@@ -323,7 +322,9 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 		if _SUMMARY_RE.match(line):
 			rec = parse_summary_line(line)
 			should_skip_event = current_event_unsolved
-			should_skip_event = should_skip_event or _has_dummy_unsolved_coordinates(rec)
+			should_skip_event = should_skip_event or _has_dummy_unsolved_coordinates(
+				rec
+			)
 			rec['_skip_event'] = should_skip_event
 
 			if not rec['_skip_event']:

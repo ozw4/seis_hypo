@@ -19,25 +19,29 @@ def _event_code_to_int(event_code: str) -> int:
 
 
 def _parse_event_subsample_3ints(
-	value: object, *, key: str, min_value: int
+	value: object,
+	*,
+	key: str,
+	min_value: int,
+	field_prefix: str = 'event_subsample',
 ) -> tuple[int, int, int]:
 	if value is None:
-		raise ValueError(f'event_subsample.{key} must be provided')
+		raise ValueError(f'{field_prefix}.{key} must be provided')
 	if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
-		raise ValueError(f'event_subsample.{key} must be a list of 3 integers')
+		raise ValueError(f'{field_prefix}.{key} must be a list of 3 integers')
 	if len(value) != 3:
-		raise ValueError(f'event_subsample.{key} must have exactly 3 elements')
+		raise ValueError(f'{field_prefix}.{key} must have exactly 3 elements')
 
 	out: list[int] = []
 	for i, raw in enumerate(value):
 		if isinstance(raw, bool) or not isinstance(raw, (int, np.integer)):
 			raise ValueError(
-				f'event_subsample.{key}[{i}] must be an integer >= {min_value}'
+				f'{field_prefix}.{key}[{i}] must be an integer >= {min_value}'
 			)
 		v = int(raw)
 		if v < min_value:
 			raise ValueError(
-				f'event_subsample.{key}[{i}] must be an integer >= {min_value}'
+				f'{field_prefix}.{key}[{i}] must be an integer >= {min_value}'
 			)
 		out.append(v)
 	return (out[0], out[1], out[2])

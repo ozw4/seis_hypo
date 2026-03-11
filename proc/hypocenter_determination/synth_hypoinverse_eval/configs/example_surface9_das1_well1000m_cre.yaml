@@ -51,9 +51,27 @@ das_station_prefix: "D"
 das_phase_weight_code: 3
 
 uncertainty_plot:
+  enabled: true
+  display_mode: projection
   sigma_scale_sec: 0.05
   poor_thresh_km: 5.0
   clip_km: 10.0
+  n_ellipse_points: 100
+  ellipse_lw: 0.8
+  ellipse_alpha: 0.85
+  slice:
+    xy:
+      enabled: true
+      coord_m: 0.0
+      half_thickness_m: 1.0
+    xz:
+      enabled: true
+      coord_m: 0.0
+      half_thickness_m: 1.0
+    yz:
+      enabled: true
+      coord_m: 0.0
+      half_thickness_m: 1.0
 
 heatmap:
   enabled: true

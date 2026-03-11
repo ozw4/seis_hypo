@@ -25,6 +25,7 @@ from hypo.station_delays import add_p_and_s_delays_from_elevation
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 
 from .builders import (
+	_parse_event_subsample_3ints,
 	build_epic_df,
 	build_meas_df,
 	build_station_df,
@@ -94,17 +95,22 @@ class SimParams:
 
 def _validate_event_subsample_config(
 	event_subsample: object,
+	*,
+	field: str = 'event_subsample',
+	allow_keep_n_xyz: bool = True,
 ) -> dict[str, list[int]] | None:
 	if event_subsample is None:
 		return None
 	if not isinstance(event_subsample, dict):
-		raise ValueError('event_subsample must be a mapping')
+		raise ValueError(f'{field} must be a mapping')
 
-	allowed = {'stride_ijk', 'keep_n_xyz'}
+	allowed = {'stride_ijk', 'keep_n_xyz'} if allow_keep_n_xyz else {'stride_ijk'}
 	extra = set(event_subsample.keys()) - allowed
+	if not allow_keep_n_xyz and 'keep_n_xyz' in event_subsample:
+		raise ValueError(f'{field}.keep_n_xyz is not supported')
 	if extra:
 		raise ValueError(
-			f'event_subsample contains unknown keys: {sorted(extra)!r}; '
+			f'{field} contains unknown keys: {sorted(extra)!r}; '
 			f'allowed: {sorted(allowed)!r}'
 		)
 
@@ -116,25 +122,28 @@ def _validate_event_subsample_config(
 			'cannot be specified at the same time'
 		)
 
-	def _to_3ints(name: str, raw: object) -> list[int]:
-		if isinstance(raw, (str, bytes)) or not isinstance(raw, (list, tuple)):
-			raise ValueError(f'event_subsample.{name} must be a list of 3 integers')
-		if len(raw) != 3:
-			raise ValueError(f'event_subsample.{name} must have exactly 3 elements')
-		out: list[int] = []
-		for i, v in enumerate(raw):
-			if isinstance(v, bool) or not isinstance(v, int):
-				raise ValueError(f'event_subsample.{name}[{i}] must be an integer >= 1')
-			vi = int(v)
-			if vi < 1:
-				raise ValueError(f'event_subsample.{name}[{i}] must be an integer >= 1')
-			out.append(vi)
-		return out
-
 	if has_stride:
-		return {'stride_ijk': _to_3ints('stride_ijk', event_subsample['stride_ijk'])}
+		return {
+			'stride_ijk': list(
+				_parse_event_subsample_3ints(
+					event_subsample['stride_ijk'],
+					key='stride_ijk',
+					min_value=1,
+					field_prefix=field,
+				)
+			)
+		}
 	if has_keep:
-		return {'keep_n_xyz': _to_3ints('keep_n_xyz', event_subsample['keep_n_xyz'])}
+		return {
+			'keep_n_xyz': list(
+				_parse_event_subsample_3ints(
+					event_subsample['keep_n_xyz'],
+					key='keep_n_xyz',
+					min_value=1,
+					field_prefix=field,
+				)
+			)
+		}
 	return None
 
 

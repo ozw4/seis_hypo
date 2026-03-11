@@ -54,6 +54,6 @@ das_phase:
 
 plot_quality_filter:
   # Applied only to the final plot input after loading hypoinverse_run.prt.
-  max_erh_km: 5.0
-  max_erz_km: 10.0
-  max_origin_time_err_sec: 0.5
+  max_erh_km: 7.0
+  max_erz_km: 10
+  max_origin_time_err_sec: 2
