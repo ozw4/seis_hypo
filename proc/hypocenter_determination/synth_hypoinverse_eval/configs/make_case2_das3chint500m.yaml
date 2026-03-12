@@ -2,7 +2,7 @@
 
 # ---- recipe（生成に必要）----
 dataset_dir: "/workspace/data/synthe/synth_surface25_das9_2km_uniform_stride101010_noNoise"
-outputs_dir: "case_das3_triangle_0_1000m_chint4m"
+outputs_dir: "case_das3_triangle_0_1000m_chint500m"
 
 paths:
   template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd"
@@ -18,10 +18,10 @@ selection:
   das:
     wells: ["das_well_01", "das_well_03", "das_well_08"]
     depth_range_m: [0.0, 1000.0]
-    decimate: 2
+    decimate: 250
 
 output:
-  config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das3_chint4m.yaml"
+  config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das3_chint500m.yaml"
 
 
 # ---- デフォルト（ジオメトリ以外は全部これが最終configに載る）----
@@ -96,7 +96,7 @@ heatmap:
     global_across_slices: true
     dz_symmetric: true
     vmin: 0.0
-    vmax: 200.0
+    vmax: 100.0
   output:
     save_npy: true
     save_axes_json: true

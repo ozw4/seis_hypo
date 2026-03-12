@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -44,7 +45,11 @@ SITE_SHRINK_K = 30
 # 'counts'     : raw counts (linear)
 HEX_MODE = 'xnorm'
 
-HEX_CMAP = 'inferno'
+HEX_CMAP_BASE_NAME = 'inferno'
+HEX_CMAP_XNORM_REGISTERED_NAME = 'Reds_under_gray_le_001'
+HEX_UNDER_THRESHOLD_XNORM = 0.01
+HEX_UNDER_COLOR_XNORM = '#d9d9d9'
+
 HEX_GRIDSIZE_MAG = 70
 HEX_GRIDSIZE_LOGD = 80
 HEX_MINCNT_MAG = 1
@@ -65,8 +70,9 @@ HEX_VMAX_COUNTS = None
 HEX_VMIN_LOGCOUNTS = None
 HEX_VMAX_LOGCOUNTS = None
 
-# HEX_MODE='xnorm' 用（fraction within x-bin; だいたい 0..0.2 とか）
-HEX_VMIN_XNORM = 0
+# HEX_MODE='xnorm' 用（fraction within x-bin）
+# <= 0.01 を under 色で描くため、vmin は 0.01 よりわずかに大きくする
+HEX_VMIN_XNORM = float(np.nextafter(HEX_UNDER_THRESHOLD_XNORM, np.inf))
 HEX_VMAX_XNORM = 0.06
 
 
@@ -146,6 +152,23 @@ def _clim_for_mode(mode: str) -> tuple[float | None, float | None]:
 	raise ValueError(f'unknown HEX_MODE: {mode}')
 
 
+def _ensure_registered_xnorm_cmap() -> str:
+	if HEX_CMAP_XNORM_REGISTERED_NAME not in plt.colormaps():
+		cmap = plt.get_cmap(HEX_CMAP_BASE_NAME).copy()
+		cmap.set_under(HEX_UNDER_COLOR_XNORM)
+		mpl.colormaps.register(cmap, name=HEX_CMAP_XNORM_REGISTERED_NAME)
+	return HEX_CMAP_XNORM_REGISTERED_NAME
+
+
+def _hex_cmap_name_for_mode(mode: str) -> str:
+	mode2 = str(mode).strip().lower()
+	if mode2 == 'xnorm':
+		return _ensure_registered_xnorm_cmap()
+	if mode2 in {'counts', 'log_counts'}:
+		return HEX_CMAP_BASE_NAME
+	raise ValueError(f'unknown HEX_MODE: {mode}')
+
+
 def make_mag_plot(
 	df: pd.DataFrame, *, y_col: str, out_png: Path, out_bins_csv: Path, title: str
 ) -> None:
@@ -164,6 +187,7 @@ def make_mag_plot(
 	fig = plt.figure(figsize=(9, 6))
 	ax = fig.add_subplot(111)
 	vmin, vmax = _clim_for_mode(HEX_MODE)
+	cmap_name = _hex_cmap_name_for_mode(HEX_MODE)
 	hexbin_with_color_mode(
 		fig,
 		ax,
@@ -171,7 +195,7 @@ def make_mag_plot(
 		y=y,
 		gridsize=HEX_GRIDSIZE_MAG,
 		mincnt=HEX_MINCNT_MAG,
-		cmap=HEX_CMAP,
+		cmap=cmap_name,
 		mode=HEX_MODE,
 		xedges_for_xnorm=bins,
 		xbin_min_colsum=float(XBIN_MIN_COLSUM),
@@ -225,6 +249,7 @@ def make_distance_plot(
 	fig = plt.figure(figsize=(9, 6))
 	ax = fig.add_subplot(111)
 	vmin, vmax = _clim_for_mode(HEX_MODE)
+	cmap_name = _hex_cmap_name_for_mode(HEX_MODE)
 	hexbin_with_color_mode(
 		fig,
 		ax,
@@ -232,7 +257,7 @@ def make_distance_plot(
 		y=y,
 		gridsize=HEX_GRIDSIZE_LOGD,
 		mincnt=HEX_MINCNT_LOGD,
-		cmap=HEX_CMAP,
+		cmap=cmap_name,
 		mode=HEX_MODE,
 		xedges_for_xnorm=bins,
 		xbin_min_colsum=float(XBIN_MIN_COLSUM),
@@ -382,6 +407,8 @@ def main() -> None:
 		title=f'distance vs {y_col} ({tag}, hex={HEX_MODE})',
 	)
 
+	cmap_used = _hex_cmap_name_for_mode(HEX_MODE)
+
 	summary = {
 		'snr_fb': SNR_FB,
 		'snr_col_raw': snr_col,
@@ -389,7 +416,12 @@ def main() -> None:
 		'apply_site_correction': bool(APPLY_SITE_CORRECTION),
 		'site_shrink_k': float(SITE_SHRINK_K),
 		'hex_mode': HEX_MODE,
-		'hex_cmap': HEX_CMAP,
+		'hex_cmap_base': HEX_CMAP_BASE_NAME,
+		'hex_cmap_used': cmap_used,
+		'hex_under_xnorm': {
+			'threshold_le': HEX_UNDER_THRESHOLD_XNORM,
+			'color': HEX_UNDER_COLOR_XNORM,
+		},
 		'hex_clim': {
 			'counts': [HEX_VMIN_COUNTS, HEX_VMAX_COUNTS],
 			'log_counts': [HEX_VMIN_LOGCOUNTS, HEX_VMAX_LOGCOUNTS],
@@ -420,7 +452,7 @@ def main() -> None:
 
 	print(f'[ok] SNR_FB={SNR_FB} -> snr_col={snr_col}')
 	print(f'[ok] APPLY_SITE_CORRECTION={APPLY_SITE_CORRECTION} k={SITE_SHRINK_K}')
-	print(f'[ok] HEX_MODE={HEX_MODE} cmap={HEX_CMAP}')
+	print(f'[ok] HEX_MODE={HEX_MODE} cmap={cmap_used}')
 	print(f'[ok] wrote outputs under: {OUT_DIR}')
 
 

@@ -1,60 +1,22 @@
-# recipe_case.yaml
-
-# ---- recipe（生成に必要）----
-dataset_dir: "/workspace/data/synthe/synth_surface25_das9_2km_uniform_stride101010_noNoise"
-outputs_dir: "case_das3_triangle_0_1000m_chint4m"
-
-paths:
-  template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd"
-  hypoinverse_exe: "/workspace/external_source/hyp1.40/hypoinverse.exe"   # ← exe を指定
-  sim_yaml: "auto"
-  receiver_geometry: "auto"
-
-selection:
-  surface:
-    enabled: false
-    recv_id: "geo_surface_5x5"
-    component_indices: [6,7,8,11,12,13,16,17,18]
-  das:
-    wells: ["das_well_01", "das_well_03", "das_well_08"]
-    depth_range_m: [0.0, 1000.0]
-    decimate: 2
-
-output:
-  config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das3_chint4m.yaml"
-
-
-# ---- デフォルト（ジオメトリ以外は全部これが最終configに載る）----
-
-# ====== モデル設定（CRE）======
-model_type: "CRE"
+model_type: CRE
 use_station_elev: true
 z_is_depth_positive: true
-
 cre_reference_margin_m: 0.0
 cre_typical_station_elevation_m: null
 cre_n_layers: 1
-
-# CRE + use_station_elev のときは二重補正回避で false
 apply_station_elevation_delay: false
-
-# ====== 震源決定/評価パラメータ ======
 lat0: 35.0
 lon0: 140.0
-origin0: "2026-01-01T00:00:00"
+origin0: '2026-01-01T00:00:00'
 dt_sec: 10.0
 max_events: 0
-
 default_depth_km: 0.5
 fix_depth: false
-
 arc_use_jma_flag: false
 arc_p_centroid_top_n: 1
 arc_origin_time_offset_sec: 1.0
-
-das_station_prefix: "D"
+das_station_prefix: D
 das_phase_weight_code: 3
-
 uncertainty_plot:
   enabled: true
   display_mode: slice
@@ -78,7 +40,10 @@ uncertainty_plot:
       coord_m: 5000.0
       half_thickness_m: 50.0
   event_subsample:
-    stride_ijk: [2, 2, 2]
+    stride_ijk:
+    - 2
+    - 2
+    - 2
 heatmap:
   enabled: true
   metrics:
@@ -96,12 +61,11 @@ heatmap:
     global_across_slices: true
     dz_symmetric: true
     vmin: 0.0
-    vmax: 200.0
+    vmax: 100.0
   output:
     save_npy: true
     save_axes_json: true
     out_dirname: heatmaps
-
 event_subsample:
   stride_ijk:
   - 1
@@ -111,3 +75,75 @@ event_filter:
   z_range_m:
   - 500.0
   - null
+dataset_dir: /workspace/data/synthe/synth_surface25_das9_2km_uniform_stride101010_noNoise
+sim_yaml: case_uniform_grid201x201x61_surface5x5_das3x3_vwell2km_stride101010_noNoise.yaml
+outputs_dir: case_das3_triangle_0_1000m_chint50m
+template_cmd: /workspace/external_source/hyp1.40/template/template.cmd
+hypoinverse_exe: /workspace/external_source/hyp1.40/hypoinverse.exe
+receiver_geometry: recv_surface25_das9_2km.npy
+station_subset:
+  surface_indices: []
+  das_indices:
+  - 0
+  - 25
+  - 50
+  - 75
+  - 100
+  - 125
+  - 150
+  - 175
+  - 200
+  - 225
+  - 250
+  - 275
+  - 300
+  - 325
+  - 350
+  - 375
+  - 400
+  - 425
+  - 450
+  - 475
+  - 500
+  - 2002
+  - 2027
+  - 2052
+  - 2077
+  - 2102
+  - 2127
+  - 2152
+  - 2177
+  - 2202
+  - 2227
+  - 2252
+  - 2277
+  - 2302
+  - 2327
+  - 2352
+  - 2377
+  - 2402
+  - 2427
+  - 2452
+  - 2477
+  - 2502
+  - 7007
+  - 7032
+  - 7057
+  - 7082
+  - 7107
+  - 7132
+  - 7157
+  - 7182
+  - 7207
+  - 7232
+  - 7257
+  - 7282
+  - 7307
+  - 7332
+  - 7357
+  - 7382
+  - 7407
+  - 7432
+  - 7457
+  - 7482
+  - 7507

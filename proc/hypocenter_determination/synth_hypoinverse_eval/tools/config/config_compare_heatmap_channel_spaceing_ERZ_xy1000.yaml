@@ -1,0 +1,32 @@
+compare:
+  metric: ERZ
+  slice: xy
+  coord_m: 1550.0
+  output_png: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/tools/output/compare_channel_spacing_ERZ_xy_z1000.png
+  ncols: 2
+
+  figsize_per_panel:
+    width: 4.2
+    height: 4.2
+
+  title: 'ERZ comparison by channel_spacing'
+  uncertainty_scale_sec: 0.01
+
+  scale:
+    percentile: 99.0
+    vmin: 0.0
+    vmax: 0.1
+
+  inputs:
+    - label: 4m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint4m/heatmaps
+    - label: 10m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint10m/heatmaps
+    - label: 20m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint20m/heatmaps
+    - label: 50m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint50m/heatmaps
+    - label: 100m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint100m/heatmaps
+    - label: 200m
+      heatmap_root: /workspace/proc/hypocenter_determination/synth_hypoinverse_eval/runs/case_das3_triangle_0_1000m_chint200m/heatmaps

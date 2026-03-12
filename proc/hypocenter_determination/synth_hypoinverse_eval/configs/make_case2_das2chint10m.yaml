@@ -2,7 +2,7 @@
 
 # ---- recipe（生成に必要）----
 dataset_dir: "/workspace/data/synthe/synth_surface25_das9_2km_uniform_stride101010_noNoise"
-outputs_dir: "case_das3_triangle_0_1000m_chint4m"
+outputs_dir: "case_das2_line_0_1000m_chint10m"
 
 paths:
   template_cmd: "/workspace/external_source/hyp1.40/template/template.cmd"
@@ -16,12 +16,12 @@ selection:
     recv_id: "geo_surface_5x5"
     component_indices: [6,7,8,11,12,13,16,17,18]
   das:
-    wells: ["das_well_01", "das_well_03", "das_well_08"]
-    depth_range_m: [0.0, 1000.0]
-    decimate: 2
+    wells: ["das_well_01", "das_well_03"]
+    depth_range_m: [0.0, 1500.0]
+    decimate: 5
 
 output:
-  config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das3_chint4m.yaml"
+  config_yaml_path: "/workspace/proc/hypocenter_determination/synth_hypoinverse_eval/configs/case2_das2_chint10m.yaml"
 
 
 # ---- デフォルト（ジオメトリ以外は全部これが最終configに載る）----
@@ -49,7 +49,7 @@ default_depth_km: 0.5
 fix_depth: false
 
 arc_use_jma_flag: false
-arc_p_centroid_top_n: 1
+arc_p_centroid_top_n: 5
 arc_origin_time_offset_sec: 1.0
 
 das_station_prefix: "D"
