@@ -17,7 +17,7 @@ selection:
     component_indices: [6,7,8,11,12,13,16,17,18]
   das:
     wells: ["das_well_01", "das_well_03"]
-    depth_range_m: [0.0, 750.0]
+    depth_range_m: [0.0, 1300.0]
     decimate: 5
 
 output:
@@ -75,7 +75,7 @@ uncertainty_plot:
       half_thickness_m: 50.0
     yz:
       enabled: true
-      coord_m: 2000.0
+      coord_m: 5000.0
       half_thickness_m: 50.0
   event_subsample:
     stride_ijk: [2, 2, 2]
@@ -87,6 +87,7 @@ heatmap:
   - dz_m
   - ERH
   - ERZ
+  - GAP
   slices:
     xy_all_depths: true
     xz_center_y: true

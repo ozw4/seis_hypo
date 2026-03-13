@@ -10,11 +10,14 @@ def compute_vmin_vmax(
 	percentile: float,
 	dz_symmetric: bool,
 ) -> tuple[float, float]:
-	"""Compute vmin/vmax (pXX; dz_m uses symmetric scale on |dz|)."""
+	"""Compute vmin/vmax (GAP fixed; dz_m symmetric on |dz|; others percentile)."""
 	if not (0.0 < float(percentile) <= 100.0):
 		raise ValueError('percentile must satisfy 0.0 < p <= 100.0')
 
 	vals = np.asarray(grid_zyx, dtype=float)
+
+	if metric == 'GAP':
+		return (0.0, 360.0)
 
 	if metric == 'dz_m':
 		if not dz_symmetric:

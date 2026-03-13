@@ -87,6 +87,7 @@ heatmap:
   - dz_m
   - ERH
   - ERZ
+  - GAP
   slices:
     xy_all_depths: true
     xz_center_y: true

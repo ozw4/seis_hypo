@@ -12,6 +12,8 @@ from matplotlib.lines import Line2D
 
 from hypo.synth_eval.heatmap_grid import (
 	axis_extent_km_from_centers as _axis_extent_km_from_centers_impl,
+)
+from hypo.synth_eval.heatmap_grid import (
 	validate_heatmap_grid_shape as _validate_heatmap_grid_shape_impl,
 )
 from hypo.synth_eval.heatmap_types import GridAxes
@@ -620,7 +622,7 @@ def _finalize_true_pred_xyz_3view(
 		yz_mode='z-y',
 	)
 
-	ax_xy.set_xlabel('X (km)')
+	ax_xy.set_xlabel('')
 	ax_xy.set_ylabel('Y (km)')
 	ax_xy.set_aspect('equal', adjustable='box')
 	ax_xy.grid(True)
@@ -641,6 +643,7 @@ def _finalize_true_pred_xyz_3view(
 		ax.xaxis.labelpad = 2
 		ax.yaxis.labelpad = 2
 		ax.tick_params(axis='both', which='major', pad=2)
+		ax.title.set_y(1.01)
 	if title:
 		fig.suptitle(title, y=0.985)
 	labels = [h.get_label() for h in handles]
@@ -652,7 +655,7 @@ def _finalize_true_pred_xyz_3view(
 		bottom=0.07,
 		top=0.95,
 		wspace=0.32,
-		hspace=0.32,
+		hspace=0.42,
 	)
 	save_figure(fig, out_png, dpi=200)
 
@@ -1067,6 +1070,7 @@ def save_heatmap_2d(
 	extent: tuple[float, float, float, float],
 	vmin: float,
 	vmax: float,
+	colorbar_label: str | None = None,
 	origin: str = 'lower',
 	invert_y: bool = False,
 ) -> Path:
@@ -1083,7 +1087,9 @@ def save_heatmap_2d(
 		vmin=float(vmin),
 		vmax=float(vmax),
 	)
-	fig.colorbar(im, ax=ax)
+	cbar = fig.colorbar(im, ax=ax)
+	if colorbar_label is not None:
+		cbar.set_label(colorbar_label)
 	ax.set_title(title)
 	ax.set_xlabel(xlabel)
 	ax.set_ylabel(ylabel)
@@ -1100,12 +1106,15 @@ def save_heatmap_xy_slices(
 	out_dir: Path,
 	*,
 	metric: str,
+	display_name: str | None = None,
+	colorbar_label: str | None = None,
 	vmin: float,
 	vmax: float,
 ) -> list[Path]:
 	"""Save XY heatmaps for all depths (grid[iz,:,:])."""
 	grid = np.asarray(grid_zyx, dtype=float)
 	validate_heatmap_grid_shape(grid, axes)
+	display = metric if display_name is None else display_name
 
 	out_dir = Path(out_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
@@ -1119,7 +1128,7 @@ def save_heatmap_xy_slices(
 		z_m = float(axes.z_m[iz])
 		z_tag = int(round(z_m))
 		out_png = out_dir / f'xy_z{z_tag}m.png'
-		title = f'{metric} XY z={z_tag} m'
+		title = f'{display} XY z={z_tag} m'
 		out_paths.append(
 			save_heatmap_2d(
 				grid[iz, :, :],
@@ -1130,6 +1139,7 @@ def save_heatmap_xy_slices(
 				extent=extent,
 				vmin=vmin,
 				vmax=vmax,
+				colorbar_label=colorbar_label,
 			)
 		)
 
@@ -1142,6 +1152,8 @@ def save_heatmap_xz_center_y(
 	out_dir: Path,
 	*,
 	metric: str,
+	display_name: str | None = None,
+	colorbar_label: str | None = None,
 	vmin: float,
 	vmax: float,
 	center_y_index: int,
@@ -1149,6 +1161,7 @@ def save_heatmap_xz_center_y(
 	"""Save XZ heatmap at center y (grid[:, iy0, :])."""
 	grid = np.asarray(grid_zyx, dtype=float)
 	validate_heatmap_grid_shape(grid, axes)
+	display = metric if display_name is None else display_name
 	iy0 = int(center_y_index)
 	if iy0 < 0 or iy0 >= grid.shape[1]:
 		raise IndexError(f'center_y_index out of range: {iy0}')
@@ -1163,7 +1176,7 @@ def save_heatmap_xz_center_y(
 	y_m = float(axes.y_m[iy0])
 	y_tag = int(round(y_m))
 	out_png = out_dir / f'xz_y{y_tag}m.png'
-	title = f'{metric} XZ y={y_tag} m'
+	title = f'{display} XZ y={y_tag} m'
 
 	return save_heatmap_2d(
 		grid[:, iy0, :],
@@ -1174,6 +1187,7 @@ def save_heatmap_xz_center_y(
 		extent=extent,
 		vmin=vmin,
 		vmax=vmax,
+		colorbar_label=colorbar_label,
 		invert_y=True,
 	)
 
@@ -1184,6 +1198,8 @@ def save_heatmap_yz_center_x(
 	out_dir: Path,
 	*,
 	metric: str,
+	display_name: str | None = None,
+	colorbar_label: str | None = None,
 	vmin: float,
 	vmax: float,
 	center_x_index: int,
@@ -1191,6 +1207,7 @@ def save_heatmap_yz_center_x(
 	"""Save YZ heatmap at center x (grid[:, :, ix0])."""
 	grid = np.asarray(grid_zyx, dtype=float)
 	validate_heatmap_grid_shape(grid, axes)
+	display = metric if display_name is None else display_name
 	ix0 = int(center_x_index)
 	if ix0 < 0 or ix0 >= grid.shape[2]:
 		raise IndexError(f'center_x_index out of range: {ix0}')
@@ -1205,7 +1222,7 @@ def save_heatmap_yz_center_x(
 	x_m = float(axes.x_m[ix0])
 	x_tag = int(round(x_m))
 	out_png = out_dir / f'yz_x{x_tag}m.png'
-	title = f'{metric} YZ x={x_tag} m'
+	title = f'{display} YZ x={x_tag} m'
 
 	return save_heatmap_2d(
 		grid[:, :, ix0],
@@ -1216,6 +1233,7 @@ def save_heatmap_yz_center_x(
 		extent=extent,
 		vmin=vmin,
 		vmax=vmax,
+		colorbar_label=colorbar_label,
 		invert_y=True,
 	)
 

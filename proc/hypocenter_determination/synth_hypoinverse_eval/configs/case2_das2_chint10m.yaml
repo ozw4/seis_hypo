@@ -13,7 +13,7 @@ max_events: 0
 default_depth_km: 0.5
 fix_depth: false
 arc_use_jma_flag: false
-arc_p_centroid_top_n: 1
+arc_p_centroid_top_n: 5
 arc_origin_time_offset_sec: 1.0
 das_station_prefix: D
 das_phase_weight_code: 3
@@ -52,6 +52,7 @@ heatmap:
   - dz_m
   - ERH
   - ERZ
+  - GAP
   slices:
     xy_all_depths: true
     xz_center_y: true

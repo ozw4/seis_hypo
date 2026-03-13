@@ -51,6 +51,7 @@ def _make_eval_df() -> pd.DataFrame:
 						'err3d_m': float(i + 1),
 						'horiz_m': float(i + 2),
 						'dz_m': float((i % 3) - 1),
+						'GAP': float(i * 45),
 					}
 				)
 				i += 1
@@ -67,7 +68,7 @@ def test_run_heatmap_qc_integration(tmp_path: Path) -> None:
 
 	cfg = HeatmapConfig(
 		enabled=True,
-		metrics=['err3d_m', 'horiz_m', 'dz_m'],
+		metrics=['err3d_m', 'horiz_m', 'dz_m', 'GAP'],
 		slices=HeatmapSlicesConfig(
 			xy_all_depths=True, xz_center_y=True, yz_center_x=True
 		),
@@ -108,6 +109,14 @@ def test_run_heatmap_qc_integration(tmp_path: Path) -> None:
 		for p in pngs['xy'] + pngs['xz'] + pngs['yz']:
 			assert p.is_file()
 			assert p.stat().st_size > 0
+
+	assert (run_dir / 'heatmaps' / 'GAP.npy').is_file()
+	for p in (
+		art.metric_pngs['GAP']['xy']
+		+ art.metric_pngs['GAP']['xz']
+		+ art.metric_pngs['GAP']['yz']
+	):
+		assert p.is_file()
 
 
 def test_run_heatmap_qc_integration_with_explicit_scale(tmp_path: Path) -> None:

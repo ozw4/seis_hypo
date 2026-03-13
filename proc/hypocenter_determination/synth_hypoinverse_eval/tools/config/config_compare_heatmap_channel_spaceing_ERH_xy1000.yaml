@@ -10,12 +10,12 @@ compare:
     height: 4.2
 
   title: 'max_erh_km comparison by channel_spacing'
-  uncertainty_scale_sec: 0.01
+  uncertainty_scale_sec: 0.05
 
   scale:
     percentile: 99.0
     vmin: 0.0
-    vmax: 0.1
+    vmax: 0.4
 
   inputs:
     - label: 4m

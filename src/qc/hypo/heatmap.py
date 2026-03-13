@@ -50,6 +50,27 @@ class HeatmapArtifacts:
 	metric_pngs: dict[str, dict[str, list[Path]]]
 
 
+@dataclass(frozen=True)
+class HeatmapMetricDisplay:
+	display_name: str
+	colorbar_label: str
+	fixed_range: tuple[float, float] | None = None
+
+
+def get_heatmap_metric_display(metric: str) -> HeatmapMetricDisplay:
+	"""Return plot display metadata for a heatmap metric."""
+	if metric == 'GAP':
+		return HeatmapMetricDisplay(
+			display_name='Azimuthal GAP',
+			colorbar_label='GAP (deg)',
+			fixed_range=(0.0, 360.0),
+		)
+	return HeatmapMetricDisplay(
+		display_name=metric,
+		colorbar_label=metric,
+	)
+
+
 def load_grid_axes_from_index_csv(index_csv: Path) -> GridAxes:
 	"""Build axes from index.csv x_m/y_m/z_m (unique + sorted)."""
 	if not index_csv.is_file():
@@ -190,6 +211,10 @@ def resolve_vmin_vmax(
 	scale: HeatmapScaleConfig,
 ) -> tuple[float, float]:
 	"""Resolve plot scale, preferring explicit config when both bounds exist."""
+	display = get_heatmap_metric_display(metric)
+	if display.fixed_range is not None:
+		return display.fixed_range
+
 	if (scale.vmin is None) != (scale.vmax is None):
 		raise ValueError(
 			'heatmap.scale.vmin and heatmap.scale.vmax '
@@ -309,6 +334,7 @@ def run_heatmap_qc(
 	metric_pngs: dict[str, dict[str, list[Path]]] = {}
 	for metric, grid in grids.items():
 		vmin, vmax = resolve_vmin_vmax(metric, grid, scale=cfg.scale)
+		display = get_heatmap_metric_display(metric)
 		metric_dir = out_root / metric
 		metric_dir.mkdir(parents=True, exist_ok=True)
 
@@ -322,6 +348,8 @@ def run_heatmap_qc(
 				axes,
 				metric_dir,
 				metric=metric,
+				display_name=display.display_name,
+				colorbar_label=display.colorbar_label,
 				vmin=vmin,
 				vmax=vmax,
 			)
@@ -332,6 +360,8 @@ def run_heatmap_qc(
 					axes,
 					metric_dir,
 					metric=metric,
+					display_name=display.display_name,
+					colorbar_label=display.colorbar_label,
 					vmin=vmin,
 					vmax=vmax,
 					center_y_index=axes.center_y_index(),
@@ -344,6 +374,8 @@ def run_heatmap_qc(
 					axes,
 					metric_dir,
 					metric=metric,
+					display_name=display.display_name,
+					colorbar_label=display.colorbar_label,
 					vmin=vmin,
 					vmax=vmax,
 					center_x_index=axes.center_x_index(),

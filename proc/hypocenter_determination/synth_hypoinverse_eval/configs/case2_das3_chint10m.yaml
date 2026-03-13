@@ -52,6 +52,7 @@ heatmap:
   - dz_m
   - ERH
   - ERZ
+  - GAP
   slices:
     xy_all_depths: true
     xz_center_y: true
@@ -61,7 +62,7 @@ heatmap:
     global_across_slices: true
     dz_symmetric: true
     vmin: 0.0
-    vmax: 100.0
+    vmax: 200.0
   output:
     save_npy: true
     save_axes_json: true

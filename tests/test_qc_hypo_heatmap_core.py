@@ -19,6 +19,7 @@ from qc.hypo.heatmap import (
 	compute_vmin_vmax,
 	load_grid_axes_from_index_csv,
 	map_true_xyz_to_zyx_indices,
+	resolve_vmin_vmax,
 	run_heatmap_qc,
 	write_axes_json,
 	write_metric_grid_npy,
@@ -119,6 +120,25 @@ def test_compute_vmin_vmax_err3d_and_dz() -> None:
 	expected = np.nanpercentile(np.abs(grid_dz), percentile)
 	assert np.isclose(vmax_dz, expected)
 	assert np.isclose(vmin_dz, -expected)
+
+
+def test_compute_vmin_vmax_gap_fixed_range() -> None:
+	grid = np.array([[[10.0, 120.0], [250.0, np.nan]]], dtype=float)
+	assert compute_vmin_vmax(
+		'GAP',
+		grid,
+		percentile=99.0,
+		dz_symmetric=True,
+	) == (0.0, 360.0)
+
+	scale = HeatmapScaleConfig(
+		percentile=99.0,
+		global_across_slices=True,
+		dz_symmetric=True,
+		vmin=-10.0,
+		vmax=5.0,
+	)
+	assert resolve_vmin_vmax('GAP', grid, scale=scale) == (0.0, 360.0)
 
 
 def test_run_heatmap_qc_uses_explicit_scale_without_compute(
