@@ -37,6 +37,7 @@ from common.load_config import load_config
 from das.picks_filter import filter_and_decimate_das_picks
 from hypo.arc import write_hypoinverse_arc_from_phases
 from hypo.hypoinverse_cmd import write_cmd_template_paths
+from hypo.hypoinverse_event_export import build_hypoinverse_event_export_df
 from hypo.hypoinverse_prt import load_hypoinverse_summary_from_prt
 from hypo.initial_event_builder import build_initial_events_from_ml_picks
 from hypo.jma_mobara_hypoinverse_config import (
@@ -205,6 +206,29 @@ def _filter_plot_df_by_quality(
 	return filtered_df
 
 
+def _write_plot_filter_event_csvs(
+	run_dir: Path,
+	*,
+	initial_event_df: pd.DataFrame,
+	prt_df: pd.DataFrame,
+	prt_plot_df: pd.DataFrame,
+) -> None:
+	before_csv = run_dir / 'hypoinverse_events_before_plot_quality_filter.csv'
+	after_csv = run_dir / 'hypoinverse_events_after_plot_quality_filter.csv'
+
+	before_df = build_hypoinverse_event_export_df(initial_event_df, prt_df)
+	before_df['passed_plot_quality_filter'] = before_df['seq'].isin(prt_plot_df['seq'])
+
+	after_df = build_hypoinverse_event_export_df(initial_event_df, prt_plot_df)
+	after_df['passed_plot_quality_filter'] = True
+
+	before_df.to_csv(before_csv, index=False)
+	after_df.to_csv(after_csv, index=False)
+
+	print(f'[saved] plot-filter pre events csv -> {before_csv}  rows={len(before_df)}')
+	print(f'[saved] plot-filter post events csv -> {after_csv}  rows={len(after_df)}')
+
+
 def run_pipeline(
 	config: JmaMobaraHypoinverseConfig,
 	*,
@@ -316,6 +340,12 @@ def run_pipeline(
 		max_erh_km=config.plot_quality_filter.max_erh_km,
 		max_erz_km=config.plot_quality_filter.max_erz_km,
 		max_origin_time_err_sec=config.plot_quality_filter.max_origin_time_err_sec,
+	)
+	_write_plot_filter_event_csvs(
+		run_dir,
+		initial_event_df=df_epic,
+		prt_df=prt_df,
+		prt_plot_df=prt_plot_df,
 	)
 	plot_events_map_and_sections(
 		df=prt_plot_df,

@@ -18,7 +18,7 @@ _OT_ERROR_LINE_RE = re.compile(
 )
 _UNSOLVED_EVENT_RE = re.compile(r'\b(?:CANT SOLVE|ABANDON EVENT)\b', re.IGNORECASE)
 _SEQUENCE_HEADER_RE = re.compile(
-	r'\bSEQUENCE NO\.\s*\d+,\s*ID NO\.\s*\d+\b',
+	r'\bSEQUENCE NO\.\s*(\d+),\s*ID NO\.\s*(\d+)\b',
 	re.IGNORECASE,
 )
 _EIGENVALUE_KEYS = ['eig_adj1', 'eig_adj2', 'eig_adj3', 'eig_adj4']
@@ -252,10 +252,23 @@ def parse_origin_time_error_block(lines: list[str], i: int) -> tuple[dict, int]:
 	return ({_ORIGIN_TIME_ERROR_KEY: float(m.group(1))}, i + 2)
 
 
+def parse_sequence_header_line(line: str) -> dict:
+	"""HypoInverse .prt の SEQUENCE/ID header 行をパースする。"""
+	m = _SEQUENCE_HEADER_RE.search(line)
+	if m is None:
+		raise ValueError(f'not a SEQUENCE/ID header line: {line!r}')
+
+	return {
+		'sequence_no_prt': int(m.group(1)),
+		'id_no_prt': int(m.group(2)),
+	}
+
+
 def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	"""hypoinverse_run.prt からイベント summary + 幾何情報を DataFrame にする。
 
 	カラム:
+	  sequence_no_prt, id_no_prt,
 	  origin_time_hyp, lat_deg_hyp, lon_deg_hyp, depth_km_hyp,
 	  RMS, ERH, ERZ, origin_time_err_sec,
 	  NSTA, NPHS, DMIN, MODEL, GAP, ITR, NFM, NWR, NWS, NVR,
@@ -274,6 +287,7 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 	records: list[dict] = []
 	current_event_unsolved = False
 	current_record_idx: int | None = None
+	current_sequence_header: dict | None = None
 
 	i = 0
 	while i < len(lines):
@@ -282,6 +296,13 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 		u = s.upper()
 
 		if _UNSOLVED_EVENT_RE.search(line):
+			if current_sequence_header is None:
+				m = _SEQUENCE_HEADER_RE.search(line)
+				if m is not None:
+					current_sequence_header = {
+						'sequence_no_prt': int(m.group(1)),
+						'id_no_prt': int(m.group(2)),
+					}
 			current_event_unsolved = True
 			if current_record_idx is not None:
 				records[current_record_idx]['_skip_event'] = True
@@ -289,6 +310,7 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 			continue
 
 		if _SEQUENCE_HEADER_RE.search(line):
+			current_sequence_header = parse_sequence_header_line(line)
 			current_event_unsolved = False
 			current_record_idx = None
 			i += 1
@@ -321,6 +343,8 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 
 		if _SUMMARY_RE.match(line):
 			rec = parse_summary_line(line)
+			if current_sequence_header is not None:
+				rec.update(current_sequence_header)
 			should_skip_event = current_event_unsolved
 			should_skip_event = should_skip_event or _has_dummy_unsolved_coordinates(
 				rec
@@ -347,6 +371,7 @@ def load_hypoinverse_summary_from_prt(prt_path: str | Path) -> pd.DataFrame:
 			pending_error_ellipse = None
 			pending_eigenvalues = None
 			pending_origin_time_error = None
+			current_sequence_header = None
 			i += 1
 			continue
 

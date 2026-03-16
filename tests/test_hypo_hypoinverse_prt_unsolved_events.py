@@ -104,6 +104,8 @@ def test_load_hypoinverse_summary_from_prt_reads_solved_event_only(
 
 	assert len(df) == 1
 	assert df['seq'].tolist() == [1]
+	assert df['sequence_no_prt'].tolist() == [1]
+	assert df['id_no_prt'].tolist() == [1]
 	assert df.loc[0, 'NSTA'] == 220
 	assert df.loc[0, 'eig_adj1'] == pytest.approx(18.036, rel=0, abs=1e-12)
 	assert '_skip_event' not in df.columns
@@ -123,6 +125,8 @@ def test_load_hypoinverse_summary_from_prt_skips_unsolved_and_abandoned_events(
 
 	assert len(df) == 2
 	assert df['seq'].tolist() == [1, 2]
+	assert df['sequence_no_prt'].tolist() == [1, 3]
+	assert df['id_no_prt'].tolist() == [1, 11]
 	assert df['origin_time_hyp'].dt.strftime('%Y-%m-%d %H:%M:%S').tolist() == [
 		'2026-01-01 00:00:00',
 		'2026-01-01 00:01:10',

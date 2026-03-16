@@ -25,6 +25,8 @@ def test_prt_sample_parses_all_events_and_required_fields() -> None:
 
 	assert len(df) == _SAMPLE_SUMMARY_COUNT
 	assert df['seq'].tolist() == list(range(1, _SAMPLE_SUMMARY_COUNT + 1))
+	assert df['sequence_no_prt'].tolist() == list(range(1, _SAMPLE_SUMMARY_COUNT + 1))
+	assert df['id_no_prt'].notna().all()
 
 	ell_cols = [
 		'ell_s1_km',
@@ -53,6 +55,8 @@ def test_prt_sample_parses_all_events_and_required_fields() -> None:
 	time_err_cols = ['origin_time_err_sec']
 
 	for c in ell_cols + nsta_cols + eig_cols + time_err_cols:
+		assert c in df.columns
+	for c in ['sequence_no_prt', 'id_no_prt']:
 		assert c in df.columns
 
 	assert df[ell_cols].notna().all().all()

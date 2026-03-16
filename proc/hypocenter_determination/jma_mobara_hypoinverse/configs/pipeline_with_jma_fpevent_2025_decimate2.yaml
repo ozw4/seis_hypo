@@ -35,7 +35,7 @@ initial_event:
   # Initial hypocenter/origin-time controls for ARC generation.
   use_jma_flag: false
   fix_depth: false
-  default_depth_km: 10.0
+  default_depth_km: 15.0
   p_centroid_top_n: 5
   origin_time_offset_sec: 3.0
 

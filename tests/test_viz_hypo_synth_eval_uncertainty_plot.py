@@ -67,14 +67,21 @@ def _make_uncertainty_df(n_events: int, *, poor_last: bool = False) -> pd.DataFr
 
 def _axes_by_view(fig) -> dict[str, object]:
 	axes: dict[str, object] = {}
-	for ax in fig.axes:
+	visible_axes = [ax for ax in fig.axes if ax.axison]
+	for ax in visible_axes:
 		key = (ax.get_xlabel(), ax.get_ylabel())
-		if key == ('X (km)', 'Y (km)'):
-			axes['xy'] = ax
-		elif key == ('X (km)', 'Depth (km)'):
+		if key == ('X (km)', 'Depth (km)'):
 			axes['xz'] = ax
 		elif key == ('Depth (km)', 'Y (km)'):
 			axes['yz'] = ax
+
+	remaining = [
+		ax
+		for ax in visible_axes
+		if ax is not axes.get('xz') and ax is not axes.get('yz')
+	]
+	if len(remaining) == 1:
+		axes['xy'] = remaining[0]
 	return axes
 
 
