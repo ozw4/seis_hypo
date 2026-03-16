@@ -6,22 +6,32 @@ from pathlib import Path
 
 import pandas as pd
 
-from common.load_config import load_config
 from loki_tools.loki_parse import load_loki_catalogue_as_events_df
 
 # 既存の描画関数（ユーザー提示のもの）を import して使う想定
 # 例: from your_module import plot_events_map_and_sections
 from viz.events_map import plot_events_map_and_sections
-from viz.plot_config import PlotConfig
 
-plot_setting = 'mobara_default'
 
-params = load_config(
-	PlotConfig, '/workspace/data/config/plot_config.yaml', plot_setting
-)
-lon_min, lon_max = params.lon_range
-lat_min, lat_max = params.lat_range
-depth_min, depth_max = params.depth_range
+def _load_plot_ranges(
+	plot_config_yaml: str | Path,
+	plot_setting: str,
+) -> tuple[
+	tuple[float, float], tuple[float, float], tuple[float, float]
+]:
+	from common.load_config import load_config
+	from viz.plot_config import PlotConfig
+
+	plot_config_yaml = Path(plot_config_yaml)
+	if not plot_config_yaml.is_file():
+		raise FileNotFoundError(f'plot_config_yaml not found: {plot_config_yaml}')
+
+	params = load_config(PlotConfig, plot_config_yaml, plot_setting)
+	return (
+		tuple(params.lat_range),
+		tuple(params.lon_range),
+		tuple(params.depth_range),
+	)
 
 
 def make_loki_plot_df(compare_df: pd.DataFrame) -> pd.DataFrame:
@@ -164,11 +174,16 @@ def plot_loki_results_quickcheck(
 
 if __name__ == '__main__':
 	loki_output_dir = '/workspace/proc/loki_hypo/loki_output_mobara/mobara'
+	plot_setting = 'mobara_default'
+	lat_range, lon_range, depth_range = _load_plot_ranges(
+		'/workspace/data/config/plot_config.yaml',
+		plot_setting,
+	)
 	plot_loki_results_quickcheck(
 		loki_output_dir=loki_output_dir,
 		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
 		out_png=f'{loki_output_dir}/loki_quickcheck.png',
-		lat_range=(lat_min, lat_max),
-		lon_range=(lon_min, lon_max),
-		depth_range=(depth_min, depth_max),
+		lat_range=lat_range,
+		lon_range=lon_range,
+		depth_range=depth_range,
 	)
