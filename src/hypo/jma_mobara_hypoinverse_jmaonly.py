@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class JmaOnlyHypoinversePaths:
+class JmaOnlyHypoinverseRunPaths:
 	sta_file: Path
 	station_csv: Path
 	pcrh_file: Path
 	scrh_file: Path
-	exe_file: Path
+	hypoinverse_exe: Path
 	cmd_template_file: Path
 	epicenter_csv: Path
 	measurement_csv: Path
@@ -47,7 +47,7 @@ class JmaOnlyHypoinverseInitialEvent:
 
 @dataclass(frozen=True)
 class JmaOnlyHypoinverseRunConfig:
-	paths: JmaOnlyHypoinversePaths
+	paths: JmaOnlyHypoinverseRunPaths
 	time_filter: JmaOnlyHypoinverseTimeFilter
 	initial_event: JmaOnlyHypoinverseInitialEvent
 	plot_setting: str
@@ -209,7 +209,7 @@ def _write_arc(
 	return arc_file
 
 
-def _write_runtime_cmd(paths: JmaOnlyHypoinversePaths) -> Path:
+def _write_runtime_cmd(paths: JmaOnlyHypoinverseRunPaths) -> Path:
 	from hypo.hypoinverse_cmd import write_cmd_template_paths
 
 	_require_file(paths.cmd_template_file, label='cmd_template_file')
@@ -230,15 +230,15 @@ def _write_runtime_cmd(paths: JmaOnlyHypoinversePaths) -> Path:
 
 
 def _run_hypoinverse(
-	exe_file: Path,
+	hypoinverse_exe: Path,
 	cmd_run_file: Path,
 	run_dir: Path,
 ) -> subprocess.CompletedProcess[str]:
-	_require_file(exe_file, label='exe_file')
+	_require_file(hypoinverse_exe, label='hypoinverse_exe')
 	_require_file(cmd_run_file, label='cmd_run_file')
 	with cmd_run_file.open('rb') as stdin:
 		result = subprocess.run(
-			[str(exe_file)],
+			[str(hypoinverse_exe)],
 			stdin=stdin,
 			cwd=run_dir,
 			capture_output=True,
@@ -369,7 +369,7 @@ def run_pipeline(
 		initial_event=config.initial_event,
 	)
 	cmd_run_file = _write_runtime_cmd(config.paths)
-	_run_hypoinverse(config.paths.exe_file, cmd_run_file, run_dir)
+	_run_hypoinverse(config.paths.hypoinverse_exe, cmd_run_file, run_dir)
 
 	prt_path = run_dir / 'hypoinverse_run.prt'
 	out_join_csv = run_dir / 'hypoinverse_events_jma_join.csv'

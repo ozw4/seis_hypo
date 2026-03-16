@@ -2,45 +2,39 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common.paths import (
+	build_jma_mobara_hypoinverse_paths,
+	build_workspace_roots,
+)
 from hypo.jma_mobara_hypoinverse_jmaonly import (
 	JmaOnlyHypoinverseInitialEvent,
-	JmaOnlyHypoinversePaths,
+	JmaOnlyHypoinverseRunPaths,
 	JmaOnlyHypoinverseRunConfig,
 	JmaOnlyHypoinverseTimeFilter,
 	run_pipeline,
 )
 
 THIS_DIR = Path(__file__).resolve().parent
-
-STA_FILE = Path('/workspace/data/station/jma/stations_hypoinverse.sta')
-STATION_CSV = Path('/workspace/data/station/jma/station.csv')
-PCRH_FILE = Path('/workspace/data/velocity/jma_crh/JMA2001A_P.crh')
-SCRH_FILE = Path('/workspace/data/velocity/jma_crh/JMA2001A_S.crh')
-EXE_FILE = Path('/workspace/external_source/hyp1.40/hypoinverse.exe')
+WORKSPACE_ROOT = Path('/workspace')
+ROOTS = build_workspace_roots(WORKSPACE_ROOT)
+PATHS = build_jma_mobara_hypoinverse_paths(ROOTS)
 CMD_TEMPLATE_FILE = THIS_DIR / 'template' / 'jma2001a.cmd'
-
-EPICENTER_CSV = Path('/workspace/data/arrivetime/arrivetime_epicenters_mobara2020.csv')
-MEASUREMENT_CSV = Path(
-	'/workspace/data/arrivetime/arrivetime_measurements_mobara2020.csv'
-)
-PREFECTURE_SHP = Path('/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp')
-PLOT_CONFIG_YAML = Path('/workspace/data/config/plot_config.yaml')
 PLOT_SETTING = 'mobara_default'
 
 RUN_DIR = Path('./result/test_mobara2020_jmaonly')
 
 CONFIG = JmaOnlyHypoinverseRunConfig(
-	paths=JmaOnlyHypoinversePaths(
-		sta_file=STA_FILE,
-		station_csv=STATION_CSV,
-		pcrh_file=PCRH_FILE,
-		scrh_file=SCRH_FILE,
-		exe_file=EXE_FILE,
+	paths=JmaOnlyHypoinverseRunPaths(
+		sta_file=PATHS.sta_file,
+		station_csv=PATHS.station_csv,
+		pcrh_file=PATHS.pcrh_file,
+		scrh_file=PATHS.scrh_file,
+		hypoinverse_exe=PATHS.hypoinverse_exe,
 		cmd_template_file=CMD_TEMPLATE_FILE,
-		epicenter_csv=EPICENTER_CSV,
-		measurement_csv=MEASUREMENT_CSV,
-		prefecture_shp=PREFECTURE_SHP,
-		plot_config_yaml=PLOT_CONFIG_YAML,
+		epicenter_csv=PATHS.epicenter_csv,
+		measurement_csv=PATHS.measurement_csv,
+		prefecture_shp=PATHS.prefecture_shp,
+		plot_config_yaml=PATHS.plot_config_yaml,
 		run_dir=RUN_DIR,
 	),
 	time_filter=JmaOnlyHypoinverseTimeFilter(

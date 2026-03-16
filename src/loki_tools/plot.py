@@ -173,16 +173,21 @@ def plot_loki_results_quickcheck(
 
 
 if __name__ == '__main__':
-	loki_output_dir = '/workspace/proc/loki_hypo/loki_output_mobara/mobara'
+	from common.paths import build_loki_plot_paths, build_workspace_roots
+
+	workspace_root = Path('/workspace')
+	roots = build_workspace_roots(workspace_root)
+	paths = build_loki_plot_paths(roots)
+	loki_output_dir = roots.proc_root / 'loki_hypo' / 'loki_output_mobara' / 'mobara'
 	plot_setting = 'mobara_default'
 	lat_range, lon_range, depth_range = _load_plot_ranges(
-		'/workspace/data/config/plot_config.yaml',
+		paths.plot_config_yaml,
 		plot_setting,
 	)
 	plot_loki_results_quickcheck(
 		loki_output_dir=loki_output_dir,
-		prefecture_shp='/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp',
-		out_png=f'{loki_output_dir}/loki_quickcheck.png',
+		prefecture_shp=paths.prefecture_shp,
+		out_png=loki_output_dir / 'loki_quickcheck.png',
 		lat_range=lat_range,
 		lon_range=lon_range,
 		depth_range=depth_range,
