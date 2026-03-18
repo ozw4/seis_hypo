@@ -198,10 +198,10 @@ run_planner() {
     codex --profile "$PLANNER_PROFILE" exec \
       --output-schema "$PLANNER_SCHEMA" \
       -o "$out_file" \
-      "$(cat "$prompt_file")"
+      - < "$prompt_file" > /dev/null
   )
 
-  echo "$out_file"
+  printf '%s\n' "$out_file"
 }
 
 start_implementer() {
@@ -217,7 +217,7 @@ start_implementer() {
     codex --profile "$IMPLEMENTER_PROFILE" exec \
       --json \
       -o "$out_file" \
-      "$(cat "$prompt_file")" > "$jsonl_file"
+      - < "$prompt_file" > "$jsonl_file"
   )
 
   local session_id
@@ -233,7 +233,7 @@ start_implementer() {
     exit 1
   }
 
-  echo "$session_id"
+  printf '%s\n' "$session_id"
 }
 
 run_reviewer() {
@@ -249,10 +249,10 @@ run_reviewer() {
     codex --profile "$REVIEWER_PROFILE" exec \
       --output-schema "$REVIEW_SCHEMA" \
       -o "$out_file" \
-      "$(cat "$prompt_file")"
+      - < "$prompt_file" > /dev/null
   )
 
-  echo "$out_file"
+  printf '%s\n' "$out_file"
 }
 
 resume_implementer_with_fixes() {
@@ -268,7 +268,7 @@ resume_implementer_with_fixes() {
     cd "$REPO_DIR"
     codex --profile "$IMPLEMENTER_PROFILE" exec resume "$session_id" \
       -o "$out_file" \
-      "$(cat "$prompt_file")"
+      - < "$prompt_file" > /dev/null
   )
 }
 
