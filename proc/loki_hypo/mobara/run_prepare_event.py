@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +22,8 @@ from common.config import PrepareEventsConfig
 from common.load_config import load_config
 from jma.download import create_hinet_client, download_win_for_event
 from jma.station_reader import stations_within_radius
+
+logger = logging.getLogger(__name__)
 
 # あなたの環境に合わせて書き換えればOK
 YAML_PATH = Path('/workspace/data/config/prepare_events.yaml')
@@ -60,7 +63,17 @@ def filter_events_with_existing_logic(
 	return epic_sub
 
 
+def _configure_logging() -> None:
+	if logging.getLogger().handlers:
+		return
+	logging.basicConfig(
+		level=logging.INFO,
+		format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+	)
+
+
 def main() -> None:
+	_configure_logging()
 	cfg = load_config(PrepareEventsConfig, YAML_PATH, PRESET)
 
 	if not cfg.catalog_csv.is_file():
@@ -71,11 +84,11 @@ def main() -> None:
 
 	# 既存の selection ロジックをそのまま利用してイベントを選ぶ
 	df_events = filter_events_with_existing_logic(df_catalog, cfg)
-	print(f'selected events: {len(df_events)}')
+	logger.info('selected events: %d', len(df_events))
 
 	# 観測点リストも既存の stations_within_radius を使う
 	station_list = select_stations_for_site(cfg)
-	print(f'selected stations: {len(station_list)}')
+	logger.info('selected stations: %d', len(station_list))
 
 	client = create_hinet_client()
 
@@ -84,7 +97,7 @@ def main() -> None:
 
 	for _, event_row in df_events.iterrows():
 		event_id = int(event_row['event_id'])
-		print(f'prepare event_id={event_id}')
+		logger.info('prepare event_id=%d', event_id)
 
 		event_dir, cnt_paths, ch_path = download_win_for_event(
 			client,
@@ -99,12 +112,14 @@ def main() -> None:
 			save_catalog_fields=True,
 		)
 
-		print(f'  event_dir: {event_dir}')
-		print(
-			f'  cnt_files: {len(cnt_paths)} (first={cnt_paths[0].name if cnt_paths else "N/A"})'
+		logger.info('  event_dir: %s', event_dir)
+		logger.info(
+			'  cnt_files: %d (first=%s)',
+			len(cnt_paths),
+			cnt_paths[0].name if cnt_paths else 'N/A',
 		)
-		print(f'  ch_file: {ch_path.name}')
-		print('  done')
+		logger.info('  ch_file: %s', ch_path.name)
+		logger.info('  done')
 
 
 if __name__ == '__main__':

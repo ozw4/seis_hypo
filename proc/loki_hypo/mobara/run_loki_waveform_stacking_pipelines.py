@@ -1,6 +1,7 @@
 # %%
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -17,15 +18,37 @@ from viz.loki.coherence_xy import plot_loki_event_coherence_xy_overlay
 from viz.plot_config import PlotConfig
 from waveform.preprocess import spec_from_inputs
 
+logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+	if logging.getLogger().handlers:
+		return
+	logging.basicConfig(
+		level=logging.INFO,
+		format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+	)
+
 
 def main() -> None:
+	_configure_logging()
 	pipeline_yaml = Path('/workspace/data/config/loki_waveform_pipeline.yaml')
 	pipeline_preset = 'mobara'
 
 	cfg = load_config(
 		LokiWaveformStackingPipelineConfig, pipeline_yaml, pipeline_preset
 	)
-	print(cfg)
+	logger.info(
+		'Running LOKI waveform stacking pipeline: preset=%s yaml=%s',
+		pipeline_preset,
+		pipeline_yaml,
+	)
+	logger.info(
+		'Input config: yaml=%s preset=%s',
+		cfg.inputs_yaml,
+		cfg.inputs_preset,
+	)
+	logger.info('Output dir: %s', cfg.loki_output_path)
 
 	if not cfg.inputs_yaml.is_file():
 		raise FileNotFoundError(f'inputs_yaml not found: {cfg.inputs_yaml}')
@@ -74,10 +97,11 @@ def main() -> None:
 			show_station_labels=False,
 		)
 		if out_png is None:
-			print(
-				f'[WARN] no corrmatrix for event={event_dir.name}, skip coherence plot'
+			logger.warning(
+				'no corrmatrix for event=%s, skip coherence plot',
+				event_dir.name,
 			)
-	print(f'Waveform plots written under: {cfg.loki_output_path}')
+	logger.info('Waveform plots written under: %s', cfg.loki_output_path)
 	# ---- LOKI vs JMA QC ----
 	plot_config_yaml = Path('/workspace/data/config/plot_config.yaml')
 	plot_setting = 'mobara_default'

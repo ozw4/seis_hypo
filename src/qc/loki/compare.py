@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,8 @@ from loki_tools.plot_error_stats import (
 from viz.events_map import plot_events_map_and_sections
 from viz.loki.compare import plot_hist_overlay, save_scatter
 from viz.plot_config import PlotConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _finite_1d(x: np.ndarray) -> np.ndarray:
@@ -55,7 +58,7 @@ def print_error_summary(
 ) -> None:
 	if len(dfs) != len(labels):
 		raise ValueError('len(dfs) must match len(labels)')
-	print('=== Error summary (LOKI vs JMA) ===')
+	logger.info('=== Error summary (LOKI vs JMA) ===')
 	for df, lbl in zip(dfs, labels, strict=True):
 		n_dh, mean_dh, med_dh, rmse_dh = _stats_1d(df[dh_col].to_numpy())
 		dz = np.asarray(df[dz_col].to_numpy(), dtype=float)
@@ -63,14 +66,23 @@ def print_error_summary(
 		n_dz_abs, mae_dz, med_abs_dz, rmse_abs_dz = _stats_1d(dz_abs)
 		d3 = _d3_km_from_df(df, dh_col, dz_col)
 		n_d3, mean_d3, med_d3, rmse_d3 = _stats_1d(d3)
-		print(
-			f'[{lbl}] '
-			f'dh_km: n={n_dh}, mean={mean_dh:.3f}, median={med_dh:.3f}, '
-			f'RMSE={rmse_dh:.3f} | '
-			f'|dz|_km: n={n_dz_abs}, MAE={mae_dz:.3f}, median={med_abs_dz:.3f}, '
-			f'RMSE={rmse_abs_dz:.3f} | '
-			f'd3_km: n={n_d3}, mean={mean_d3:.3f}, median={med_d3:.3f}, '
-			f'RMSE={rmse_d3:.3f}'
+		logger.info(
+			'[%s] dh_km: n=%d, mean=%.3f, median=%.3f, RMSE=%.3f | '
+			'|dz|_km: n=%d, MAE=%.3f, median=%.3f, RMSE=%.3f | '
+			'd3_km: n=%d, mean=%.3f, median=%.3f, RMSE=%.3f',
+			lbl,
+			n_dh,
+			mean_dh,
+			med_dh,
+			rmse_dh,
+			n_dz_abs,
+			mae_dz,
+			med_abs_dz,
+			rmse_abs_dz,
+			n_d3,
+			mean_d3,
+			med_d3,
+			rmse_d3,
 		)
 
 

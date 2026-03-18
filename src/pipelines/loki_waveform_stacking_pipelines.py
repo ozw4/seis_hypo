@@ -1,6 +1,7 @@
 # file: src/pipelines/loki_waveform_stacking_pipelines.py
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
@@ -29,6 +30,8 @@ from waveform.preprocess import (
 	preprocess_stream_detrend_bandpass,
 	spec_from_inputs,
 )
+
+logger = logging.getLogger(__name__)
 
 _PRE_KEYS = {
 	'pre_enable',
@@ -85,10 +88,12 @@ def iter_preprocessed_event_streams(
 		)
 
 		prepared_stream = prepare_stream_fn(st)
-		print(
-			f'prepared stream: event={event_name} '
-			f'n_traces={len(prepared_stream)} dir={event_dir} '
-			f'pre={"on" if pre_enable else "off"}'
+		logger.info(
+			'prepared stream: event=%s n_traces=%d dir=%s pre=%s',
+			event_name,
+			len(prepared_stream),
+			event_dir,
+			'on' if pre_enable else 'off',
 		)
 		yield event_name, prepared_stream
 
@@ -100,7 +105,7 @@ def _log_db_station_summary(header: object, *, enabled: bool = True) -> set[str]
 	if stations_df is None:
 		return set()
 	db_stas = set(stations_df['station'].astype(str).tolist())
-	print(f'[DBG] db stations: {len(db_stas)}')
+	logger.debug('db stations: %d', len(db_stas))
 	return db_stas
 
 
@@ -130,16 +135,20 @@ def _log_stream_station_overlap(
 	)
 	overlap = sorted(set(st_stas) & db_stas)
 
-	print(
-		f'[DBG] event={evid} traces={len(st)} '
-		f'stations={len(st_stas)} overlap_db={len(overlap)} '
-		f'chan_suffixes={ch_suf} cfg.comp={list(cfg.comp)}'
+	logger.debug(
+		'event=%s traces=%d stations=%d overlap_db=%d chan_suffixes=%s cfg.comp=%s',
+		evid,
+		len(st),
+		len(st_stas),
+		len(overlap),
+		ch_suf,
+		list(cfg.comp),
 	)
 
 	if len(overlap) == 0:
 		# ここが真犯人候補
-		print(f'[DBG]   example station names (stream): {st_stas[:10]}')
-		print(f'[DBG]   example station names (db): {sorted(list(db_stas))[:10]}')
+		logger.debug('  example station names (stream): %s', st_stas[:10])
+		logger.debug('  example station names (db): %s', sorted(list(db_stas))[:10])
 
 
 def list_event_dirs_filtered(cfg: LokiWaveformStackingPipelineConfig) -> list[Path]:
@@ -284,7 +293,10 @@ def pipeline_loki_waveform_stacking_eqt(
 
 	comp = list(getattr(cfg, 'comp', ['P', 'S']))
 	if comp != ['P', 'S']:
-		print(f"[WARN] cfg.comp is {comp}, but EqT direct_input assumes ['P','S']")
+		logger.warning(
+			"cfg.comp is %s, but EqT direct_input assumes ['P','S']",
+			comp,
+		)
 
 	loki_kwargs: dict[str, object] = {
 		'npr': int(getattr(inputs, 'npr', 2)),
