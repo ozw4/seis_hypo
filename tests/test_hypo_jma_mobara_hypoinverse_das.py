@@ -55,7 +55,9 @@ def _make_config(tmp_path: Path) -> JmaWithDasHypoinverseRunConfig:
 		pcrh_file=_touch_file(tmp_path / 'inputs' / 'P.crh'),
 		scrh_file=_touch_file(tmp_path / 'inputs' / 'S.crh'),
 		hypoinverse_exe=_touch_file(tmp_path / 'inputs' / 'hypoinverse.exe'),
-		cmd_template_file=_touch_file(tmp_path / 'inputs' / 'template.cmd', template_cmd),
+		cmd_template_file=_touch_file(
+			tmp_path / 'inputs' / 'template.cmd', template_cmd
+		),
 		epicenter_csv=_write_csv(
 			tmp_path / 'inputs' / 'epic.csv',
 			pd.DataFrame(
@@ -241,7 +243,9 @@ def test_run_single_pipeline_validates_public_parameters_before_division(
 		)
 
 
-def test_run_parameter_sweep_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_parameter_sweep_smoke(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
 	config = _make_config(tmp_path)
 	script_path = _touch_file(tmp_path / 'pipeline_with_das.py', 'print("snapshot")\n')
 
@@ -345,7 +349,9 @@ def test_run_parameter_sweep_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 			}
 		)
 		(Path(cwd) / 'hypoinverse_run.prt').write_text('prt\n', encoding='utf-8')
-		return subprocess.CompletedProcess(args=args, returncode=0, stdout='ok', stderr='')
+		return subprocess.CompletedProcess(
+			args=args, returncode=0, stdout='ok', stderr=''
+		)
 
 	def fake_build_joined_jma_hypo_csv(
 		df_epic: pd.DataFrame,
@@ -379,7 +385,9 @@ def test_run_parameter_sweep_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 		df.to_csv(out_join_csv, index=False)
 		return df
 
-	def fake_plot_event_quality(df: pd.DataFrame, *, out_dir: Path, **kwargs: object) -> None:
+	def fake_plot_event_quality(
+		df: pd.DataFrame, *, out_dir: Path, **kwargs: object
+	) -> None:
 		del df, kwargs
 		plot_quality_calls.append(Path(out_dir))
 
@@ -392,7 +400,9 @@ def test_run_parameter_sweep_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 		'das.picks_filter.filter_and_decimate_das_picks',
 		fake_filter_and_decimate_das_picks,
 	)
-	monkeypatch.setattr('hypo.phase_jma.extract_phase_records', fake_extract_phase_records)
+	monkeypatch.setattr(
+		'hypo.phase_jma.extract_phase_records', fake_extract_phase_records
+	)
 	monkeypatch.setattr(
 		'hypo.phase_ml_das.extract_das_phase_records',
 		fake_extract_das_phase_records,
@@ -446,20 +456,27 @@ def test_run_parameter_sweep_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 		)
 	]
 	assert len(subprocess_calls) == 4
-	assert "WET 1.0 0.5 0.3 0.2\n" in subprocess_calls[0]['cmd_text']
-	assert "WET 1.0 0.5 0.3 0.1\n" in subprocess_calls[1]['cmd_text']
-	assert "WET 1.0 0.5 0.3 0.6\n" in subprocess_calls[2]['cmd_text']
-	assert "WET 1.0 0.5 0.3 0.3\n" in subprocess_calls[3]['cmd_text']
+	assert 'WET 1.0 0.5 0.3 0.2\n' in subprocess_calls[0]['cmd_text']
+	assert 'WET 1.0 0.5 0.3 0.1\n' in subprocess_calls[1]['cmd_text']
+	assert 'WET 1.0 0.5 0.3 0.6\n' in subprocess_calls[2]['cmd_text']
+	assert 'WET 1.0 0.5 0.3 0.3\n' in subprocess_calls[3]['cmd_text']
 
 
 def test_pipeline_with_das_import_has_no_top_level_execution(
 	tmp_path: Path,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	module_path = Path(
-		'/workspace/proc/hypocenter_determination/jma_mobara_hypoinverse/pipeline_with_das.py'
+	repo_root = Path(__file__).resolve().parents[1]
+	module_path = (
+		repo_root
+		/ 'proc'
+		/ 'hypocenter_determination'
+		/ 'jma_mobara_hypoinverse'
+		/ 'pipeline_with_das.py'
 	)
-	spec = importlib.util.spec_from_file_location('pipeline_with_das_import_test', module_path)
+	spec = importlib.util.spec_from_file_location(
+		'pipeline_with_das_import_test', module_path
+	)
 	assert spec is not None
 	assert spec.loader is not None
 

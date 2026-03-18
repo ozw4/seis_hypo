@@ -25,12 +25,12 @@ from hypo.station_delays import add_p_and_s_delays_from_elevation
 from hypo.uncertainty_ellipsoid import ELLIPSE_COLS
 
 from .builders import (
-	_parse_event_subsample_3ints,
 	build_epic_df,
 	build_meas_df,
 	build_station_df,
 	build_truth_df,
 )
+from .event_subsample import validate_event_subsample_config
 from .hypoinverse_runner import (
 	patch_cmd_template_for_cre,
 	run_hypoinverse,
@@ -91,60 +91,6 @@ class Config:
 class SimParams:
 	vp_kms: float
 	vs_kms: float
-
-
-def _validate_event_subsample_config(
-	event_subsample: object,
-	*,
-	field: str = 'event_subsample',
-	allow_keep_n_xyz: bool = True,
-) -> dict[str, list[int]] | None:
-	if event_subsample is None:
-		return None
-	if not isinstance(event_subsample, dict):
-		raise ValueError(f'{field} must be a mapping')
-
-	allowed = {'stride_ijk', 'keep_n_xyz'} if allow_keep_n_xyz else {'stride_ijk'}
-	extra = set(event_subsample.keys()) - allowed
-	if not allow_keep_n_xyz and 'keep_n_xyz' in event_subsample:
-		raise ValueError(f'{field}.keep_n_xyz is not supported')
-	if extra:
-		raise ValueError(
-			f'{field} contains unknown keys: {sorted(extra)!r}; '
-			f'allowed: {sorted(allowed)!r}'
-		)
-
-	has_stride = 'stride_ijk' in event_subsample
-	has_keep = 'keep_n_xyz' in event_subsample
-	if has_stride and has_keep:
-		raise ValueError(
-			'event_subsample.stride_ijk and event_subsample.keep_n_xyz '
-			'cannot be specified at the same time'
-		)
-
-	if has_stride:
-		return {
-			'stride_ijk': list(
-				_parse_event_subsample_3ints(
-					event_subsample['stride_ijk'],
-					key='stride_ijk',
-					min_value=1,
-					field_prefix=field,
-				)
-			)
-		}
-	if has_keep:
-		return {
-			'keep_n_xyz': list(
-				_parse_event_subsample_3ints(
-					event_subsample['keep_n_xyz'],
-					key='keep_n_xyz',
-					min_value=1,
-					field_prefix=field,
-				)
-			)
-		}
-	return None
 
 
 def _validate_event_filter_config(
@@ -209,7 +155,7 @@ def load_config(path: Path) -> Config:
 	typ_m = obj.get('cre_typical_station_elevation_m', None)
 	typical_m = float(typ_m) if typ_m is not None else None
 	event_filter = _validate_event_filter_config(obj.get('event_filter'))
-	event_subsample = _validate_event_subsample_config(obj.get('event_subsample'))
+	event_subsample = validate_event_subsample_config(obj.get('event_subsample'))
 
 	return Config(
 		dataset_dir=str(obj['dataset_dir']),

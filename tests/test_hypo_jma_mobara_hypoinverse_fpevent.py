@@ -64,7 +64,9 @@ def _make_config(tmp_path: Path) -> JmaFpEventHypoinverseRunConfig:
 		pcrh_file=_touch_file(tmp_path / 'inputs' / 'P.crh'),
 		scrh_file=_touch_file(tmp_path / 'inputs' / 'S.crh'),
 		hypoinverse_exe=_touch_file(tmp_path / 'inputs' / 'hypoinverse.exe'),
-		cmd_template_file=_touch_file(tmp_path / 'inputs' / 'template.cmd', template_cmd),
+		cmd_template_file=_touch_file(
+			tmp_path / 'inputs' / 'template.cmd', template_cmd
+		),
 		measurement_csv=_write_csv(
 			tmp_path / 'inputs' / 'eqt.csv',
 			pd.DataFrame(
@@ -261,8 +263,12 @@ def test_write_plot_filter_event_csvs_writes_expected_rows(tmp_path: Path) -> No
 		prt_plot_df=prt_plot_df,
 	)
 
-	before_df = pd.read_csv(tmp_path / 'hypoinverse_events_before_plot_quality_filter.csv')
-	after_df = pd.read_csv(tmp_path / 'hypoinverse_events_after_plot_quality_filter.csv')
+	before_df = pd.read_csv(
+		tmp_path / 'hypoinverse_events_before_plot_quality_filter.csv'
+	)
+	after_df = pd.read_csv(
+		tmp_path / 'hypoinverse_events_after_plot_quality_filter.csv'
+	)
 
 	assert before_df['event_id'].tolist() == [1, 2]
 	assert before_df['passed_plot_quality_filter'].tolist() == [False, True]
@@ -272,7 +278,9 @@ def test_write_plot_filter_event_csvs_writes_expected_rows(tmp_path: Path) -> No
 
 def test_run_pipeline_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 	config = _make_config(tmp_path)
-	script_path = _touch_file(tmp_path / 'pipeline_with_jma_fpevent.py', 'print("snapshot")\n')
+	script_path = _touch_file(
+		tmp_path / 'pipeline_with_jma_fpevent.py', 'print("snapshot")\n'
+	)
 	config_path = _touch_file(tmp_path / 'pipeline_with_jma_fpevent.yaml', 'plot:\n')
 
 	arc_calls: list[dict[str, object]] = []
@@ -379,7 +387,9 @@ def test_run_pipeline_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 			}
 		)
 		(Path(cwd) / 'hypoinverse_run.prt').write_text('prt\n', encoding='utf-8')
-		return subprocess.CompletedProcess(args=args, returncode=0, stdout='ok', stderr='')
+		return subprocess.CompletedProcess(
+			args=args, returncode=0, stdout='ok', stderr=''
+		)
 
 	def fake_load_hypoinverse_summary_from_prt(prt_path: Path) -> pd.DataFrame:
 		assert Path(prt_path).name == 'hypoinverse_run.prt'
@@ -435,12 +445,16 @@ def test_run_pipeline_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 		df['depth_km_init'] = [10.0 if seq == 1 else 11.0 for seq in df['seq']]
 		return df
 
-	def fake_plot_event_quality(df: pd.DataFrame, *, out_dir: Path, **kwargs: object) -> None:
+	def fake_plot_event_quality(
+		df: pd.DataFrame, *, out_dir: Path, **kwargs: object
+	) -> None:
 		assert df['seq'].tolist() == [1]
 		assert kwargs['lat_col'] == 'lat_deg_init'
 		plot_quality_calls.append(Path(out_dir))
 
-	def fake_plot_events_map_and_sections(*, df: pd.DataFrame, out_png: Path, **kwargs: object) -> None:
+	def fake_plot_events_map_and_sections(
+		*, df: pd.DataFrame, out_png: Path, **kwargs: object
+	) -> None:
 		assert df['seq'].tolist() == [1]
 		assert kwargs['origin_time_col'] == 'origin_time_hyp'
 		map_calls.append(Path(out_png))
@@ -519,8 +533,14 @@ def test_pipeline_with_jma_fpevent_import_has_no_top_level_execution(
 	tmp_path: Path,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	module_path = Path(
-		'/workspace/proc/hypocenter_determination/jma_mobara_hypoinverse/pipeline_with_jma_fpevent.py'
+
+	repo_root = Path(__file__).resolve().parents[1]
+	module_path = (
+		repo_root
+		/ 'proc'
+		/ 'hypocenter_determination'
+		/ 'jma_mobara_hypoinverse'
+		/ 'pipeline_with_jma_fpevent.py'
 	)
 	spec = importlib.util.spec_from_file_location(
 		'pipeline_with_jma_fpevent_import_test',

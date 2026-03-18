@@ -10,3 +10,4 @@ pytest
 pytest-cov
 torch
 seisai-pick @ git+https://github.com/ozw4/seisai.git@main#subdirectory=packages/seisai-pick
+geopandas

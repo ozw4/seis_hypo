@@ -8,8 +8,10 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from hypo.synth_eval.builders import _event_subsample_mask_from_xyz
-from hypo.synth_eval.pipeline import _validate_event_subsample_config
+from hypo.synth_eval.event_subsample import (
+	event_subsample_mask_from_xyz,
+	validate_event_subsample_config,
+)
 from hypo.synth_eval.validation import (
 	require_abs,
 	require_dirname_only,
@@ -208,7 +210,7 @@ def _apply_uncertainty_plot_event_subsample(
 	if event_subsample is None:
 		return df_plot, true_xyz_m, pred_xyz_m
 
-	mask = _event_subsample_mask_from_xyz(
+	mask = event_subsample_mask_from_xyz(
 		pd.DataFrame(
 			{
 				'x_m': df_plot['x_m_true'],
@@ -239,7 +241,7 @@ def load_config(path: Path) -> Config:
 			field='uncertainty_plot.slice',
 			required=True,
 		)
-	up_event_subsample = _validate_event_subsample_config(
+	up_event_subsample = validate_event_subsample_config(
 		up.get('event_subsample'),
 		field='uncertainty_plot.event_subsample',
 		allow_keep_n_xyz=False,

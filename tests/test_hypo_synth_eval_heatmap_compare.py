@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
 
 matplotlib.use('Agg', force=True)
 
@@ -81,8 +82,8 @@ def _write_compare_yaml(
 	return path
 
 
-def _patch_save_figure_capture(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
-	cap: dict[str, object] = {}
+def _patch_save_figure_capture(monkeypatch):
+	cap = {}
 
 	def _save_figure(
 		fig,
@@ -96,9 +97,23 @@ def _patch_save_figure_capture(monkeypatch: pytest.MonkeyPatch) -> dict[str, obj
 	):
 		out_png = Path(out_png)
 		out_png.parent.mkdir(parents=True, exist_ok=True)
-		fig.savefig(out_png, dpi=int(dpi))
+
+		if tight_layout:
+			fig.tight_layout()
+
+		save_kwargs = {'dpi': int(dpi)}
+		if bbox_inches is not None:
+			save_kwargs['bbox_inches'] = bbox_inches
+		if pad_inches is not None:
+			save_kwargs['pad_inches'] = float(pad_inches)
+
+		fig.savefig(out_png, **save_kwargs)
 		cap['fig'] = fig
 		cap['out_png'] = out_png
+
+		if close:
+			plt.close(fig)
+
 		return out_png
 
 	monkeypatch.setattr(hc, 'save_figure', _save_figure)
@@ -500,7 +515,8 @@ def test_run_compare_scales_erz_for_auto_percentile(
 	expected_stack = np.stack([grid[1, :, :] * 0.05 for grid in grids], axis=0)
 	expected_vmax = float(np.nanpercentile(expected_stack, 90.0))
 	assert {
-		tuple(float(v) for v in ax.images[0].get_clim()) for ax in panel_by_title.values()
+		tuple(float(v) for v in ax.images[0].get_clim())
+		for ax in panel_by_title.values()
 	} == {(0.0, expected_vmax)}
 	assert fig._suptitle is not None
 	assert fig._suptitle.get_text() == 'ERZ xy z=1000 m (scaled to 0.05 s)'
@@ -548,7 +564,8 @@ def test_run_compare_scales_erz_for_explicit_bounds(
 		grids[1][1, :, :] * 0.05,
 	)
 	assert {
-		tuple(float(v) for v in ax.images[0].get_clim()) for ax in panel_by_title.values()
+		tuple(float(v) for v in ax.images[0].get_clim())
+		for ax in panel_by_title.values()
 	} == {(0.0, 1.0)}
 
 
