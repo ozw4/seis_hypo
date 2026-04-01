@@ -20,7 +20,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 		'event_dirs',
 		nargs='+',
 		type=Path,
-		help='Event directory path(s) containing exactly one *.evt and its matching *.ch',
+		help=(
+			'Event directory path(s) whose raw inputs are under raw/ and whose '
+			'flow-scoped *_active.ch will be written under flows/jma_model_dataset/active/'
+		),
 	)
 	parser.add_argument(
 		'--target-fs-hz',

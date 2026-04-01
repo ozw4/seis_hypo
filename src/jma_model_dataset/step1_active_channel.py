@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from jma.prepare.active_channel import make_active_ch_for_evt
-from jma.prepare.event_paths import resolve_evt_and_ch
-from jma_model_dataset.paths import active_ch_path
+from jma.prepare.event_paths import resolve_evt_and_ch, resolve_txt_for_evt
+from jma_model_dataset.paths import active_ch_path, raw_root
 
 __all__ = ['build_active_ch_for_event']
 
@@ -20,7 +20,13 @@ def build_active_ch_for_event(
 	if not event_dir.is_dir():
 		raise NotADirectoryError(f'event directory not found: {event_dir}')
 
-	evt_path, ch_path = resolve_evt_and_ch(event_dir)
+	raw_dir = raw_root(event_dir)
+	if not raw_dir.is_dir():
+		raise NotADirectoryError(f'raw directory not found: {raw_dir}')
+
+	evt_path, ch_path = resolve_evt_and_ch(raw_dir)
+	resolve_txt_for_evt(evt_path)
+
 	out_path = active_ch_path(event_dir, evt_path.stem)
 	if skip_if_exists and out_path.is_file():
 		return out_path
