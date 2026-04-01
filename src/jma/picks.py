@@ -14,6 +14,60 @@ from jma.stationcode_resolve import decide_mea_to_ch_for_month
 
 P_PHASES_DEFAULT = {'P', 'EP', 'IP'}
 S_PHASES_DEFAULT = {'S', 'ES', 'IS'}
+_PHASE_SLOT_SPECS = (
+	('phase1', 'phase_name_1', 'phase1_time'),
+	('phase2', 'phase_name_2', 'phase2_time'),
+)
+
+
+def _raw_text_or_empty(value: object) -> str:
+	if value is None or pd.isna(value):
+		return ''
+	return str(value)
+
+
+def _is_high_confidence_phase_name(phase_name_raw: str) -> bool:
+	return phase_name_raw.strip().isupper()
+
+
+def _pick_trace_candidates_for_row(
+	row: pd.Series,
+	*,
+	t1: pd.Timestamp | pd.NaT,
+	t2: pd.Timestamp | pd.NaT,
+	p_phases: set[str],
+	s_phases: set[str],
+) -> dict[str, dict[str, object]]:
+	candidates: dict[str, dict[str, object]] = {}
+	time_by_slot = {'phase1': t1, 'phase2': t2}
+
+	for phase_slot, phase_name_col, _time_col in _PHASE_SLOT_SPECS:
+		phase_name_raw = _raw_text_or_empty(row.get(phase_name_col))
+		phase_name_norm = phase_name_raw.upper()
+		picked_time = time_by_slot[phase_slot]
+		if pd.isna(picked_time):
+			continue
+
+		phase_type = ''
+		if phase_name_norm in p_phases:
+			phase_type = 'P'
+		elif phase_name_norm in s_phases:
+			phase_type = 'S'
+
+		if phase_type == '':
+			continue
+
+		prev = candidates.get(phase_type)
+		if prev is None or picked_time < prev['picked_time']:
+			candidates[phase_type] = {
+				'phase_slot': phase_slot,
+				'phase_name_raw': phase_name_raw,
+				'phase_type': phase_type,
+				'is_high_confidence': _is_high_confidence_phase_name(phase_name_raw),
+				'picked_time': picked_time,
+			}
+
+	return candidates
 
 
 def build_epicenters_origin_index(epi_df: pd.DataFrame) -> dict[int, int]:
@@ -61,17 +115,21 @@ def build_pick_table_for_event(
 	pdb: PresenceDB,
 	p_phases: set[str] | None = None,
 	s_phases: set[str] | None = None,
+	pick_trace_rows: list[dict[str, object]] | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, object]]]:
 	"""arrivetime_measurements からイベント1つ分の pick table を作る。
 
 	- station_code(measurement) -> ch_station(presence/.ch側) は現行ルール（MappingDB+PresenceDB）で解決
 	- 同一 ch_station に複数行が来たら、p_time/s_time は最も早いものを採用
+	- pick_trace_rows を渡すと、採用された phase slot の provenance を rows に格納する
 	- 返り値
 	- pick_df: index=ch_station, columns=[p_time, s_time, preferred_network_code]
 	- log_rows: mapping判定ログ（学習前の整合チェック用）
 	"""
 	p_ph = P_PHASES_DEFAULT if p_phases is None else set(p_phases)
 	s_ph = S_PHASES_DEFAULT if s_phases is None else set(s_phases)
+	if pick_trace_rows is not None:
+		pick_trace_rows.clear()
 
 	m = meas_df[meas_df['event_id'] == event_id].copy()
 	out = pd.DataFrame(columns=['p_time', 's_time', 'preferred_network_code'])
@@ -79,23 +137,14 @@ def build_pick_table_for_event(
 	if m.empty:
 		return out, []
 
-	ph1 = m['phase_name_1'].astype(str).str.upper()
-	ph2 = m['phase_name_2'].astype(str).str.upper()
-
 	t1 = pd.to_datetime(m['phase1_time'], format='ISO8601', errors='raise')
 	t2 = pd.to_datetime(m['phase2_time'], format='ISO8601', errors='raise')
-
-	p1 = t1.where(ph1.isin(p_ph))
-	p2 = t2.where(ph2.isin(p_ph))
-	s1 = t1.where(ph1.isin(s_ph))
-	s2 = t2.where(ph2.isin(s_ph))
-
-	p_time = pd.concat([p1, p2], axis=1).min(axis=1)
-	s_time = pd.concat([s1, s2], axis=1).min(axis=1)
 
 	acc_p: dict[str, pd.Timestamp | pd.NaT] = {}
 	acc_s: dict[str, pd.Timestamp | pd.NaT] = {}
 	acc_nc: dict[str, set[str]] = {}
+	trace_p: dict[str, dict[str, object]] = {}
+	trace_s: dict[str, dict[str, object]] = {}
 	log_rows: list[dict[str, object]] = []
 
 	for i, row in m.iterrows():
@@ -125,15 +174,54 @@ def build_pick_table_for_event(
 		if dec.ch_key is None or not dec.network_code:
 			continue
 
-		pt = p_time.loc[i]
-		st = s_time.loc[i]
+		row_candidates = _pick_trace_candidates_for_row(
+			row,
+			t1=t1.loc[i],
+			t2=t2.loc[i],
+			p_phases=p_ph,
+			s_phases=s_ph,
+		)
+		pt = row_candidates['P']['picked_time'] if 'P' in row_candidates else pd.NaT
+		st = row_candidates['S']['picked_time'] if 'S' in row_candidates else pd.NaT
 
 		curp = acc_p.get(dec.ch_key, pd.NaT)
 		curs = acc_s.get(dec.ch_key, pd.NaT)
 
-		if pd.notna(pt):
+		if pd.notna(pt) and (pd.isna(curp) or pt < curp):
+			if pick_trace_rows is not None:
+				trace_p[dec.ch_key] = {
+					'event_id': int(event_id),
+					'event_month': event_month,
+					'mea_station_code_raw': _raw_text_or_empty(sta_raw),
+					'mea_station_code_norm': mea_norm,
+					'phase_slot': row_candidates['P']['phase_slot'],
+					'phase_name_raw': row_candidates['P']['phase_name_raw'],
+					'phase_type': 'P',
+					'is_high_confidence': row_candidates['P']['is_high_confidence'],
+					'picked_time': row_candidates['P']['picked_time'].isoformat(),
+					'ch_station': dec.ch_key,
+					'network_code': dec.network_code,
+					'map_status': dec.status,
+					'map_rule': '' if dec.rule is None else dec.rule,
+				}
 			curp = pt if pd.isna(curp) else min(curp, pt)
-		if pd.notna(st):
+		if pd.notna(st) and (pd.isna(curs) or st < curs):
+			if pick_trace_rows is not None:
+				trace_s[dec.ch_key] = {
+					'event_id': int(event_id),
+					'event_month': event_month,
+					'mea_station_code_raw': _raw_text_or_empty(sta_raw),
+					'mea_station_code_norm': mea_norm,
+					'phase_slot': row_candidates['S']['phase_slot'],
+					'phase_name_raw': row_candidates['S']['phase_name_raw'],
+					'phase_type': 'S',
+					'is_high_confidence': row_candidates['S']['is_high_confidence'],
+					'picked_time': row_candidates['S']['picked_time'].isoformat(),
+					'ch_station': dec.ch_key,
+					'network_code': dec.network_code,
+					'map_status': dec.status,
+					'map_rule': '' if dec.rule is None else dec.rule,
+				}
 			curs = st if pd.isna(curs) else min(curs, st)
 
 		acc_p[dec.ch_key] = curp
@@ -151,6 +239,12 @@ def build_pick_table_for_event(
 		},
 		index=pd.Index(keys, name='ch_station'),
 	)
+	if pick_trace_rows is not None:
+		for ch_key in keys:
+			if ch_key in trace_p:
+				pick_trace_rows.append(trace_p[ch_key])
+			if ch_key in trace_s:
+				pick_trace_rows.append(trace_s[ch_key])
 	return out, log_rows
 
 

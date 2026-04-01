@@ -14,6 +14,7 @@ __all__ = [
 	'active_ch_path',
 	'missing_txt_path',
 	'mapping_log_path',
+	'pick_manifest_path',
 	'continuous_done_path',
 	'fill_to_48_done_path',
 ]
@@ -31,6 +32,18 @@ def _require_single_segment(value: str, *, field_name: str) -> str:
 		raise ValueError(f'{field_name} must not be {value2!r}')
 	if '/' in value2 or '\\' in value2:
 		raise ValueError(f'{field_name} must not contain path separators: {value2}')
+	return value2
+
+
+def _require_event_month(value: str) -> str:
+	value2 = _require_single_segment(value, field_name='event_month')
+	if (
+		len(value2) != 7
+		or value2[4] != '-'
+		or not value2[:4].isdigit()
+		or not value2[5:].isdigit()
+	):
+		raise ValueError(f'event_month must be YYYY-MM: {value!r}')
 	return value2
 
 
@@ -79,6 +92,19 @@ def missing_txt_path(event_dir: Path, stem: str) -> Path:
 def mapping_log_path(event_dir: Path, stem: str) -> Path:
 	stem2 = _require_single_segment(stem, field_name='stem')
 	return missing_dir(event_dir) / f'{stem2}_mapping_log.csv'
+
+
+def pick_manifest_path(event_dir: Path, event_month: str) -> Path:
+	event_dir2 = Path(event_dir).resolve()
+	month2 = _require_event_month(event_month)
+	return (
+		event_dir2.parent
+		/ 'flows'
+		/ 'jma_model_dataset'
+		/ 'pick_manifests'
+		/ month2
+		/ 'event_pick_manifest.csv'
+	)
 
 
 def continuous_done_path(

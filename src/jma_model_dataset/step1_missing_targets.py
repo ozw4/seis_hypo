@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from jma_model_dataset.paths import (
 	active_ch_path,
 	mapping_log_path,
 	missing_txt_path,
+	pick_manifest_path,
 	raw_root,
 )
 
@@ -37,6 +39,23 @@ MAPPING_LOG_COLUMNS = [
 	'network_code',
 	'map_rule',
 	'candidates_in_month',
+]
+
+PICK_TRACE_COLUMNS = [
+	'event_id',
+	'event_file_stem',
+	'event_month',
+	'mea_station_code_raw',
+	'mea_station_code_norm',
+	'phase_slot',
+	'phase_name_raw',
+	'phase_type',
+	'is_high_confidence',
+	'picked_time',
+	'ch_station',
+	'network_code',
+	'map_status',
+	'map_rule',
 ]
 
 
@@ -129,6 +148,129 @@ def _write_mapping_log(path: Path, map_log: list[dict[str, object]]) -> None:
 	pd.DataFrame(map_log, columns=MAPPING_LOG_COLUMNS).to_csv(path, index=False)
 
 
+def _normalize_pick_manifest_flag(value: object) -> str:
+	if value is None:
+		return ''
+	if isinstance(value, str):
+		value2 = value.strip().lower()
+		if value2 == '':
+			return ''
+		if value2 in {'1', 'true'}:
+			return '1'
+		if value2 in {'0', 'false'}:
+			return '0'
+	return '1' if bool(value) else '0'
+
+
+def _normalize_pick_manifest_row(row: dict[str, object]) -> dict[str, str]:
+	out: dict[str, str] = {}
+	for field in PICK_TRACE_COLUMNS:
+		value = row.get(field)
+		if field == 'is_high_confidence':
+			out[field] = _normalize_pick_manifest_flag(value)
+		else:
+			out[field] = '' if value is None else str(value)
+	return out
+
+
+def _read_pick_manifest_rows(
+	path: Path,
+	*,
+	event_id: int,
+	event_file_stem: str,
+) -> list[dict[str, str]]:
+	if not path.is_file():
+		return []
+
+	with path.open('r', newline='', encoding='utf-8') as f:
+		reader = csv.DictReader(f)
+		if reader.fieldnames is None:
+			return []
+		missing_fields = [
+			field for field in PICK_TRACE_COLUMNS if field not in reader.fieldnames
+		]
+		if missing_fields:
+			raise ValueError(
+				f'pick manifest missing columns {missing_fields}: {path}'
+			)
+
+		rows: list[dict[str, str]] = []
+		for row in reader:
+			if (
+				str(row['event_id']) == str(int(event_id))
+				and str(row['event_file_stem']) == str(event_file_stem)
+			):
+				rows.append(
+					{
+						field: '' if row.get(field) is None else str(row.get(field))
+						for field in PICK_TRACE_COLUMNS
+					}
+				)
+	return rows
+
+
+def _append_pick_manifest_rows(
+	path: Path,
+	*,
+	rows: list[dict[str, str]],
+) -> None:
+	if not rows:
+		return
+	path.parent.mkdir(parents=True, exist_ok=True)
+	need_header = not path.is_file() or path.stat().st_size == 0
+	with path.open('a', newline='', encoding='utf-8') as f:
+		writer = csv.DictWriter(f, fieldnames=PICK_TRACE_COLUMNS)
+		if need_header:
+			writer.writeheader()
+		for row in rows:
+			writer.writerow(row)
+
+
+def _write_pick_trace_manifest(
+	*,
+	event_dir: Path,
+	event_file_stem: str,
+	event_id: int,
+	event_month: str,
+	pick_trace_rows: list[dict[str, object]],
+) -> Path:
+	manifest_path = pick_manifest_path(event_dir, event_month)
+	manifest_rows = [
+		_normalize_pick_manifest_row(
+			{
+				**row,
+				'event_file_stem': event_file_stem,
+			}
+		)
+		for row in sorted(
+			pick_trace_rows,
+			key=lambda row: (
+				str(row.get('ch_station', '')),
+				str(row.get('phase_type', '')),
+				str(row.get('picked_time', '')),
+				str(row.get('mea_station_code_norm', '')),
+				str(row.get('phase_slot', '')),
+			),
+		)
+	]
+
+	existing_rows = _read_pick_manifest_rows(
+		manifest_path,
+		event_id=event_id,
+		event_file_stem=event_file_stem,
+	)
+	if existing_rows:
+		if existing_rows != manifest_rows:
+			raise ValueError(
+				'pick manifest rows already exist with different content: '
+				f'{manifest_path}'
+			)
+	elif manifest_rows:
+		_append_pick_manifest_rows(manifest_path, rows=manifest_rows)
+
+	return manifest_path
+
+
 def _write_missing_txt(path: Path, missing_by_network: dict[str, list[str]]) -> int:
 	path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -143,6 +285,7 @@ def _write_missing_txt(path: Path, missing_by_network: dict[str, list[str]]) -> 
 		return 0
 
 	path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
 	return len(lines)
 
 
@@ -159,6 +302,7 @@ def build_missing_targets_for_event(
 	event_month = origin_iso[:7]
 	event_id = find_event_id_by_origin(epi_df, origin_iso)
 
+	pick_trace_rows: list[dict[str, object]] = []
 	pick_by_ch, map_log = build_pick_table_for_event(
 		meas_df,
 		event_id=event_id,
@@ -167,6 +311,7 @@ def build_missing_targets_for_event(
 		pdb=pdb,
 		p_phases=P_PHASES,
 		s_phases=S_PHASES,
+		pick_trace_rows=pick_trace_rows,
 	)
 
 	missing_by_network = _missing_pairs_by_network(
@@ -175,6 +320,13 @@ def build_missing_targets_for_event(
 	)
 	n_missing = _write_missing_txt(paths.missing_path, missing_by_network)
 	_write_mapping_log(paths.mapping_log_path, map_log)
+	_write_pick_trace_manifest(
+		event_dir=paths.event_dir,
+		event_file_stem=paths.evt_path.stem,
+		event_id=int(event_id),
+		event_month=event_month,
+		pick_trace_rows=pick_trace_rows,
+	)
 
 	return MissingTargetResult(
 		event_dir=paths.event_dir,
