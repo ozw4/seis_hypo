@@ -1,3 +1,14 @@
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+
+
 [profiles.planner]
 model = "gpt-5.4"
 approval_policy = "never"
