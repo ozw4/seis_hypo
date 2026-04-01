@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import os
+from contextlib import contextmanager
 from collections.abc import Sequence
 from netrc import netrc
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,6 +25,67 @@ def create_hinet_client() -> Client:
 	return Client(
 		login, password, timeout=150, sleep_time_in_seconds=10, max_sleep_count=60
 	)
+
+
+
+@contextmanager
+def _pushd(path: str | Path):
+	cwd = Path.cwd()
+	os.chdir(path)
+	try:
+		yield
+	finally:
+		os.chdir(cwd)
+
+
+def download_event_waveform_directories(
+	client: Client,
+	starttime: dt.datetime | str,
+	endtime: dt.datetime | str,
+	outdir: str | Path,
+	*,
+	region: str = '00',
+	minmagnitude: float = 3.0,
+	maxmagnitude: float = 9.9,
+) -> list[Path]:
+	outdir = Path(outdir)
+	outdir.mkdir(parents=True, exist_ok=True)
+
+	with TemporaryDirectory(
+		dir=outdir,
+		prefix='tmp_get_event_waveform_',
+	) as tmpdir:
+		staging_dir = Path(tmpdir)
+		with _pushd(staging_dir):
+			client.get_event_waveform(
+				starttime,
+				endtime,
+				region=region,
+				minmagnitude=minmagnitude,
+				maxmagnitude=maxmagnitude,
+			)
+
+		downloaded_paths = sorted(staging_dir.iterdir())
+		if not downloaded_paths:
+			raise RuntimeError(
+				'new event directories were not created by get_event_waveform'
+			)
+
+		event_dirs: list[Path] = []
+		for downloaded_path in downloaded_paths:
+			if not downloaded_path.is_dir():
+				raise ValueError(
+					f'unexpected artifact from get_event_waveform: {downloaded_path}'
+				)
+
+			target_dir = outdir / downloaded_path.name
+			if target_dir.exists():
+				raise FileExistsError(f'event directory already exists: {target_dir}')
+
+			downloaded_path.rename(target_dir)
+			event_dirs.append(target_dir)
+
+	return event_dirs
 
 
 def _name_stem(
