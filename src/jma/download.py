@@ -3,8 +3,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import os
-from contextlib import contextmanager
 from collections.abc import Sequence
+from contextlib import contextmanager
 from netrc import netrc
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,12 +20,32 @@ from common.time_util import floor_minute, minute_range
 from jma.win32_reader import compute_event_time_window
 
 
-def create_hinet_client() -> Client:
-	login, _, password = netrc().authenticators('hinet')
+def load_hinet_credentials_from_netrc(machine: str) -> tuple[str, str]:
+	"""Load and validate Hi-net credentials from .netrc."""
+	auth = netrc().authenticators(machine)
+	if auth is None:
+		raise ValueError(f'no .netrc entry found for machine={machine!r}')
+
+	login, _, password = auth
+	if not login:
+		raise ValueError(f'.netrc entry for machine={machine!r} has no login')
+	if not password:
+		raise ValueError(f'.netrc entry for machine={machine!r} has no password')
+	if len(password) > 12:
+		raise ValueError(
+			'Hi-net password is longer than 12 characters; '
+			'set the exact usable password in .netrc'
+		)
+
+	return login, password
+
+
+def create_hinet_client(*, machine: str = 'hinet') -> Client:
+	"""Create a Hi-net client using credentials from .netrc."""
+	login, password = load_hinet_credentials_from_netrc(machine)
 	return Client(
 		login, password, timeout=150, sleep_time_in_seconds=10, max_sleep_count=60
 	)
-
 
 
 @contextmanager
