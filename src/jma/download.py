@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import logging
 import os
+import time
 from collections.abc import Sequence
 from contextlib import contextmanager
 from netrc import netrc
@@ -133,6 +135,54 @@ def _event_id_from_row(event_row: pd.Series) -> int:
 	if 'event_id' not in event_row:
 		raise KeyError("event_row must have 'event_id'")
 	return int(event_row['event_id'])
+
+
+def _request_win32_with_retry(
+	client: Client,
+	*,
+	network_code: str,
+	start: dt.datetime,
+	span_min: int,
+	outdir: str,
+	data_name: str,
+	ctable_name: str,
+	threads: int,
+	cleanup: bool,
+	n_stations: int,
+	max_attempts: int = 5,
+) -> tuple[str, str]:
+	for attempt in range(1, max_attempts + 1):
+		data, ctable = client.get_continuous_waveform(
+			network_code,
+			start,
+			span_min,
+			outdir=outdir,
+			data=data_name,
+			ctable=ctable_name,
+			threads=threads,
+			cleanup=cleanup,
+		)
+
+		if data is not None and ctable is not None:
+			return data, ctable
+
+		if attempt == max_attempts:
+			raise ValueError(
+				'Fail to request WIN32 (returned None). '
+				f'code={network_code}, start={start}, span_min={span_min}, '
+				f'n_stations={n_stations}, attempts={attempt}'
+			)
+
+		wait_sec = attempt * 2
+		logging.warning(
+			'WIN32 request returned None; retrying. '
+			f'code={network_code}, start={start}, span_min={span_min}, '
+			f'n_stations={n_stations}, attempts={attempt}/{max_attempts}, '
+			f'wait_sec={wait_sec}'
+		)
+		time.sleep(wait_sec)
+
+	raise RuntimeError('unreachable')
 
 
 def _origin_time_jst_from_row(event_row: pd.Series) -> tuple[dt.datetime, dt.datetime]:
@@ -286,22 +336,18 @@ def download_win_for_stations(
 	if select_used:
 		client.select_stations(network_code, station_list)
 
-	data, ctable = client.get_continuous_waveform(
-		network_code,
-		t0,
-		span_min,
+	data, ctable = _request_win32_with_retry(
+		client,
+		network_code=network_code,
+		start=t0,
+		span_min=span_min,
 		outdir=str(outdir),
-		data=data_name,
-		ctable=ctable_name,
+		data_name=data_name,
+		ctable_name=ctable_name,
 		threads=threads,
 		cleanup=cleanup,
+		n_stations=len(station_list),
 	)
-
-	if data is None or ctable is None:
-		raise ValueError(
-			'Fail to request WIN32 (returned None). '
-			f'code={network_code}, start={t0}, span_min={span_min}, n_stations={len(station_list)}'
-		)
 
 	if clear_selection and select_used:
 		client.select_stations(network_code)

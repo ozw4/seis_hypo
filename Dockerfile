@@ -45,11 +45,11 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
 RUN fc-cache -fv
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
-    pip install torchaudio==2.7.0
+    python -m pip install torchaudio==2.7.0
 
 RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     --mount=type=bind,source=.devcontainer/requirements-dev.txt,target=/tmp/requirements-dev.txt \
-    python -m pip install -r /tmp/requirements-dev.txt
+    GIT_LFS_SKIP_SMUDGE=1 python -m pip install -r /tmp/requirements-dev.txt
 
 WORKDIR /opt
 COPY external_source/NonLinLoc /opt/NonLinLoc
@@ -62,10 +62,10 @@ RUN install -m 0755 /opt/NonLinLoc/src/bin/* /usr/local/bin/
 
 WORKDIR /opt
 COPY external_source/loki /opt/loki
-RUN pip install /opt/loki
+RUN python -m pip install /opt/loki
 
 RUN addgroup --gid ${GID} ${USERNAME} \
-    && adduser --disabled-password --gecos "" --shell "/bin/bash" --uid ${UID} --gid ${GID} ${USERNAME} \
+    && adduser --disabled-password --gecos "" --shell /bin/bash --uid ${UID} --gid ${GID} ${USERNAME} \
     && mkdir -p /home/${USERNAME}/.codex \
     && chown -R ${UID}:${GID} /home/${USERNAME}
 
@@ -73,6 +73,7 @@ ENV CODEX_HOME=/home/${USERNAME}/.codex
 ENV PYTHONPATH="${PYTHONPATH}:/workspace/src"
 ENV PATH="/workspace/external_source/win32tools/catwin32.src:${PATH}"
 ENV PATH="/workspace/external_source/win32tools/win2sac.src:${PATH}"
+
 USER ${USERNAME}
 
 COPY --chown=${UID}:${GID} ruff.toml /home/${USERNAME}/ruff.toml

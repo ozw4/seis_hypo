@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from jma.download import create_hinet_client
+from jma_model_dataset.paths import missing_dir
 from jma_model_dataset.step2_missing_continuous import (
 	download_missing_continuous_for_event,
 )
@@ -64,17 +65,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
 	args = parse_args(argv)
 	client = create_hinet_client()
+	failed_events: list[tuple[Path, str]] = []
+	ok_count = 0
 
 	for event_dir in args.event_dirs:
-		result = download_missing_continuous_for_event(
-			event_dir,
-			client,
-			run_tag=args.run_tag,
-			threads=args.threads,
-			cleanup=args.cleanup,
-			skip_if_exists=args.skip_if_exists,
-			skip_if_done=args.skip_if_done,
-		)
+		failure_marker = missing_dir(event_dir) / '04_get_missing_continuous.failed.txt'
+		try:
+			result = download_missing_continuous_for_event(
+				event_dir,
+				client,
+				run_tag=args.run_tag,
+				threads=args.threads,
+				cleanup=args.cleanup,
+				skip_if_exists=args.skip_if_exists,
+				skip_if_done=args.skip_if_done,
+			)
+		except ValueError as e:
+			failure_marker.parent.mkdir(parents=True, exist_ok=True)
+			message = str(e)
+			failure_marker.write_text(
+				f'event_dir={event_dir}\nerror={message}\n'
+			)
+			print(f'[error] event_dir={event_dir} error={message}')
+			failed_events.append((event_dir, message))
+			continue
+
+		if failure_marker.exists():
+			failure_marker.unlink()
+
+		ok_count += 1
 		print(
 			f'[step2] {result.evt_path.name}: '
 			f'networks={result.n_networks_total} '
@@ -84,6 +103,11 @@ def main(argv: list[str] | None = None) -> None:
 			f'-> {result.outdir}'
 		)
 		print(f'[log] {result.evt_path.name} -> {result.log_path}')
+
+	print(f'[summary] ok={ok_count} failed={len(failed_events)}')
+	if failed_events:
+		for event_dir, message in failed_events:
+			print(f'[failed] event_dir={event_dir} error={message}')
 
 
 if __name__ == '__main__':
