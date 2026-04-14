@@ -19,14 +19,12 @@ from jma.stationcode_common import (
 # =========================
 # CONFIG (edit here)
 # =========================
-MEA_CSV = Path('/workspace/proc/prepare_data/jma/station_measurement.csv')
-STA_CSV = Path('/workspace/data/station/jma/station.csv')
-CH_CSV = Path(
-	'/workspace/proc/prepare_data/jma/stationcode_match/v1/snapshots/monthly/monthly_presence.csv'
-)
+MEA_CSV = Path('/workspace/data/jma/station/station_measurement.csv')
+STA_CSV = Path('/workspace/data/jma/station/station.csv')
+CH_CSV = Path('/workspace/data/jma/station/monthly_presence_update.csv')
 
 # Exclude lists
-I95_TXT = Path('/workspace/data/station/jma/i95.txt')  # I95(Jxxxx...) table text
+I95_TXT = Path('/workspace/data/jma/station/i95.txt')  # I95(Jxxxx...) table text
 EARTHSCOPE_CODES_EXCLUDE = {
 	'W.ADK',
 	'W.COR',

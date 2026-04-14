@@ -4,15 +4,15 @@ set -euo pipefail
 # =========================================
 # settings: ここだけ自分の環境に合わせて編集
 # =========================================
-REPO_ROOT="/path/to/seis_hypo-main"
-EVENT_ROOT="/workspace/data/waveform/jma/event"
+REPO_ROOT="/workspace"
+EVENT_ROOT="/workspace/data/jma/waveform/event/202201"
 
-MEAS_CSV="/workspace/data/path/to/measurements.csv"
-EPI_CSV="/workspace/data/path/to/epicenters.csv"
-PRES_CSV="/workspace/data/path/to/monthly_presence.csv"
-MAPPING_REPORT_CSV="/workspace/data/path/to/mapping_report.csv"
-NEAR0_SUGGEST_CSV="/workspace/data/path/to/near0_suggestions.csv"
-HINET_CHANNEL_TABLE="/workspace/data/path/to/hinet_channel_table.ch"
+MEAS_CSV="/workspace/data/jma/arrivetime/2022/measurement.csv"
+EPI_CSV="/workspace/data/jma/arrivetime/2022/epicenter.csv"
+PRES_CSV="/workspace/data/jma/station/monthly_presence_update.csv"
+MAPPING_REPORT_CSV="/workspace/proc/prepare_data/jma/stationcode_match/v1/match_out_final/mapping_report.csv"
+NEAR0_SUGGEST_CSV="/workspace/proc/prepare_data/jma/stationcode_match/v1/match_out_final/near0_suggestions.csv"
+HINET_CHANNEL_TABLE="/workspace/data/jma/station/hinet_channelstbl_20260413.ch"
 
 RUN_TAG="v1"
 THREADS=8
@@ -64,6 +64,7 @@ python proc/jma_model_dataset/03_make_missing_continuous.py \
   --pres-csv "$PRES_CSV" \
   --mapping-report-csv "$MAPPING_REPORT_CSV" \
   --near0-suggest-csv "$NEAR0_SUGGEST_CSV" \
+  --skip-if-exists \
   "${EVENT_DIRS[@]}"
 
 # =========================================

@@ -71,7 +71,8 @@ RUN addgroup --gid ${GID} ${USERNAME} \
 
 ENV CODEX_HOME=/home/${USERNAME}/.codex
 ENV PYTHONPATH="${PYTHONPATH}:/workspace/src"
-
+ENV PATH="/workspace/external_source/win32tools/catwin32.src:${PATH}"
+ENV PATH="/workspace/external_source/win32tools/win2sac.src:${PATH}"
 USER ${USERNAME}
 
 COPY --chown=${UID}:${GID} ruff.toml /home/${USERNAME}/ruff.toml

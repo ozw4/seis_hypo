@@ -25,8 +25,8 @@ from jma_model_dataset.paths import (
 __all__ = [
 	'MissingTargetPaths',
 	'MissingTargetResult',
-	'resolve_missing_target_paths',
 	'build_missing_targets_for_event',
+	'resolve_missing_target_paths',
 ]
 
 MAPPING_LOG_COLUMNS = [
@@ -84,6 +84,7 @@ class MissingTargetResult:
 	origin_time: str
 	event_month: str
 	n_missing: int
+	skipped: bool = False
 
 
 def resolve_missing_target_paths(event_dir: Path) -> MissingTargetPaths:
@@ -289,18 +290,50 @@ def _write_missing_txt(path: Path, missing_by_network: dict[str, list[str]]) -> 
 	return len(lines)
 
 
-def build_missing_targets_for_event(
+def _count_missing_txt_lines(path: Path) -> int:
+	if not path.is_file():
+		return 0
+	count = 0
+	with path.open('r', encoding='utf-8') as f:
+		for line in f:
+			if line.strip():
+				count += 1
+	return count
+
+
+def build_missing_targets_for_event(  # noqa: PLR0913
 	event_dir: Path,
 	*,
 	meas_df: pd.DataFrame,
 	epi_df: pd.DataFrame,
 	pdb: PresenceDB,
 	mdb: MappingDB,
+	skip_if_exists: bool = False,
 ) -> MissingTargetResult:
 	paths = resolve_missing_target_paths(event_dir)
 	origin_iso = read_origin_jst_iso(paths.txt_path)
 	event_month = origin_iso[:7]
 	event_id = find_event_id_by_origin(epi_df, origin_iso)
+
+	if (
+		skip_if_exists
+		and paths.missing_path.is_file()
+		and paths.mapping_log_path.is_file()
+	):
+		return MissingTargetResult(
+			event_dir=paths.event_dir,
+			evt_path=paths.evt_path,
+			txt_path=paths.txt_path,
+			ch_path=paths.ch_path,
+			active_path=paths.active_path,
+			missing_path=paths.missing_path,
+			mapping_log_path=paths.mapping_log_path,
+			event_id=int(event_id),
+			origin_time=origin_iso,
+			event_month=event_month,
+			n_missing=_count_missing_txt_lines(paths.missing_path),
+			skipped=True,
+		)
 
 	pick_trace_rows: list[dict[str, object]] = []
 	pick_by_ch, map_log = build_pick_table_for_event(
@@ -340,4 +373,5 @@ def build_missing_targets_for_event(
 		origin_time=origin_iso,
 		event_month=event_month,
 		n_missing=n_missing,
+		skipped=False,
 	)
