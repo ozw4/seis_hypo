@@ -21,10 +21,13 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}/src
       MPLBACKEND: Agg
+      GIT_LFS_SKIP_SMUDGE: "1"
 
     steps:
       - name: Check out
         uses: actions/checkout@v5
+        with:
+          lfs: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
