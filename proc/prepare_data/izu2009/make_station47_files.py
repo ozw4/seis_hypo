@@ -9,7 +9,7 @@ from jma.monthly_presence_selection import (
 )
 
 if __name__ == '__main__':
-	monthly_presence_csv = '/workspace/proc/prepare_data/jma/stationcode_match/v1/snapshots/monthly/monthly_presence.csv'
+	monthly_presence_csv = '/workspace/data/jma/station/monthly_presence_update.csv'
 
 	# 対象期間（ざっくり月単位で判定するので、ここは期間が2009-12を含めばOK）
 	start_time = '2009-12-17 00:00:00'

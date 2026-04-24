@@ -19,7 +19,9 @@ if __name__ == '__main__':
 
 	# これは「意図の記録」と「stationsが空で落ちるのを避ける」ために渡す。
 	# 0203はselect非対応なので、このリストでサーバ側が絞られることは期待しない（=全局DL）。
-	stations_txt = Path('../profile/stations47/stations_0203.txt')
+	stations_txt = Path(
+		'/workspace/proc/prepare_data/izu2009/profile/stations47/stations_0203.txt'
+	)
 
 	# 出力先（0203だけ別ディレクトリに）
 	out_dir = Path('/workspace/data/izu2009/continuous/0203')
@@ -86,3 +88,5 @@ if __name__ == '__main__':
 		)
 
 		cur = cur + step
+
+# %%
