@@ -4,6 +4,11 @@ import argparse
 from pathlib import Path
 
 from jma.download import create_hinet_client
+from jma_model_dataset.event_skip_log import (
+	MISSING_INPUT_EXCEPTIONS,
+	append_event_skip_log,
+	is_expected_missing_input_error,
+)
 from jma_model_dataset.paths import missing_dir
 from jma_model_dataset.step2_missing_continuous import (
 	download_missing_continuous_for_event,
@@ -11,6 +16,7 @@ from jma_model_dataset.step2_missing_continuous import (
 
 DEFAULT_RUN_TAG = 'v1'
 DEFAULT_THREADS = 8
+STEP_NAME = '04_get_missing_continuous_waveform'
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -59,6 +65,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 		default=True,
 		help='Skip a network when its flow-scoped done marker already matches run_tag (default: true)',
 	)
+	parser.add_argument(
+		'--skip-missing-inputs',
+		action=argparse.BooleanOptionalAction,
+		default=False,
+		help=(
+			'Skip the current event and append a flow-scoped skip log when '
+			'required per-event input files are missing (default: false)'
+		),
+	)
 	return parser.parse_args(argv)
 
 
@@ -66,13 +81,17 @@ def main(argv: list[str] | None = None) -> None:
 	args = parse_args(argv)
 	client = create_hinet_client()
 	failed_events: list[tuple[Path, str]] = []
+	skipped_events: list[tuple[Path, str, Path]] = []
 	ok_count = 0
 
 	for event_dir in args.event_dirs:
-		failure_marker = missing_dir(event_dir) / '04_get_missing_continuous.failed.txt'
+		event_dir2 = Path(event_dir).resolve()
+		failure_marker = (
+			missing_dir(event_dir2) / '04_get_missing_continuous.failed.txt'
+		)
 		try:
 			result = download_missing_continuous_for_event(
-				event_dir,
+				event_dir2,
 				client,
 				run_tag=args.run_tag,
 				threads=args.threads,
@@ -80,14 +99,33 @@ def main(argv: list[str] | None = None) -> None:
 				skip_if_exists=args.skip_if_exists,
 				skip_if_done=args.skip_if_done,
 			)
-		except ValueError as e:
+		except MISSING_INPUT_EXCEPTIONS as error:
+			if args.skip_missing_inputs and is_expected_missing_input_error(
+				error, event_dir=event_dir2
+			):
+				log_path = append_event_skip_log(
+					event_dir2,
+					step_name=STEP_NAME,
+					reason='missing_input',
+					error=error,
+				)
+				message = str(error)
+				print(
+					f'[skip] step=04 event_dir={event_dir2} '
+					f'error={error.__class__.__name__}: {message} log={log_path}'
+				)
+				skipped_events.append((event_dir2, message, log_path))
+				continue
+			if not isinstance(error, ValueError):
+				raise
 			failure_marker.parent.mkdir(parents=True, exist_ok=True)
-			message = str(e)
+			message = str(error)
 			failure_marker.write_text(
-				f'event_dir={event_dir}\nerror={message}\n'
+				f'event_dir={event_dir2}\nerror={message}\n',
+				encoding='utf-8',
 			)
-			print(f'[error] event_dir={event_dir} error={message}')
-			failed_events.append((event_dir, message))
+			print(f'[error] event_dir={event_dir2} error={message}')
+			failed_events.append((event_dir2, message))
 			continue
 
 		if failure_marker.exists():
@@ -104,7 +142,14 @@ def main(argv: list[str] | None = None) -> None:
 		)
 		print(f'[log] {result.evt_path.name} -> {result.log_path}')
 
-	print(f'[summary] ok={ok_count} failed={len(failed_events)}')
+	print(
+		f'[summary] ok={ok_count} '
+		f'skipped_missing_input={len(skipped_events)} '
+		f'failed={len(failed_events)}'
+	)
+	if skipped_events:
+		for event_dir, message, log_path in skipped_events:
+			print(f'[skipped] event_dir={event_dir} error={message} log={log_path}')
 	if failed_events:
 		for event_dir, message in failed_events:
 			print(f'[failed] event_dir={event_dir} error={message}')

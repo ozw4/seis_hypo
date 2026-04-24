@@ -56,6 +56,7 @@ if ((${#STEP4_DIRS[@]} > 0)); then
     --cleanup \
     --skip-if-exists \
     --skip-if-done \
+    --skip-missing-inputs \
     "${STEP4_DIRS[@]}"
 else
   echo "[04] skipped: no *_missing_continuous.txt found"
@@ -73,6 +74,7 @@ python proc/jma_model_dataset/05_run_fill_to_48_stations.py \
   --cleanup \
   --skip-if-exists \
   --skip-if-done \
+  --skip-missing-inputs \
   "${EVENT_DIRS[@]}"
 
 # =========================================
@@ -83,6 +85,7 @@ python proc/jma_model_dataset/06_export_100hz.py \
   --epi-csv "$EPI_CSV" \
   --target-fs-hz "$TARGET_FS_HZ" \
   --skip-if-exists \
+  --skip-missing-inputs \
   "${EVENT_DIRS[@]}"
 
 echo "done"
