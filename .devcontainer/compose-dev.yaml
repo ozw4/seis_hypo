@@ -40,9 +40,6 @@ services:
         source: /home/aiuser4/Desktop/mobara2025
         target: /home/dcuser/mobara2025
       - type: bind
-        source: /nvme01/aidata/TS-h1283/Hinet
-        target: /home/dcuser/data
-      - type: bind
         source: ${HOME}/Desktop/data/seis_hypo
         target: /workspace/data/
       - type: bind

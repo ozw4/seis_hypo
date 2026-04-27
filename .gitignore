@@ -77,3 +77,5 @@ _util/
 external_source/
 !tests/data/
 !tests/data/**
+!proc/izu2009/pick/out/*.csv
+!proc/izu2009/prepare_data/profile/stations47/*
