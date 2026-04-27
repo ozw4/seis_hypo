@@ -48,9 +48,10 @@ OUT_GAMMA_PICKS_CSV = Path(
 )
 
 # station_id mode:
-# - 'network_station': '{network_code}.{station_code}' (default)
+# - 'network_station': '{network_code}{NETWORK_STATION_SEPARATOR}{station_code}'
 # - 'station_only'   : '{station_code}' (collision across networks is an error)
 STATION_ID_MODE = 'network_station'
+NETWORK_STATION_SEPARATOR = '.'
 
 OUT_COLUMNS = ['station_id', 'phase_time', 'phase_type', 'phase_score']
 
@@ -128,7 +129,12 @@ def _pick_time_jst_to_utc_iso8601_z(pick_time: pd.Series) -> pd.Series:
 
 def _build_station_id(picks: pd.DataFrame) -> pd.Series:
 	if STATION_ID_MODE == 'network_station':
-		return picks['network_code'] + '.' + picks['station_code']
+		if (
+			not isinstance(NETWORK_STATION_SEPARATOR, str)
+			or NETWORK_STATION_SEPARATOR == ''
+		):
+			raise ValueError('NETWORK_STATION_SEPARATOR must be a non-empty string')
+		return picks['network_code'] + NETWORK_STATION_SEPARATOR + picks['station_code']
 
 	if STATION_ID_MODE == 'station_only':
 		net_per_station = (
