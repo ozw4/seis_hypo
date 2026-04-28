@@ -26,6 +26,7 @@ geo = importlib.import_module('common.geo')
 json_io = importlib.import_module('common.json_io')
 loki_grid = importlib.import_module('loki_tools.grid')
 nll_control = importlib.import_module('nonlinloc.control')
+traveltime_qc = importlib.import_module('qc.nonlinloc.traveltime_tables')
 
 validate_columns = core.validate_columns
 latlon_to_local_xy_km = geo.latlon_to_local_xy_km
@@ -35,6 +36,7 @@ GridSpec = loki_grid.GridSpec
 propose_grid_from_stations = loki_grid.propose_grid_from_stations
 write_loki_header = loki_grid.write_loki_header
 write_nll_control_files_ps = nll_control.write_nll_control_files_ps
+qc_grid2time_outputs_ps = traveltime_qc.qc_grid2time_outputs_ps
 
 IN_STATIONS_CSV = (
 	_REPO_ROOT / 'proc/izu2009/prepare_data/profile/stations47/stations_47.csv'
@@ -51,6 +53,7 @@ OUT_DB_DIR = OUT_ROOT / 'db'
 OUT_NLL_RUN_DIR = OUT_ROOT / 'nll/run'
 OUT_NLL_MODEL_DIR = OUT_ROOT / 'nll/model'
 OUT_VELOCITY_DIR = OUT_ROOT / 'velocity'
+OUT_QC_TRAVELTIME_TABLES_DIR = OUT_ROOT / 'qc/traveltime_tables'
 
 OUT_HEADER_PATH = OUT_DB_DIR / 'header.hdr'
 OUT_LAYERS_PATH = OUT_VELOCITY_DIR / 'jma2001.layers'
@@ -107,11 +110,14 @@ def _read_origin(path: Path) -> dict[str, float]:
 	return origin
 
 
-def _read_gamma_config(path: Path) -> dict:
-	obj = read_json(_require_file(path, 'gamma_config.json'))
+def _read_gamma_config_optional(path: Path) -> tuple[dict | None, str | None]:
+	if not path.is_file():
+		return None, None
+
+	obj = read_json(path)
 	if not isinstance(obj, dict):
 		raise TypeError(f'gamma_config.json must contain a JSON object: {path}')
-	return obj
+	return obj, str(path.relative_to(_REPO_ROOT))
 
 
 def _normalize_stations(stations_csv: Path, origin: dict[str, float]) -> pd.DataFrame:
@@ -192,17 +198,82 @@ def _copy_velocity_model(src: Path, dst: Path) -> Path:
 	return dst
 
 
+def _remove_previous_nll_outputs() -> None:
+	patterns = [
+		OUT_DB_DIR / '*.time.buf',
+		OUT_DB_DIR / '*.time.hdr',
+		OUT_DB_DIR / '*.mod.buf',
+		OUT_DB_DIR / '*.mod.hdr',
+		OUT_NLL_MODEL_DIR / '*.mod.buf',
+		OUT_NLL_MODEL_DIR / '*.mod.hdr',
+	]
+	for pattern in patterns:
+		for path in pattern.parent.glob(pattern.name):
+			if path.is_file():
+				path.unlink()
+
+
+def _rel(path: Path) -> str:
+	return str(Path(path).relative_to(_REPO_ROOT))
+
+
+def _require_complete_grid2time_qc(
+	qc_csv: Path,
+	*,
+	phase: str,
+	station_count: int,
+) -> None:
+	df = pd.read_csv(qc_csv)
+	if len(df) != station_count:
+		raise ValueError(
+			f'{phase}: expected {station_count} Grid2Time rows, got {len(df)}'
+		)
+
+	missing = df.loc[~(df['hdr_exists'] & df['buf_exists'])]
+	if not missing.empty:
+		rows = missing[['source', 'hdr_exists', 'buf_exists']].head(20)
+		raise FileNotFoundError(
+			f'{phase}: missing Grid2Time outputs: {rows.to_dict(orient="records")}'
+		)
+
+
+def _require_outputs(station_count: int) -> list[Path]:
+	if not OUT_HEADER_PATH.is_file():
+		raise FileNotFoundError(f'generated header.hdr not found: {OUT_HEADER_PATH}')
+
+	time_buf_paths = sorted(OUT_DB_DIR.glob('*.time.buf'))
+	expected_min = 2 * int(station_count)
+	if len(time_buf_paths) < expected_min:
+		raise FileNotFoundError(
+			f'expected at least {expected_min} .time.buf files, '
+			f'got {len(time_buf_paths)} in: {OUT_DB_DIR}'
+		)
+
+	return time_buf_paths
+
+
 def _write_config(  # noqa: PLR0913
 	*,
 	grid: GridSpec,
 	origin: dict[str, float],
 	stations_count: int,
 	velocity_model_path: Path,
-	gamma_config_path: Path,
-	gamma_config: dict,
+	gamma_config_path: str | None,
+	gamma_config: dict | None,
+	control_p_path: Path,
+	control_s_path: Path,
+	qc_paths: dict[str, Path],
 	time_buf_count: int,
 ) -> None:
 	x_min, x_max, y_min, y_max = grid.extent_xy_km()
+	gamma_ranges = None
+	if gamma_config is not None:
+		gamma_ranges = {
+			key: gamma_config[key]
+			for key in ('x(km)', 'y(km)', 'z(km)')
+			if key in gamma_config
+		}
+
 	cfg = {
 		'generated_at_utc': datetime.now(timezone.utc).isoformat(),
 		'model_label': MODEL_LABEL,
@@ -227,12 +298,15 @@ def _write_config(  # noqa: PLR0913
 		},
 		'origin': origin,
 		'station_count': int(stations_count),
-		'velocity_model_path': str(velocity_model_path.relative_to(_REPO_ROOT)),
-		'gamma_config_path': str(gamma_config_path.relative_to(_REPO_ROOT)),
-		'gamma_ranges': {
-			key: gamma_config[key]
-			for key in ('x(km)', 'y(km)', 'z(km)')
-			if key in gamma_config
+		'velocity_model_path': _rel(velocity_model_path),
+		'gamma_config_path': gamma_config_path,
+		'gamma_ranges': gamma_ranges,
+		'paths': {
+			'header': _rel(OUT_HEADER_PATH),
+			'control_p': _rel(control_p_path),
+			'control_s': _rel(control_s_path),
+			'db_dir': _rel(OUT_DB_DIR),
+			'nll_model_dir': _rel(OUT_NLL_MODEL_DIR),
 		},
 		'nll': {
 			'quantity': NLL_QUANTITY,
@@ -240,6 +314,12 @@ def _write_config(  # noqa: PLR0913
 			'depth_km_mode': NLL_DEPTH_KM_MODE,
 			'gt_plfd_eps': GT_PLFD_EPS,
 			'gt_plfd_sweep': GT_PLFD_SWEEP,
+		},
+		'qc': {
+			'traveltime_tables_dir': _rel(OUT_QC_TRAVELTIME_TABLES_DIR),
+			'tt_files_p_csv': _rel(qc_paths['p_csv']),
+			'tt_files_s_csv': _rel(qc_paths['s_csv']),
+			'tt_files_summary': _rel(qc_paths['summary']),
 		},
 		'time_buf_count': int(time_buf_count),
 	}
@@ -257,26 +337,17 @@ def _run_nonlinloc(control_p_path: Path, control_s_path: Path) -> None:
 	run([grid2time, str(control_s_path)], check=True)  # noqa: S603
 
 
-def _require_outputs() -> list[Path]:
-	if not OUT_HEADER_PATH.is_file():
-		raise FileNotFoundError(f'generated header.hdr not found: {OUT_HEADER_PATH}')
-
-	time_buf_paths = sorted(OUT_DB_DIR.glob('*.time.buf'))
-	if not time_buf_paths:
-		raise FileNotFoundError(f'no generated .time.buf files found in: {OUT_DB_DIR}')
-
-	return time_buf_paths
-
-
 def build_loki_traveltime_izu2009() -> tuple[pd.DataFrame, GridSpec, list[Path]]:
 	"""Build Izu2009 Loki header, NLL controls, and travel-time buffers."""
 	origin = _read_origin(IN_ORIGIN_JSON)
-	gamma_config = _read_gamma_config(IN_GAMMA_CONFIG_JSON)
+	gamma_config, gamma_config_path = _read_gamma_config_optional(IN_GAMMA_CONFIG_JSON)
 	stations = _normalize_stations(IN_STATIONS_CSV, origin)
 	grid = _build_grid(stations, origin)
 
 	for path in (OUT_ROOT, OUT_DB_DIR, OUT_NLL_RUN_DIR, OUT_NLL_MODEL_DIR):
 		path.mkdir(parents=True, exist_ok=True)
+
+	_remove_previous_nll_outputs()
 
 	stations.to_csv(OUT_STATIONS_CSV, index=False)
 	layers_path = _copy_velocity_model(IN_LAYERS_PATH, OUT_LAYERS_PATH)
@@ -298,14 +369,32 @@ def build_loki_traveltime_izu2009() -> tuple[pd.DataFrame, GridSpec, list[Path]]
 	)
 
 	_run_nonlinloc(Path(control_p_path), Path(control_s_path))
-	time_buf_paths = _require_outputs()
+	qc_paths = qc_grid2time_outputs_ps(
+		control_p_path,
+		control_s_path,
+		out_dir=OUT_QC_TRAVELTIME_TABLES_DIR,
+	)
+	_require_complete_grid2time_qc(
+		qc_paths['p_csv'],
+		phase='P',
+		station_count=len(stations),
+	)
+	_require_complete_grid2time_qc(
+		qc_paths['s_csv'],
+		phase='S',
+		station_count=len(stations),
+	)
+	time_buf_paths = _require_outputs(len(stations))
 	_write_config(
 		grid=grid,
 		origin=origin,
 		stations_count=len(stations),
 		velocity_model_path=layers_path,
-		gamma_config_path=IN_GAMMA_CONFIG_JSON,
+		gamma_config_path=gamma_config_path,
 		gamma_config=gamma_config,
+		control_p_path=control_p_path,
+		control_s_path=control_s_path,
+		qc_paths=qc_paths,
 		time_buf_count=len(time_buf_paths),
 	)
 
