@@ -37,11 +37,12 @@ services:
         source: ../
         target: /workspace
       - type: bind
-        source: /home/aiuser4/Desktop/mobara2025
-        target: /home/dcuser/mobara2025
-      - type: bind
         source: ${HOME}/Desktop/data/seis_hypo
         target: /workspace/data/
+      - type: bind
+        source: /home/aiuser4/Desktop/issue_forge
+        target: /workspace/vendor/issue_forge
+        read_only: true
       - type: bind
         source: ${HOME}/.netrc
         target: /home/dcuser/.netrc
