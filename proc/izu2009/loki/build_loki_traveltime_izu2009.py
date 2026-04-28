@@ -202,6 +202,8 @@ def _remove_previous_nll_outputs() -> None:
 	patterns = [
 		OUT_DB_DIR / '*.time.buf',
 		OUT_DB_DIR / '*.time.hdr',
+		OUT_DB_DIR / '*.time.*.buf',
+		OUT_DB_DIR / '*.time.*.hdr',
 		OUT_DB_DIR / '*.mod.buf',
 		OUT_DB_DIR / '*.mod.hdr',
 		OUT_NLL_MODEL_DIR / '*.mod.buf',
@@ -224,6 +226,11 @@ def _require_complete_grid2time_qc(
 	station_count: int,
 ) -> None:
 	df = pd.read_csv(qc_csv)
+	validate_columns(
+		df,
+		['source', 'hdr_exists', 'buf_exists'],
+		f'{phase} Grid2Time QC CSV: {qc_csv}',
+	)
 	if len(df) != station_count:
 		raise ValueError(
 			f'{phase}: expected {station_count} Grid2Time rows, got {len(df)}'
@@ -237,19 +244,48 @@ def _require_complete_grid2time_qc(
 		)
 
 
-def _require_outputs(station_count: int) -> list[Path]:
+def _require_outputs_from_qc(
+	*,
+	qc_paths: dict[str, Path],
+	station_count: int,
+) -> list[Path]:
 	if not OUT_HEADER_PATH.is_file():
 		raise FileNotFoundError(f'generated header.hdr not found: {OUT_HEADER_PATH}')
 
-	time_buf_paths = sorted(OUT_DB_DIR.glob('*.time.buf'))
-	expected_min = 2 * int(station_count)
-	if len(time_buf_paths) < expected_min:
-		raise FileNotFoundError(
-			f'expected at least {expected_min} .time.buf files, '
-			f'got {len(time_buf_paths)} in: {OUT_DB_DIR}'
+	expected = 2 * int(station_count)
+	dfs = [
+		pd.read_csv(qc_paths['p_csv']),
+		pd.read_csv(qc_paths['s_csv']),
+	]
+
+	time_buf_paths: list[Path] = []
+	for df in dfs:
+		validate_columns(
+			df,
+			['source', 'hdr_exists', 'buf_exists', 'buf_path'],
+			'Grid2Time QC CSV',
 		)
 
-	return time_buf_paths
+		missing = df.loc[~(df['hdr_exists'] & df['buf_exists'])]
+		if not missing.empty:
+			rows = missing[['source', 'hdr_exists', 'buf_exists']].head(20)
+			raise FileNotFoundError(
+				f'missing Grid2Time outputs: {rows.to_dict(orient="records")}'
+			)
+
+		time_buf_paths.extend(Path(path) for path in df['buf_path'].astype(str))
+
+	missing_paths = [path for path in time_buf_paths if not path.is_file()]
+	if missing_paths:
+		head = missing_paths[:20]
+		raise FileNotFoundError(f'QC-listed .time.buf files are missing: {head}')
+
+	if len(time_buf_paths) != expected:
+		raise ValueError(
+			f'expected {expected} .time.buf files from QC, got {len(time_buf_paths)}'
+		)
+
+	return sorted(time_buf_paths)
 
 
 def _write_config(  # noqa: PLR0913
@@ -384,7 +420,10 @@ def build_loki_traveltime_izu2009() -> tuple[pd.DataFrame, GridSpec, list[Path]]
 		phase='S',
 		station_count=len(stations),
 	)
-	time_buf_paths = _require_outputs(len(stations))
+	time_buf_paths = _require_outputs_from_qc(
+		qc_paths=qc_paths,
+		station_count=len(stations),
+	)
 	_write_config(
 		grid=grid,
 		origin=origin,
