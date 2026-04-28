@@ -79,3 +79,7 @@ external_source/
 !tests/data/**
 !proc/izu2009/pick/out/*.csv
 !proc/izu2009/prepare_data/profile/stations47/*
+.work
+.work/
+vendor/issue_forge
+vendor/issue_forge/
