@@ -29,6 +29,7 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     git \
     git-lfs \
     fontconfig \
+    shellcheck \
     ttf-mscorefonts-installer \
     build-essential \
     cmake \
