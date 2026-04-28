@@ -60,6 +60,7 @@ tmp_code/
 .venv/
 model_weight
 */runs/
+proc/izu2009/loki/traveltime/velocity/jma2001.layers
 # Hypoinverse artifacts (file-based)
 **/hypoinverse_input.arc
 **/hypoinverse_run.prt
