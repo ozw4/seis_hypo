@@ -1,0 +1,22 @@
+# JMA arrival-time catalog download parameters for Izu 2009.
+# end_date is exclusive: this downloads 2009-12-17, 18, 19, and 20.
+download:
+  start_date: '2009-12-17'
+  end_date: '2009-12-21'
+  span_days: 1
+  output_dir: /workspace/data/arrivetime/JMA
+  netrc_machine: hinet
+  line_ending: UNIX
+  overwrite: false
+  log_level: INFO
+
+# Not used by the downloader itself. Keep these here so the later
+# epicenter/measurement filtering step can use the same reviewed parameters.
+catalog_filter:
+  start_time_jst: '2009-12-17 00:00:00'
+  end_time_jst: '2009-12-20 23:59:59'
+  center_lat: 34.9700
+  center_lon: 139.1300
+  radius_km: 50.0
+  mag_min: null
+  mag_max: null
