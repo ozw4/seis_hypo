@@ -10,7 +10,7 @@ from obspy import Stream, Trace, UTCDateTime
 from common.core import load_event_json, slice_with_pad
 from common.json_io import read_json
 from jma.station_reader import read_hinet_channel_table
-from jma.win32_reader import read_win32
+from jma.win32_reader import read_win32_resampled
 from pipelines.win32_eqt_continuous_pipelines import parse_win32_cnt_filename
 
 
@@ -164,21 +164,23 @@ def _load_group_ch_df(
 	components_order: tuple[str, str, str],
 ) -> pd.DataFrame:
 	ch_df_raw = read_hinet_channel_table(ch_path)
-	ch_df = _force_components_une_by_order(ch_df_raw, components_order=components_order)
 	if bool(group.get('select_used', False)):
 		selected_stations = [
 			str(s).strip().upper() for s in group.get('stations', []) if str(s).strip()
 		]
 		if not selected_stations:
 			raise ValueError(f'select_used is true but stations is empty: {event_dir}')
-		station_norm = ch_df['station'].astype(str).str.strip().str.upper()
-		missing = sorted(set(selected_stations) - set(station_norm.tolist()))
+		station_norm_raw = ch_df_raw['station'].astype(str).str.strip().str.upper()
+		missing = sorted(set(selected_stations) - set(station_norm_raw.tolist()))
 		if missing:
 			raise ValueError(
 				f'selected stations missing from .ch: {ch_path} missing={missing[:20]}'
 			)
-		ch_df = ch_df[station_norm.isin(selected_stations)].reset_index(drop=True)
+		ch_df_raw = ch_df_raw[station_norm_raw.isin(selected_stations)].reset_index(
+			drop=True
+		)
 
+	ch_df = _force_components_une_by_order(ch_df_raw, components_order=components_order)
 	keys = _channel_keys(ch_df)
 	_validate_unique_channel_keys(keys, ch_path=ch_path)
 	return ch_df
@@ -267,11 +269,12 @@ def _read_group_event_array(  # noqa: PLR0913
 			components_order=components_order,
 		)
 		keys = _channel_keys(ch_df)
-		arr_min = read_win32(
+		arr_min = read_win32_resampled(
 			cnt,
 			ch_df,
-			base_sampling_rate_HZ=int(base_sampling_rate_hz),
+			target_sampling_rate_HZ=int(base_sampling_rate_hz),
 			duration_SECOND=int(duration_sec),
+			missing_channel_policy='raise',
 		)
 		if reference_ch_df is None:
 			reference_ch_df = ch_df
