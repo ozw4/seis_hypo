@@ -3,14 +3,30 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-from jma.prepare.station_subset_ch import (
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SRC_DIR = _REPO_ROOT / 'src'
+
+for _path in (_REPO_ROOT, _SRC_DIR):
+	_path_str = str(_path)
+	if _path_str not in sys.path:
+		sys.path.insert(0, _path_str)
+
+from jma.prepare.station_subset_ch import (  # noqa: E402
 	read_station_list_txt,
 	write_station_subset_ch_dir,
 )
-from jma.station_reader import read_hinet_channel_table
+from jma.station_reader import read_hinet_channel_table  # noqa: E402
+
+BASE_CONT_DIR = _REPO_ROOT / 'data/izu2009/continuous'
+STATIONS_DIR = _REPO_ROOT / 'proc/izu2009/prepare_data/profile/stations47'
+OUT_BASE_DIR = (
+	_REPO_ROOT / 'proc/izu2009/prepare_data/download_continuous/continuous_ch47'
+)
+NETWORKS = ['0101', '0203', '0207', '0301']
 
 
 def _sha256_hex(text: str) -> str:
@@ -93,17 +109,10 @@ def report_ch_uniqueness(out_base_dir: Path, report_csv: Path) -> None:
 
 
 if __name__ == '__main__':
-	base_cont_dir = Path('../../../data/izu2009/continuous')  # DL済み .ch がある場所
-	stations_dir = Path('./profile/stations47')  # stations_0101.txt 等がある場所
-	out_base_dir = Path('./download_continuous/continuous_ch47')  # 出力先（新規）
-
-	networks = ['0101', '0203', '0207', '0301']
-	# =======================
-
-	for net in networks:
-		in_dir = base_cont_dir / net
-		out_dir = out_base_dir / net
-		sta_txt = stations_dir / f'stations_{net}.txt'
+	for net in NETWORKS:
+		in_dir = BASE_CONT_DIR / net
+		out_dir = OUT_BASE_DIR / net
+		sta_txt = STATIONS_DIR / f'stations_{net}.txt'
 
 		keep_stations = read_station_list_txt(sta_txt)
 
@@ -116,6 +125,6 @@ if __name__ == '__main__':
 		)
 
 	report_ch_uniqueness(
-		out_base_dir=out_base_dir,
-		report_csv=out_base_dir / '_report_ch_uniqueness.csv',
+		out_base_dir=OUT_BASE_DIR,
+		report_csv=OUT_BASE_DIR / '_report_ch_uniqueness.csv',
 	)

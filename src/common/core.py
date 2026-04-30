@@ -97,6 +97,7 @@ def write_event_json_win32_groups(
 	- stations: list[str]
 	- cnt_files: list[str]
 	- ch_file: str
+	- ch_files: list[str] | None  (None または省略時は ch_file へフォールバック)
 	- select_used: bool
 	"""
 	if not win32_groups:
