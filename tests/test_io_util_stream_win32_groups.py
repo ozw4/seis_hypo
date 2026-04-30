@@ -144,3 +144,69 @@ def test_build_stream_from_downloaded_win32_rejects_ch_files_length_mismatch(
 
 	with pytest.raises(ValueError, match='ch_files length must match cnt_files length'):
 		build_stream_from_downloaded_win32(event_dir, base_sampling_rate_hz=1)
+
+
+def _write_event_json_ch_files_null(
+	event_dir: Path,
+	*,
+	cnt_files: list[str],
+	ch_file: str,
+) -> None:
+	obj = {
+		'event_id': 1,
+		'origin_time_jst': '2009-12-17T00:09:50+09:00',
+		'window': {'pre_sec': 10, 'post_sec': 20},
+		'win32': {
+			'format': 'groups',
+			'span_min': 10,
+			'threads': 1,
+			'groups': [
+				{
+					'network_code': '0101',
+					'select_used': True,
+					'stations': ['STA1'],
+					'cnt_files': cnt_files,
+					'ch_file': ch_file,
+					'ch_files': None,
+				}
+			],
+		},
+	}
+	(event_dir / 'event.json').write_text(json.dumps(obj), encoding='utf-8')
+
+
+def test_build_stream_from_downloaded_win32_ch_files_null_falls_back_to_ch_file(
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: Path,
+) -> None:
+	"""ch_files が null のとき ch_file へフォールバックする。"""
+	event_dir = tmp_path / '000001'
+	event_dir.mkdir()
+	cnt_files = ['win_0101_200912170000_10m_aaaaaaaa.cnt']
+	ch_file = 'win_0101_200912170000_10m_aaaaaaaa.ch'
+	for name in [*cnt_files, ch_file]:
+		_touch(event_dir / name)
+	_write_event_json_ch_files_null(event_dir, cnt_files=cnt_files, ch_file=ch_file)
+
+	def read_hinet_channel_table(path: str | Path) -> pd.DataFrame:
+		return _channel_table(['STA1'])
+
+	def read_win32(
+		file_path: str | Path,
+		ch_df: pd.DataFrame,
+		**kwargs: object,
+	) -> np.ndarray:
+		n = int(kwargs['base_sampling_rate_HZ']) * int(kwargs['duration_SECOND'])
+		return np.zeros((len(ch_df), n), dtype=np.float32)
+
+	monkeypatch.setattr(
+		stream_mod, 'read_hinet_channel_table', read_hinet_channel_table
+	)
+	monkeypatch.setattr(stream_mod, 'read_win32', read_win32)
+
+	st = stream_mod.build_stream_from_downloaded_win32(
+		event_dir,
+		base_sampling_rate_hz=1,
+	)
+	assert len(st) == 3  # U, N, E for STA1
+

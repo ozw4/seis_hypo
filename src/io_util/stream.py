@@ -132,11 +132,11 @@ def _ch_paths_for_group(
 	group: dict,
 	cnt_path_list: list[Path],
 ) -> list[Path]:
-	if 'ch_files' in group:
-		ch_files = group['ch_files']
-		if not isinstance(ch_files, list):
+	ch_files_val = group.get('ch_files')
+	if ch_files_val is not None:
+		if not isinstance(ch_files_val, list):
 			raise TypeError(f'ch_files must be a list in event.json group: {event_dir}')
-		ch_names = [str(n) for n in ch_files]
+		ch_names = [str(n) for n in ch_files_val]
 		if len(ch_names) != len(cnt_path_list):
 			raise ValueError(
 				'ch_files length must match cnt_files length in event.json group: '
