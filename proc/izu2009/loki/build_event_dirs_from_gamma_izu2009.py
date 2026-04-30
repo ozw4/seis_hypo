@@ -81,10 +81,22 @@ MIN_NUM_P_PICKS = 5
 MIN_NUM_S_PICKS = 5
 MAX_SIGMA_TIME = 0.75
 REQUIRE_NOT_NEAR_BOUNDARY_1KM = True
+MIN_LOKI_STATIONS_PER_EVENT = 3
+MIN_LOKI_NETWORKS_PER_EVENT = 1
 
 _JST = dt.timezone(dt.timedelta(hours=9))
 _STATION_ID_SPLIT = '__'
 _EVENT_TIME_COL_CANDIDATES = ('time', 'timestamp', 'event_time', 'origin_time')
+_DROPPED_EVENTS_COLUMNS = [
+	'event_index',
+	'origin_time_utc',
+	'reason',
+	'n_station_gamma',
+	'n_station_loki',
+	'n_network_loki',
+	'dropped_station_count_3c',
+	'dropped_stations_3c',
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +115,13 @@ class EventBuildResult:
 	"""One built event directory and its summary row."""
 
 	event_dir: Path
+	summary_row: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class EventDropResult:
+	"""One skipped event and its drop summary row."""
+
 	summary_row: dict[str, object]
 
 
@@ -448,9 +467,23 @@ def _ch_path_for_cnt(network_code: str, cnt_path: Path) -> Path:
 	return ch_path
 
 
+def _norm_station_name(value: object) -> str:
+	return str(value).strip().upper()
+
+
 def _station_set_from_ch(ch_path: Path) -> set[str]:
 	ch_df = read_hinet_channel_table(ch_path)
-	return set(ch_df['station'].astype(str).str.strip().str.upper().tolist())
+	validate_columns(ch_df, ['station'], f'channel table: {ch_path}')
+	return set(ch_df['station'].map(_norm_station_name).tolist())
+
+
+def _three_component_stations_from_ch(ch_path: Path) -> set[str]:
+	ch_df = read_hinet_channel_table(ch_path)
+	validate_columns(ch_df, ['station'], f'channel table: {ch_path}')
+
+	station_norm = ch_df['station'].map(_norm_station_name)
+	counts = station_norm.value_counts()
+	return set(counts[counts >= 3].index.astype(str))
 
 
 def _validate_stations_in_ch(
@@ -468,6 +501,32 @@ def _validate_stations_in_ch(
 				f'event station missing from .ch for network={network_code}: '
 				f'ch={ch_path}, missing={missing[:20]}'
 			)
+
+
+def _filter_stations_with_three_components(
+	*,
+	stations: list[str],
+	ch_paths: list[Path],
+	network_code: str,
+) -> tuple[list[str], list[str]]:
+	if not ch_paths:
+		raise ValueError(f'ch_paths is empty for network={network_code}')
+
+	_validate_stations_in_ch(
+		stations=stations,
+		ch_paths=ch_paths,
+		network_code=network_code,
+	)
+	usable_station_norm_set = set.intersection(
+		*[_three_component_stations_from_ch(ch_path) for ch_path in ch_paths]
+	)
+	usable_stations = [
+		sta for sta in stations if _norm_station_name(sta) in usable_station_norm_set
+	]
+	dropped_stations = [
+		sta for sta in stations if _norm_station_name(sta) not in usable_station_norm_set
+	]
+	return usable_stations, dropped_stations
 
 
 def _resolve_event_id(order_idx: int, event_index: int) -> int:
@@ -625,7 +684,7 @@ def _prepare_event_indices(
 			'created event count would be 0 after QC and input intersection'
 		)
 
-	order_df = events_by_index.loc[sorted(candidate_set)].copy()
+	order_df = events_by_index.loc[sorted(candidate_set)].reset_index(drop=True).copy()
 	if EVENT_ID_MODE == 'sequential':
 		order_df = order_df.sort_values(
 			['event_time_utc', 'event_index'], kind='mergesort'
@@ -668,13 +727,12 @@ def _validate_event_stations_in_stations47(
 		)
 
 
-def _build_win32_groups(
-	event_dir: Path,
+def _plan_win32_groups(
 	ev_picks: pd.DataFrame,
 	cnt_index: dict[str, list[CntRecord]],
 	t_start_jst: dt.datetime,
 	t_end_jst: dt.datetime,
-) -> tuple[list[dict[str, object]], list[str]]:
+) -> tuple[list[dict[str, object]], dict[str, object]]:
 	network_codes = sorted(ev_picks['network_code'].drop_duplicates().tolist())
 	for net in network_codes:
 		if net not in CONT_BASE_DIR_BY_NETWORK:
@@ -686,7 +744,8 @@ def _build_win32_groups(
 				f'CH47_BASE_DIR_BY_NETWORK missing network from picks: {net}'
 			)
 
-	win32_groups: list[dict[str, object]] = []
+	group_plans: list[dict[str, object]] = []
+	dropped_stations_3c: list[str] = []
 	for net in network_codes:
 		p_net = ev_picks[ev_picks['network_code'] == net]
 		stations = sorted(p_net['station_code'].drop_duplicates().tolist())
@@ -698,12 +757,55 @@ def _build_win32_groups(
 		)
 
 		ch_paths = [_ch_path_for_cnt(net, rec.path) for rec in selected_cnt]
-		_validate_stations_in_ch(stations=stations, ch_paths=ch_paths, network_code=net)
+		usable_stations, dropped_stations = _filter_stations_with_three_components(
+			stations=stations,
+			ch_paths=ch_paths,
+			network_code=net,
+		)
+		dropped_stations_3c.extend(dropped_stations)
+		if not usable_stations:
+			continue
+
+		group_plans.append(
+			{
+				'network_code': str(net),
+				'stations': usable_stations,
+				'cnt_paths': [rec.path for rec in selected_cnt],
+				'ch_paths': ch_paths,
+			}
+		)
+
+	dropped_stations_3c = sorted(set(dropped_stations_3c))
+	n_station_gamma = int(ev_picks['station_code'].drop_duplicates().shape[0])
+	n_station_loki = int(sum(len(plan['stations']) for plan in group_plans))
+	n_network_loki = int(len(group_plans))
+	loki_input = {
+		'n_station_gamma': n_station_gamma,
+		'n_station_loki': n_station_loki,
+		'n_network_loki': n_network_loki,
+		'dropped_station_count_3c': int(len(dropped_stations_3c)),
+		'dropped_stations_3c': dropped_stations_3c,
+	}
+	return group_plans, loki_input
+
+
+def _materialize_win32_groups(
+	event_dir: Path,
+	group_plans: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[str]]:
+	win32_groups: list[dict[str, object]] = []
+	network_codes: list[str] = []
+	for plan in group_plans:
+		net = str(plan['network_code'])
+		stations = list(plan['stations'])
+		cnt_paths = [Path(p) for p in plan['cnt_paths']]
+		ch_paths = [Path(p) for p in plan['ch_paths']]
+		network_codes.append(net)
 
 		cnt_names: list[str] = []
-		for rec in selected_cnt:
-			dst = event_dir / rec.path.name
-			_materialize_file(rec.path, dst, use_symlink=bool(USE_SYMLINK))
+		for cnt_path in cnt_paths:
+			dst = event_dir / cnt_path.name
+			_materialize_file(cnt_path, dst, use_symlink=bool(USE_SYMLINK))
 			cnt_names.append(dst.name)
 
 		ch_names: list[str] = []
@@ -738,7 +840,7 @@ def _build_one_event(  # noqa: PLR0913
 	picks: pd.DataFrame,
 	stations47: pd.DataFrame,
 	cnt_index: dict[str, list[CntRecord]],
-) -> EventBuildResult:
+) -> EventBuildResult | EventDropResult:
 	ev_picks = picks[picks['event_index'] == int(event_index)].copy()
 	if ev_picks.empty:
 		raise ValueError(f'internal error: no picks for event_index={event_index}')
@@ -753,16 +855,39 @@ def _build_one_event(  # noqa: PLR0913
 		_event_time_window_from_row(event_row)
 	)
 
-	event_id = _resolve_event_id(order_idx, int(event_index))
-	event_dir = OUT_BASE_DIR / f'{event_id:06d}'
-	event_dir.mkdir(parents=False, exist_ok=False)
-
-	win32_groups, network_codes = _build_win32_groups(
-		event_dir,
+	group_plans, loki_input = _plan_win32_groups(
 		ev_picks,
 		cnt_index,
 		t_start_jst,
 		t_end_jst,
+	)
+	if (
+		int(loki_input['n_station_loki']) < int(MIN_LOKI_STATIONS_PER_EVENT)
+		or int(loki_input['n_network_loki']) < int(MIN_LOKI_NETWORKS_PER_EVENT)
+	):
+		dropped_stations = list(loki_input['dropped_stations_3c'])
+		return EventDropResult(
+			summary_row={
+				'event_index': int(event_index),
+				'origin_time_utc': event_time_utc.isoformat().replace('+00:00', 'Z'),
+				'reason': 'too_few_3c_stations',
+				'n_station_gamma': int(loki_input['n_station_gamma']),
+				'n_station_loki': int(loki_input['n_station_loki']),
+				'n_network_loki': int(loki_input['n_network_loki']),
+				'dropped_station_count_3c': int(
+					loki_input['dropped_station_count_3c']
+				),
+				'dropped_stations_3c': ';'.join(dropped_stations),
+			}
+		)
+
+	event_id = _resolve_event_id(order_idx, int(event_index))
+	event_dir = OUT_BASE_DIR / f'{event_id:06d}'
+	event_dir.mkdir(parents=False, exist_ok=False)
+
+	win32_groups, network_codes = _materialize_win32_groups(
+		event_dir,
+		group_plans,
 	)
 	extra = _build_extra_gamma(
 		event_index=int(event_index),
@@ -771,6 +896,7 @@ def _build_one_event(  # noqa: PLR0913
 		latlon_row=latlon_row,
 		event_time_utc=event_time_utc,
 	)
+	extra['loki_input'] = loki_input
 
 	write_event_json_win32_groups(
 		event_dir=event_dir,
@@ -794,8 +920,13 @@ def _build_one_event(  # noqa: PLR0913
 		'n_picks': int(ev_picks.shape[0]),
 		'n_p_picks': _phase_count(ev_picks, 'P'),
 		'n_s_picks': _phase_count(ev_picks, 'S'),
-		'n_station': int(ev_picks['station_id'].nunique()),
+		'n_station': int(loki_input['n_station_loki']),
 		'n_network': len(network_codes),
+		'n_station_gamma': int(loki_input['n_station_gamma']),
+		'n_station_loki': int(loki_input['n_station_loki']),
+		'n_network_loki': int(loki_input['n_network_loki']),
+		'dropped_station_count_3c': int(loki_input['dropped_station_count_3c']),
+		'dropped_stations_3c': ';'.join(list(loki_input['dropped_stations_3c'])),
 		'networks': '|'.join(network_codes),
 		'latitude_deg': float(latlon_row['latitude_deg']),
 		'longitude_deg': float(latlon_row['longitude_deg']),
@@ -813,6 +944,13 @@ def _write_event_index_map(summary_rows: list[dict[str, object]]) -> Path:
 	map_csv = OUT_BASE_DIR / '_event_index_map.csv'
 	map_df.to_csv(map_csv, index=False)
 	return map_csv
+
+
+def _write_dropped_events(drop_rows: list[dict[str, object]]) -> Path:
+	drop_df = pd.DataFrame(drop_rows, columns=_DROPPED_EVENTS_COLUMNS)
+	drop_csv = OUT_BASE_DIR / '_dropped_events.csv'
+	drop_df.to_csv(drop_csv, index=False)
+	return drop_csv
 
 
 def _write_build_config(event_count: int) -> Path:
@@ -842,6 +980,9 @@ def _write_build_config(event_count: int) -> Path:
 			'max_sigma_time': float(MAX_SIGMA_TIME),
 			'require_not_near_boundary_1km': bool(REQUIRE_NOT_NEAR_BOUNDARY_1KM),
 			'max_events': None if MAX_EVENTS is None else int(MAX_EVENTS),
+			'min_loki_stations_per_event': int(MIN_LOKI_STATIONS_PER_EVENT),
+			'min_loki_networks_per_event': int(MIN_LOKI_NETWORKS_PER_EVENT),
+			'three_component_station_filter_enabled': True,
 		},
 	}
 	config_json = OUT_BASE_DIR / '_build_config.json'
@@ -900,9 +1041,11 @@ def main() -> None:
 
 	OUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
-	results = [
-		_build_one_event(
-			i,
+	results: list[EventBuildResult] = []
+	drop_rows: list[dict[str, object]] = []
+	for event_index in pick_event_indices:
+		result = _build_one_event(
+			len(results),
 			int(event_index),
 			events_by_index,
 			qc_by_index,
@@ -911,10 +1054,14 @@ def main() -> None:
 			stations47,
 			cnt_index,
 		)
-		for i, event_index in enumerate(pick_event_indices)
-	]
+		if isinstance(result, EventDropResult):
+			drop_rows.append(result.summary_row)
+			continue
+		results.append(result)
+
+	drop_csv = _write_dropped_events(drop_rows)
 	if not results:
-		raise ValueError('no event directories created')
+		raise ValueError(f'no event directories created; wrote dropped events: {drop_csv}')
 
 	summary_rows = [r.summary_row for r in results]
 	created_event_dirs = [r.event_dir for r in results]
@@ -922,7 +1069,9 @@ def main() -> None:
 	config_json = _write_build_config(len(created_event_dirs))
 
 	print(f'wrote event_dirs: {len(created_event_dirs)} under {OUT_BASE_DIR}')
+	print(f'dropped events: {len(drop_rows)}')
 	print(f'wrote: {map_csv}')
+	print(f'wrote: {drop_csv}')
 	print(f'wrote: {config_json}')
 	_print_first_event_qc(created_event_dirs)
 

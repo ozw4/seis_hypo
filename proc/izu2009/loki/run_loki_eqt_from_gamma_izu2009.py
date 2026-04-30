@@ -87,6 +87,22 @@ def _ensure_empty_or_missing_dir(path: Path, label: str) -> None:
 		)
 
 
+def _collect_time_buf_paths(db_path: Path) -> list[Path]:
+	"""Collect Loki/NLL travel-time buffers from supported naming styles."""
+	patterns = [
+		'*.time.buf',
+		'*.time.*.buf',
+	]
+
+	paths_by_resolved: dict[Path, Path] = {}
+	for pattern in patterns:
+		for path in db_path.glob(pattern):
+			if path.is_file():
+				paths_by_resolved[path.resolve()] = path
+
+	return sorted(paths_by_resolved.values(), key=lambda path: path.name)
+
+
 def _build_cfg() -> LokiWaveformStackingPipelineConfig:
 	if MAX_EVENTS is not None and int(MAX_EVENTS) <= 0:
 		raise ValueError(f'MAX_EVENTS must be positive or None, got {MAX_EVENTS}')
@@ -178,12 +194,15 @@ def _validate_traveltime_db() -> list[Path]:
 	if not header_path.is_file():
 		raise FileNotFoundError(f'Loki header not found: {header_path}')
 
-	time_buf_paths = sorted(LOKI_DB_PATH.glob('*.time.*.buf'))
+	time_buf_paths = _collect_time_buf_paths(LOKI_DB_PATH)
 	if not time_buf_paths:
-		raise FileNotFoundError(f'no .time.*.buf files found in: {LOKI_DB_PATH}')
+		raise FileNotFoundError(
+			f'no travel-time .buf files found in: {LOKI_DB_PATH}. '
+			'Expected files matching *.time.buf or *.time.*.buf.'
+		)
 	if len(time_buf_paths) < int(EXPECTED_MIN_TIME_BUF_COUNT):
 		raise FileNotFoundError(
-			f'expected at least {EXPECTED_MIN_TIME_BUF_COUNT} .time.*.buf files, '
+			f'expected at least {EXPECTED_MIN_TIME_BUF_COUNT} travel-time buffers, '
 			f'got {len(time_buf_paths)} in: {LOKI_DB_PATH}'
 		)
 
