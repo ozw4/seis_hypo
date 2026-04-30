@@ -10,7 +10,7 @@ from obspy import Stream, Trace, UTCDateTime
 from common.core import load_event_json, slice_with_pad
 from common.json_io import read_json
 from jma.station_reader import read_hinet_channel_table
-from jma.win32_reader import read_win32
+from jma.win32_reader import read_win32_resampled
 from pipelines.win32_eqt_continuous_pipelines import parse_win32_cnt_filename
 
 
@@ -269,11 +269,12 @@ def _read_group_event_array(  # noqa: PLR0913
 			components_order=components_order,
 		)
 		keys = _channel_keys(ch_df)
-		arr_min = read_win32(
+		arr_min = read_win32_resampled(
 			cnt,
 			ch_df,
-			base_sampling_rate_HZ=int(base_sampling_rate_hz),
+			target_sampling_rate_HZ=int(base_sampling_rate_hz),
 			duration_SECOND=int(duration_sec),
+			missing_channel_policy='raise',
 		)
 		if reference_ch_df is None:
 			reference_ch_df = ch_df

@@ -28,7 +28,10 @@ from common.core import (  # noqa: E402
 )
 from common.json_io import write_json  # noqa: E402
 from jma.station_reader import read_hinet_channel_table  # noqa: E402
-from jma.win32_reader import compute_event_time_window  # noqa: E402
+from jma.win32_reader import (  # noqa: E402
+	compute_event_time_window,
+	scan_channel_sampling_rate_map_win32,
+)
 from pipelines.win32_eqt_continuous_pipelines import (  # noqa: E402
 	parse_win32_cnt_filename,
 )
@@ -96,6 +99,8 @@ _DROPPED_EVENTS_COLUMNS = [
 	'n_network_loki',
 	'dropped_station_count_3c',
 	'dropped_stations_3c',
+	'dropped_station_count_cnt_missing',
+	'dropped_stations_cnt_missing',
 ]
 
 
@@ -477,13 +482,38 @@ def _station_set_from_ch(ch_path: Path) -> set[str]:
 	return set(ch_df['station'].map(_norm_station_name).tolist())
 
 
-def _three_component_stations_from_ch(ch_path: Path) -> set[str]:
+def _three_component_station_channels_from_ch(ch_path: Path) -> dict[str, set[int]]:
 	ch_df = read_hinet_channel_table(ch_path)
-	validate_columns(ch_df, ['station'], f'channel table: {ch_path}')
+	validate_columns(
+		ch_df,
+		['station', 'component', 'ch_int'],
+		f'channel table: {ch_path}',
+	)
 
-	station_norm = ch_df['station'].map(_norm_station_name)
-	counts = station_norm.value_counts()
-	return set(counts[counts >= 3].index.astype(str))
+	ch_df = ch_df.copy()
+	ch_df['station_norm'] = ch_df['station'].map(_norm_station_name)
+	ch_df['component_norm'] = ch_df['component'].astype(str).str.strip().str.upper()
+
+	out: dict[str, set[int]] = {}
+	for station_norm, sub in ch_df.groupby('station_norm', sort=True):
+		component_rows = sub[sub['component_norm'].isin(['U', 'N', 'E'])]
+		if component_rows['component_norm'].nunique() != 3:
+			continue
+		out[str(station_norm)] = set(component_rows['ch_int'].astype(int).tolist())
+
+	return out
+
+
+def _available_channel_ints_in_cnt(
+	cnt_path: Path,
+	channel_filter: set[int],
+) -> set[int]:
+	fs_by_ch = scan_channel_sampling_rate_map_win32(
+		cnt_path,
+		channel_filter=channel_filter,
+		on_mixed='drop',
+	)
+	return set(int(ch) for ch in fs_by_ch.keys())
 
 
 def _validate_stations_in_ch(
@@ -506,27 +536,65 @@ def _validate_stations_in_ch(
 def _filter_stations_with_three_components(
 	*,
 	stations: list[str],
+	cnt_paths: list[Path],
 	ch_paths: list[Path],
 	network_code: str,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
 	if not ch_paths:
 		raise ValueError(f'ch_paths is empty for network={network_code}')
+	if len(cnt_paths) != len(ch_paths):
+		raise ValueError(
+			f'cnt_paths/ch_paths length mismatch for network={network_code}: '
+			f'cnt={len(cnt_paths)} ch={len(ch_paths)}'
+		)
 
-	_validate_stations_in_ch(
-		stations=stations,
-		ch_paths=ch_paths,
-		network_code=network_code,
-	)
-	usable_station_norm_set = set.intersection(
-		*[_three_component_stations_from_ch(ch_path) for ch_path in ch_paths]
-	)
+	station_by_norm = {_norm_station_name(sta): str(sta) for sta in stations}
+	usable_station_norms = set(station_by_norm)
+	drop_reasons_3c: dict[str, str] = {}
+	drop_reasons_cnt_missing: dict[str, str] = {}
+
+	for cnt_path, ch_path in zip(cnt_paths, ch_paths, strict=True):
+		station_channels = _three_component_station_channels_from_ch(ch_path)
+
+		needed_channel_ints: set[int] = set()
+		for station_norm in usable_station_norms:
+			channel_ints = station_channels.get(station_norm)
+			if channel_ints is not None:
+				needed_channel_ints.update(channel_ints)
+
+		available_channel_ints = _available_channel_ints_in_cnt(
+			cnt_path,
+			needed_channel_ints,
+		)
+
+		next_usable_station_norms: set[str] = set()
+		for station_norm in sorted(usable_station_norms):
+			station_code = station_by_norm[station_norm]
+			channel_ints = station_channels.get(station_norm)
+			if channel_ints is None:
+				drop_reasons_3c.setdefault(
+					station_code,
+					f'missing_3c_in_ch:{ch_path.name}',
+				)
+				continue
+
+			missing_ch = sorted(channel_ints - available_channel_ints)
+			if missing_ch:
+				missing_text = ','.join(str(x) for x in missing_ch)
+				drop_reasons_cnt_missing.setdefault(
+					station_code,
+					f'missing_channels_in_cnt:{cnt_path.name}:{missing_text}',
+				)
+				continue
+
+			next_usable_station_norms.add(station_norm)
+
+		usable_station_norms = next_usable_station_norms
+
 	usable_stations = [
-		sta for sta in stations if _norm_station_name(sta) in usable_station_norm_set
+		sta for sta in stations if _norm_station_name(sta) in usable_station_norms
 	]
-	dropped_stations = [
-		sta for sta in stations if _norm_station_name(sta) not in usable_station_norm_set
-	]
-	return usable_stations, dropped_stations
+	return usable_stations, drop_reasons_3c, drop_reasons_cnt_missing
 
 
 def _resolve_event_id(order_idx: int, event_index: int) -> int:
@@ -745,7 +813,8 @@ def _plan_win32_groups(
 			)
 
 	group_plans: list[dict[str, object]] = []
-	dropped_stations_3c: list[str] = []
+	dropped_stations_3c: dict[str, str] = {}
+	dropped_stations_cnt_missing: dict[str, str] = {}
 	for net in network_codes:
 		p_net = ev_picks[ev_picks['network_code'] == net]
 		stations = sorted(p_net['station_code'].drop_duplicates().tolist())
@@ -757,12 +826,16 @@ def _plan_win32_groups(
 		)
 
 		ch_paths = [_ch_path_for_cnt(net, rec.path) for rec in selected_cnt]
-		usable_stations, dropped_stations = _filter_stations_with_three_components(
-			stations=stations,
-			ch_paths=ch_paths,
-			network_code=net,
+		usable_stations, dropped_3c, dropped_cnt_missing = (
+			_filter_stations_with_three_components(
+				stations=stations,
+				cnt_paths=[rec.path for rec in selected_cnt],
+				ch_paths=ch_paths,
+				network_code=net,
+			)
 		)
-		dropped_stations_3c.extend(dropped_stations)
+		dropped_stations_3c.update(dropped_3c)
+		dropped_stations_cnt_missing.update(dropped_cnt_missing)
 		if not usable_stations:
 			continue
 
@@ -775,7 +848,13 @@ def _plan_win32_groups(
 			}
 		)
 
-	dropped_stations_3c = sorted(set(dropped_stations_3c))
+	dropped_stations_3c_list = [
+		f'{sta}:{reason}' for sta, reason in sorted(dropped_stations_3c.items())
+	]
+	dropped_stations_cnt_missing_list = [
+		f'{sta}:{reason}'
+		for sta, reason in sorted(dropped_stations_cnt_missing.items())
+	]
 	n_station_gamma = int(ev_picks['station_code'].drop_duplicates().shape[0])
 	n_station_loki = int(sum(len(plan['stations']) for plan in group_plans))
 	n_network_loki = int(len(group_plans))
@@ -783,8 +862,12 @@ def _plan_win32_groups(
 		'n_station_gamma': n_station_gamma,
 		'n_station_loki': n_station_loki,
 		'n_network_loki': n_network_loki,
-		'dropped_station_count_3c': int(len(dropped_stations_3c)),
-		'dropped_stations_3c': dropped_stations_3c,
+		'dropped_station_count_3c': int(len(dropped_stations_3c_list)),
+		'dropped_stations_3c': dropped_stations_3c_list,
+		'dropped_station_count_cnt_missing': int(
+			len(dropped_stations_cnt_missing_list)
+		),
+		'dropped_stations_cnt_missing': dropped_stations_cnt_missing_list,
 	}
 	return group_plans, loki_input
 
@@ -865,19 +948,28 @@ def _build_one_event(  # noqa: PLR0913
 		int(loki_input['n_station_loki']) < int(MIN_LOKI_STATIONS_PER_EVENT)
 		or int(loki_input['n_network_loki']) < int(MIN_LOKI_NETWORKS_PER_EVENT)
 	):
-		dropped_stations = list(loki_input['dropped_stations_3c'])
+		dropped_stations_3c = list(loki_input['dropped_stations_3c'])
+		dropped_stations_cnt_missing = list(
+			loki_input['dropped_stations_cnt_missing']
+		)
 		return EventDropResult(
 			summary_row={
 				'event_index': int(event_index),
 				'origin_time_utc': event_time_utc.isoformat().replace('+00:00', 'Z'),
-				'reason': 'too_few_3c_stations',
+				'reason': 'too_few_usable_stations',
 				'n_station_gamma': int(loki_input['n_station_gamma']),
 				'n_station_loki': int(loki_input['n_station_loki']),
 				'n_network_loki': int(loki_input['n_network_loki']),
 				'dropped_station_count_3c': int(
 					loki_input['dropped_station_count_3c']
 				),
-				'dropped_stations_3c': ';'.join(dropped_stations),
+				'dropped_stations_3c': ';'.join(dropped_stations_3c),
+				'dropped_station_count_cnt_missing': int(
+					loki_input['dropped_station_count_cnt_missing']
+				),
+				'dropped_stations_cnt_missing': ';'.join(
+					dropped_stations_cnt_missing
+				),
 			}
 		)
 
@@ -927,6 +1019,12 @@ def _build_one_event(  # noqa: PLR0913
 		'n_network_loki': int(loki_input['n_network_loki']),
 		'dropped_station_count_3c': int(loki_input['dropped_station_count_3c']),
 		'dropped_stations_3c': ';'.join(list(loki_input['dropped_stations_3c'])),
+		'dropped_station_count_cnt_missing': int(
+			loki_input['dropped_station_count_cnt_missing']
+		),
+		'dropped_stations_cnt_missing': ';'.join(
+			list(loki_input['dropped_stations_cnt_missing'])
+		),
 		'networks': '|'.join(network_codes),
 		'latitude_deg': float(latlon_row['latitude_deg']),
 		'longitude_deg': float(latlon_row['longitude_deg']),
@@ -983,6 +1081,7 @@ def _write_build_config(event_count: int) -> Path:
 			'min_loki_stations_per_event': int(MIN_LOKI_STATIONS_PER_EVENT),
 			'min_loki_networks_per_event': int(MIN_LOKI_NETWORKS_PER_EVENT),
 			'three_component_station_filter_enabled': True,
+			'cnt_channel_presence_filter_enabled': True,
 		},
 	}
 	config_json = OUT_BASE_DIR / '_build_config.json'
