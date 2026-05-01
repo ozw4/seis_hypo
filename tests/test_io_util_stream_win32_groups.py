@@ -90,12 +90,12 @@ def test_build_stream_from_downloaded_win32_uses_parallel_ch_files(
 			return _channel_table(['STA2', 'STA1'])
 		raise AssertionError(f'unexpected ch path: {path}')
 
-	def read_win32(
+	def read_win32_resampled(
 		file_path: str | Path,
 		ch_df: pd.DataFrame,
 		**kwargs: object,
 	) -> np.ndarray:
-		n = int(kwargs['base_sampling_rate_HZ']) * int(kwargs['duration_SECOND'])
+		n = int(kwargs['target_sampling_rate_HZ']) * int(kwargs['duration_SECOND'])
 		tile_offset = 0.0 if Path(file_path).name == cnt_files[0] else 100.0
 		component_offset = {'U': 0.0, 'N': 1.0, 'E': 2.0}
 		station_base = {'STA1': 10.0, 'STA2': 40.0}
@@ -112,7 +112,7 @@ def test_build_stream_from_downloaded_win32_uses_parallel_ch_files(
 	monkeypatch.setattr(
 		stream_mod, 'read_hinet_channel_table', read_hinet_channel_table
 	)
-	monkeypatch.setattr(stream_mod, 'read_win32', read_win32)
+	monkeypatch.setattr(stream_mod, 'read_win32_resampled', read_win32_resampled)
 
 	st = stream_mod.build_stream_from_downloaded_win32(
 		event_dir,
@@ -191,22 +191,21 @@ def test_build_stream_from_downloaded_win32_ch_files_null_falls_back_to_ch_file(
 	def read_hinet_channel_table(path: str | Path) -> pd.DataFrame:
 		return _channel_table(['STA1'])
 
-	def read_win32(
+	def read_win32_resampled(
 		file_path: str | Path,
 		ch_df: pd.DataFrame,
 		**kwargs: object,
 	) -> np.ndarray:
-		n = int(kwargs['base_sampling_rate_HZ']) * int(kwargs['duration_SECOND'])
+		n = int(kwargs['target_sampling_rate_HZ']) * int(kwargs['duration_SECOND'])
 		return np.zeros((len(ch_df), n), dtype=np.float32)
 
 	monkeypatch.setattr(
 		stream_mod, 'read_hinet_channel_table', read_hinet_channel_table
 	)
-	monkeypatch.setattr(stream_mod, 'read_win32', read_win32)
+	monkeypatch.setattr(stream_mod, 'read_win32_resampled', read_win32_resampled)
 
 	st = stream_mod.build_stream_from_downloaded_win32(
 		event_dir,
 		base_sampling_rate_hz=1,
 	)
 	assert len(st) == 3  # U, N, E for STA1
-

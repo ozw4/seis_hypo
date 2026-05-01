@@ -55,7 +55,11 @@ def test_build_win32_groups_records_ch_files_parallel_to_cnt_files(
 
 	monkeypatch.setitem(builder.CH47_BASE_DIR_BY_NETWORK, '0101', ch_dir)
 	monkeypatch.setattr(builder, 'USE_SYMLINK', False)
-	monkeypatch.setattr(builder, '_station_set_from_ch', lambda _path: {'STA1'})
+	monkeypatch.setattr(
+		builder,
+		'_filter_stations_with_three_components',
+		lambda *, stations, cnt_paths, ch_paths, network_code: (stations, {}, {}),
+	)
 
 	records = [
 		builder.CntRecord(
@@ -80,13 +84,19 @@ def test_build_win32_groups_records_ch_files_parallel_to_cnt_files(
 		}
 	)
 
-	groups, networks = builder._build_win32_groups(  # noqa: SLF001
-		event_dir,
+	group_plans, loki_input = builder._plan_win32_groups(  # noqa: SLF001
 		ev_picks,
 		{'0101': records},
 		_naive_jst(2009, 12, 17, 0, 9, 40),
 		_naive_jst(2009, 12, 17, 0, 10, 10),
 	)
+	groups, networks = builder._materialize_win32_groups(  # noqa: SLF001
+		event_dir,
+		group_plans,
+	)
+
+	assert loki_input['n_station_gamma'] == 1
+	assert loki_input['n_station_loki'] == 1
 
 	assert networks == ['0101']
 	assert len(groups) == 1
