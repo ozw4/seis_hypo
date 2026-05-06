@@ -61,6 +61,7 @@ tmp_code/
 model_weight
 */runs/
 proc/izu2009/loki/traveltime/velocity/jma2001.layers
+proc/izu2009/loki/output_eqt_gamma/qc/loki_jma_qc_summary.md
 # Hypoinverse artifacts (file-based)
 **/hypoinverse_input.arc
 **/hypoinverse_run.prt
