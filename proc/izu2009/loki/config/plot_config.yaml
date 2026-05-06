@@ -1,0 +1,7 @@
+izu_default:
+  lon_range: [138.6, 139.7]
+  lat_range: [34.5, 35.4]
+  depth_range: [0.0, 30.0]
+  well_coord: [34.9521, 139.091]
+  min_mag: null
+  max_mag: null
