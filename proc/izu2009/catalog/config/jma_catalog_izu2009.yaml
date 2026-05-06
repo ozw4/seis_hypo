@@ -1,0 +1,29 @@
+# JMA arrival-time catalog parameters for Izu 2009.
+#
+# This pipeline does not keep intermediate files such as
+# arrivetime_20091217_1.txt, epicenters.csv, or measurement.csv.
+# Hi-net arrival-time txt files are downloaded into a temporary directory,
+# parsed, filtered, and then deleted automatically.
+
+download:
+  # end_date is exclusive: this downloads 2009-12-17, 18, 19, and 20.
+  start_date: '2009-12-17'
+  end_date: '2009-12-21'
+  span_days: 1
+  netrc_machine: hinet
+  line_ending: UNIX
+  log_level: INFO
+
+catalog_filter:
+  start_time_jst: '2009-12-17 00:00:00'
+  end_time_jst: '2009-12-20 23:59:59'
+  center_lat: 34.9700
+  center_lon: 139.1300
+  radius_km: 50.0
+  mag_min: null
+  mag_max: null
+
+output:
+  events_csv: proc/izu2009/catalog/out/jma_events_izu2009_20091217_20091220_r50km.csv
+  measurements_csv: proc/izu2009/catalog/out/jma_measurements_izu2009_20091217_20091220_r50km.csv
+  overwrite: false

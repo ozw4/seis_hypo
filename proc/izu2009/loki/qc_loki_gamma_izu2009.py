@@ -52,7 +52,8 @@ HEADER_PATH = _REPO_ROOT / 'proc/izu2009/loki/traveltime/db/header.hdr'
 QC_DIR = LOKI_OUTPUT_DIR / 'qc'
 ERROR_STATS_DIR = QC_DIR / 'error_stats'
 
-PLOT_CONFIG_YAML = Path('/workspace/data/config/plot_config.yaml')
+REPO_PLOT_CONFIG_YAML = _REPO_ROOT / 'proc/izu2009/loki/config/plot_config_izu2009.yaml'
+WORKSPACE_PLOT_CONFIG_YAML = Path('/workspace/data/config/plot_config.yaml')
 PLOT_CONFIG_PRESET = 'izu_default'
 PREFECTURE_SHP = Path('/workspace/data/N03-20240101_GML/N03-20240101_prefecture.shp')
 
@@ -76,6 +77,25 @@ def _require_dir(path: Path, label: str) -> None:
 def _require_file(path: Path, label: str) -> None:
 	if not path.is_file():
 		raise FileNotFoundError(f'{label} not found: {path}')
+
+
+def _resolve_plot_config_yaml(cli_path: Path | None) -> Path:
+	"""Resolve plot_config.yaml from CLI, repo-local default, then workspace default."""
+	candidates: list[Path] = []
+	if cli_path is not None:
+		candidates.append(Path(cli_path))
+	else:
+		candidates.extend([REPO_PLOT_CONFIG_YAML, WORKSPACE_PLOT_CONFIG_YAML])
+
+	for path in candidates:
+		if path.is_file():
+			return path
+
+	lines = [f'  - {path}' for path in candidates]
+	raise FileNotFoundError(
+		'plot config YAML not found. Provide --plot-config-yaml or create one of:\n'
+		+ '\n'.join(lines)
+	)
 
 
 def _event_json_path(event_dir: Path) -> Path:
@@ -641,8 +661,23 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 	parser.add_argument('--events-base-dir', type=Path, default=EVENTS_BASE_DIR)
 	parser.add_argument('--loki-output-dir', type=Path, default=LOKI_OUTPUT_DIR)
 	parser.add_argument('--header-path', type=Path, default=HEADER_PATH)
-	parser.add_argument('--plot-config-yaml', type=Path, default=PLOT_CONFIG_YAML)
-	parser.add_argument('--plot-config-preset', default=PLOT_CONFIG_PRESET)
+	parser.add_argument(
+		'--plot-config-yaml',
+		type=Path,
+		default=None,
+		help=(
+			'Path to plot_config.yaml. If omitted, use the repo-local '
+			'proc/izu2009/loki/config/plot_config_izu2009.yaml when available, '
+			'then /workspace/data/config/plot_config.yaml.'
+		),
+	)
+	parser.add_argument(
+		'--plot-preset',
+		'--plot-config-preset',
+		dest='plot_preset',
+		default=PLOT_CONFIG_PRESET,
+		help='Preset name in plot_config.yaml. Default: izu_default.',
+	)
 	parser.add_argument('--prefecture-shp', type=Path, default=PREFECTURE_SHP)
 	parser.add_argument('--event-glob', default=EVENT_GLOB)
 	parser.add_argument('--top-n-cmax', type=int, default=TOP_N_CMAX)
@@ -659,12 +694,11 @@ def main(argv: list[str] | None = None) -> None:
 	events_base_dir = Path(args.events_base_dir)
 	loki_output_dir = Path(args.loki_output_dir)
 	header_path = Path(args.header_path)
-	plot_config_yaml = Path(args.plot_config_yaml)
+	plot_config_yaml = _resolve_plot_config_yaml(args.plot_config_yaml)
 	prefecture_shp = Path(args.prefecture_shp)
 	qc_dir = loki_output_dir / 'qc'
 	error_stats_dir = qc_dir / 'error_stats'
 
-	_require_file(plot_config_yaml, 'plot config YAML')
 	_require_file(prefecture_shp, 'prefecture shapefile')
 
 	event_dirs, skipped_events = _validate_inputs(
@@ -680,7 +714,7 @@ def main(argv: list[str] | None = None) -> None:
 		event_dirs
 	)
 
-	plot_cfg = load_config(PlotConfig, plot_config_yaml, str(args.plot_config_preset))
+	plot_cfg = load_config(PlotConfig, plot_config_yaml, str(args.plot_preset))
 
 	plot_loki_results_quickcheck(
 		loki_output_dir=loki_output_dir,
